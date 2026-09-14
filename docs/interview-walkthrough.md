@@ -19,8 +19,10 @@ Product Agent Workbench 不是一个套壳聊天页面，而是本地的规格�
              ▼
 TanStack Start / Node 控制服务
   ├─ Requirement 聚合与 JSON 原子持久化
+  ├─ Grilling 共同理解门禁
   ├─ 固定目标项目配置
   ├─ AGENTS.md / Skill 发现与解析
+  ├─ Git 需求分支与 Codex JSONL/SSE 适配
   ├─ 目标开发进程组生命周期
   └─ localhost-only 预览网关
              │
@@ -57,6 +59,14 @@ TanStack Start / Node 控制服务
 
 根 `AGENTS.md` 始终生效；拟修改范围内只选择最近的目录规则。Skills 探索阶段只读取 frontmatter 元数据，只有产品点名、仓库规则要求或确定性需求类型匹配时才生效。UI 展示来源、范围和激活原因。
 
+### 4. 连续会话，串行执行
+
+每个 Requirement 只保留一个 Codex session ID。第一张票使用 `codex exec --json`，后续票使用 `codex exec resume --json`；应用把不稳定的 CLI JSONL 归一化为稳定事件，再通过 SSE 推送给浏览器。取消只终止当前 turn，不删除 session。
+
+### 5. 分支隔离不等于工作区安全
+
+创建分支前同时记录 base branch、base revision 和完整 working-tree 状态。MVP 遇到任何既有修改或 Git 操作都会阻止执行，绝不 stash、reset 或偷偷纳入需求。每轮 Codex 完成后再次验证分支、HEAD 与修改范围。
+
 ## 预览网关为什么使用独立 localhost 端口
 
 如果把目标页面挂在工作台的子路径下，页面里的 `/assets/...` 等绝对路径会错误指向工作台。独立端口保留目标页面的 origin 路径语义，同时仍运行在同一个 Node 进程中。网关只删除阻止开发期 iframe 的 `X-Frame-Options` 和 CSP `frame-ancestors`，其他响应头与内容保持不变，并支持 WebSocket upgrade。
@@ -76,7 +86,8 @@ TanStack Start / Node 控制服务
 5. 开始只读探索，指出实际检查的文件数、候选代码位置，再展开根规则和 `apps/front/AGENTS.md`。
 6. 对比“可用 Skill”和“生效 Skill”，解释激活原因。
 7. 展示生成的候选 Spec、验收条件和执行票，然后确认。
-8. 说明 Codex、分支、验证和交付将在后续执行票接入。
+8. 创建需求分支，观察两张票串行变化和同一个 Codex session 的事件流。
+9. 说明验证矩阵、产品验收和交付仍由后续执行票接入。
 
 ## 常见追问
 
@@ -88,4 +99,4 @@ TanStack Start / Node 控制服务
 
 **TanStack Start RC 有什么风险？** Server Function 与 Nitro/Vite 集成仍可能变化。项目把领域模型、进程管理和规则解析留在普通 TypeScript 模块中，降低框架迁移成本。
 
-**当前还没完成什么？** 需求分支、Codex SSE、串行多票、验证矩阵、验收提交和交付 Handoff 属于后续执行票。
+**当前还没完成什么？** 验证矩阵、验收提交和交付 Handoff 属于后续执行票。

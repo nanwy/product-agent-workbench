@@ -46,6 +46,50 @@ export type DiscoveredSkill = {
   activationReason: string
 }
 
+export type GrillingQuestion = {
+  id: string
+  title: string
+  prompt: string
+  recommendation: string
+  answer: string | null
+}
+
+export type GrillingSession = {
+  status: 'pending' | 'confirmed'
+  questions: GrillingQuestion[]
+  confirmedAt: string | null
+}
+
+export type WorkingTreeEntry = {
+  status: string
+  path: string
+}
+
+export type BranchFacts = {
+  baseBranch: string
+  baseRevision: string
+  requirementBranch: string | null
+  startingWorkingTree: WorkingTreeEntry[]
+  createdAt: string | null
+  blockedReason: string | null
+}
+
+export type AgentEvent = {
+  id: string
+  type: 'session' | 'message' | 'tool' | 'file' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+  message: string
+  recordedAt: string
+}
+
+export type CodexSession = {
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
+  sessionId: string | null
+  activeTicketId: string | null
+  changedFiles: string[]
+  events: AgentEvent[]
+  error: string | null
+}
+
 export type BoundaryItem = {
   id: string
   label: string
@@ -75,6 +119,7 @@ export type Requirement = {
   createdAt: string
   updatedAt: string
   modificationRounds: number
+  grilling: GrillingSession
   spec: RequirementSpec | null
   tickets: ExecutionTicket[]
   rules: ResolvedRule[]
@@ -83,6 +128,8 @@ export type Requirement = {
   evidence: EvidenceRecord[]
   targetSnapshot: TargetProjectConfig
   processFacts: TargetProcessSnapshot
+  branch: BranchFacts | null
+  codex: CodexSession
 }
 
 export type TargetProjectConfig = {

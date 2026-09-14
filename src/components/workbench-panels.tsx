@@ -69,12 +69,70 @@ export function RequirementSummary({ requirement, busyAction, onAnalyze, onConfi
           return <li key={stage} data-state={state}><span>{String(index + 1).padStart(2, '0')}</span>{stageLabels[stage]}</li>
         })}
       </ol>
-      {requirement.stage === 'intent-drafting' ? <button className="primary-button" disabled={busyAction !== null} onClick={onAnalyze} type="button">{busyAction === 'analyze' ? '只读探索中…' : '开始只读探索'}</button> : null}
+      {requirement.stage === 'intent-drafting' && requirement.grilling.status === 'confirmed' ? <button className="primary-button" disabled={busyAction !== null} onClick={onAnalyze} type="button">{busyAction === 'analyze' ? '只读探索中…' : '开始只读探索'}</button> : null}
       {requirement.spec ? <PlanReview requirement={requirement} /> : null}
       {requirement.stage === 'awaiting-spec-confirmation' ? <button className="primary-button" disabled={busyAction !== null} onClick={onConfirm} type="button">确认 Spec 与执行票</button> : null}
       {requirement.stage === 'awaiting-boundary-confirmation' ? <button className="risk-button" disabled={busyAction !== null} onClick={onConfirmBoundary} type="button">确认工程边界</button> : null}
-      {requirement.stage === 'implementation' ? <div className="ready-callout">规格边界已确认，等待执行 Agent。</div> : null}
+      {requirement.stage === 'implementation' ? <div className="ready-callout">规格边界已确认，可以创建安全需求分支并执行。</div> : null}
       {requirement.rules.length ? <RuleManifest requirement={requirement} /> : null}
+    </div>
+  )
+}
+
+export function GrillingPanel({ requirement, busy, onConfirm }: {
+  requirement: Requirement
+  busy: boolean
+  onConfirm: (answers: Record<string, string>) => Promise<void>
+}) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    await onConfirm(Object.fromEntries(requirement.grilling.questions.map((question) => [question.id, String(data.get(question.id) ?? '')])))
+  }
+  return (
+    <form className="grilling-panel" onSubmit={handleSubmit}>
+      <div className="section-label">Grilling · 共同理解门禁</div>
+      <p>回答当前设计树的全部前沿问题，确认后才会生成 Spec。</p>
+      {requirement.grilling.questions.map((question, index) => (
+        <label key={question.id}>
+          <strong>Q{index + 1} · {question.title}</strong>
+          <span>{question.prompt}</span>
+          <textarea name={question.id} defaultValue={question.answer ?? question.recommendation} rows={3} required />
+        </label>
+      ))}
+      <button className="primary-button" disabled={busy} type="submit">{busy ? '正在确认…' : '共同理解已达成'}</button>
+    </form>
+  )
+}
+
+export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
+  requirement: Requirement
+  busyAction: string | null
+  onExecute: () => void
+  onCancel: () => void
+}) {
+  const canExecute = requirement.stage === 'implementation' && requirement.codex.status !== 'running' && requirement.codex.status !== 'completed'
+  return (
+    <div className="agent-console">
+      <div className="agent-placeholder"><span className="agent-mark">A</span><div><strong>连续 Codex Session</strong><p data-testid="codex-status">{requirement.codex.status} · {requirement.codex.sessionId ?? '尚未建立 session'}</p></div></div>
+      <div className="ticket-stack">{requirement.tickets.map((ticket) => <div className="ticket-row" data-status={ticket.status} key={ticket.id}><code>{ticket.id}</code><span>{ticket.title}</span><strong>{ticket.status}</strong></div>)}</div>
+      {requirement.branch ? (
+        <div className={requirement.branch.blockedReason ? 'git-facts blocked' : 'git-facts'}>
+          <div><span>Base</span><code>{requirement.branch.baseBranch} · {requirement.branch.baseRevision.slice(0, 8)}</code></div>
+          <div><span>Branch</span><code>{requirement.branch.requirementBranch ?? '未创建'}</code></div>
+          {requirement.branch.blockedReason ? <p>{requirement.branch.blockedReason}</p> : null}
+          {requirement.branch.startingWorkingTree.slice(0, 8).map((entry) => <small key={`${entry.status}-${entry.path}`}>{entry.status} {entry.path}</small>)}
+        </div>
+      ) : null}
+      <div className="agent-actions">
+        {canExecute ? <button className="primary-button" disabled={busyAction !== null} onClick={onExecute} type="button">{requirement.codex.status === 'cancelled' ? '继续当前 Session' : '创建分支并执行'}</button> : null}
+        {requirement.codex.status === 'running' ? <button className="risk-button" disabled={busyAction !== null} onClick={onCancel} type="button">停止当前 Turn</button> : null}
+      </div>
+      {requirement.codex.error ? <div className="agent-error">{requirement.codex.error}</div> : null}
+      <div className="agent-events" aria-live="polite">
+        {requirement.codex.events.slice().reverse().map((agentEvent) => <article key={agentEvent.id}><span>{agentEvent.type}</span><p>{agentEvent.message}</p><time>{new Date(agentEvent.recordedAt).toLocaleTimeString('zh-CN')}</time></article>)}
+      </div>
+      {requirement.codex.changedFiles.length ? <div className="changed-files" data-testid="changed-files"><strong>Changed files</strong>{requirement.codex.changedFiles.map((file) => <code key={file}>{file}</code>)}</div> : null}
     </div>
   )
 }

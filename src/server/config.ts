@@ -14,7 +14,8 @@ export async function loadTargetProjectConfig(): Promise<TargetProjectConfig> {
   const content = await readFile(configPath, 'utf8')
   const parsed = JSON.parse(content) as TargetProjectConfigFile
   const repositoryRoot = await realpath(
-    path.resolve(path.dirname(configPath), parsed.repositoryRoot),
+    process.env.WORKBENCH_TARGET_ROOT ??
+      path.resolve(path.dirname(configPath), parsed.repositoryRoot),
   )
 
   validateConfig(parsed)

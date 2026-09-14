@@ -23,7 +23,7 @@ labels:
 
 提供一个运行在本机的 Web 工作台。Node.js 服务负责目标项目适配、规则和 Skill 解析、需求状态、Git 分支、Codex 会话、开发服务器、预览代理、验证记录及交付生成；浏览器页面同时展示需求阶段、Codex 对话和目标页面预览。
 
-第一版固定连接一个目标项目，但领域模型支持通用产品需求和多个串行执行票，不把实现写死为文案替换。产品提交需求后，系统先进行只读探索，加载目标项目根规则、相关目录规则和命中的 Skill，形成可追溯的生效规则；随后生成 Spec 和执行票，等待产品确认。确认后系统创建需求分支，Codex 按执行票串行修改代码，并将过程、预览、验证矩阵和收益时间点呈现给产品。
+第一版固定连接一个目标项目，但领域模型支持通用产品需求和多个串行执行票，不把实现写死为文案替换。产品提交需求后，系统先使用 `grilling` 分轮追问并由产品确认共同理解，再进行只读探索，加载目标项目根规则、相关目录规则和命中的 Skill，形成可追溯的生效规则；随后生成 Spec 和执行票，等待产品确认。确认后系统创建需求分支，Codex 按执行票串行修改代码，并将过程、预览、验证矩阵和收益时间点呈现给产品。
 
 所有执行票完成后，产品可以继续返修或点击验收。验收通过后系统创建一个稳定提交并生成交付卡与前端交付 Handoff，但不 push、不创建 PR、不合并主分支。需要把工作转交给另一个 Agent 会话时，使用本地 `$handoff` Skill 在系统临时目录生成会话转接文档，这与目标项目中的前端交付 Handoff 是两个不同概念。
 
@@ -106,7 +106,7 @@ labels:
 - Treat the repository's tracked requirement package as the product/engineering source of truth. The workbench writes the confirmed Spec, ticket artifacts and final frontend delivery Handoff beneath one stable Spec identifier.
 - Discover repository rules from the root and nested `AGENTS.md` files. Root rules are always candidates; the closest applicable nested rule becomes active for a proposed modification scope. Each resolved rule carries source, scope, summary and activation reason.
 - Discover target-project Skills from repository-standard Skill manifests. Store metadata for all available Skills but load full instructions only when the product names a Skill, an active repository rule requires it, or deterministic requirement matching selects it.
-- Separate workflow Skills from target-project Skills in the UI. The SDD stages use `to-spec`, `to-tickets` and `implement`; repository Skills constrain domain-specific execution. A text-only requirement in the initial target activates its existing product-copy workflow.
+- Separate workflow Skills from target-project Skills in the UI. The SDD stages use `grilling`, `to-spec`, `to-tickets` and `implement`; `grilling` must reach explicit shared understanding before Spec generation. Repository Skills constrain domain-specific execution. A text-only requirement in the initial target activates its existing product-copy workflow.
 - Do not reduce Spec and repository constraints to a misleading linear precedence. Spec owns intended behavior, repository rules own safe engineering boundaries, and Skills own working methods. An irreconcilable constraint creates an explicit boundary-confirmation item.
 - Use Codex CLI as the first execution provider behind an adapter that supports starting a requirement session, continuing it, streaming structured events, cancelling a turn and recording a resumable session identity. The rest of the application must not depend on Codex-specific event shapes.
 - Use the target repository as Codex's working directory. Stage prompts include the confirmed Spec, active ticket, resolved rule manifest and active Skill references; they never claim that merely discovered Skills are active.

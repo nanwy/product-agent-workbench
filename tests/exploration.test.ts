@@ -78,6 +78,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
     createdAt: '2026-09-14T00:00:00.000Z',
     updatedAt: '2026-09-14T00:00:00.000Z',
     modificationRounds: 0,
+    grilling: { status: 'confirmed', questions: [], confirmedAt: '2026-09-14T00:00:00.000Z' },
     spec: null,
     tickets: [],
     rules: [],
@@ -95,6 +96,15 @@ function requirementFixture(requestedOutcome: string): Requirement {
       startedAt: null,
       error: null,
       recentOutput: [],
+    },
+    branch: null,
+    codex: {
+      status: 'idle',
+      sessionId: null,
+      activeTicketId: null,
+      changedFiles: [],
+      events: [],
+      error: null,
     },
   }
 }

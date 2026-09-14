@@ -8,7 +8,7 @@ import {
   type WorkbenchSnapshot,
 } from '../domain/workbench'
 import { loadTargetProjectConfig } from './config'
-import { exploreRequirement } from './exploration'
+import { exploreRequirement, workflowSkills } from './exploration'
 import { requirementStore } from './requirement-store'
 import {
   getTargetProcessSnapshot,
@@ -45,13 +45,27 @@ export async function createRequirement(
     createdAt: now,
     updatedAt: now,
     modificationRounds: 0,
+    grilling: {
+      status: 'pending',
+      confirmedAt: null,
+      questions: createGrillingQuestions(input),
+    },
     spec: null,
     tickets: [],
     rules: [],
-    skills: [],
+    skills: workflowSkills(false),
     boundaryItems: [],
     targetSnapshot: target,
     processFacts,
+    branch: null,
+    codex: {
+      status: 'idle',
+      sessionId: null,
+      activeTicketId: null,
+      changedFiles: [],
+      events: [],
+      error: null,
+    },
     evidence: [
       evidence(
         'project-adaptation',
@@ -74,6 +88,9 @@ export async function createRequirement(
 
 export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
+  if (requirement.grilling.status !== 'confirmed') {
+    throw new Error('请先完成 grilling 并确认共同理解')
+  }
   const target = await loadTargetProjectConfig()
   const result = await exploreRequirement(requirement, target)
   const now = new Date().toISOString()
@@ -99,6 +116,25 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
     ],
   }
   await requirementStore.save(next)
+  return getWorkbenchSnapshot()
+}
+
+export async function confirmCurrentGrilling(answers: Record<string, string>): Promise<WorkbenchSnapshot> {
+  const requirement = await requireCurrentRequirement()
+  if (requirement.grilling.status === 'confirmed') return getWorkbenchSnapshot()
+  const questions = requirement.grilling.questions.map((question) => {
+    const answer = answers[question.id]?.trim()
+    if (!answer) throw new Error(`请回答：${question.title}`)
+    return { ...question, answer }
+  })
+  const now = new Date().toISOString()
+  await requirementStore.save({
+    ...requirement,
+    grilling: { status: 'confirmed', questions, confirmedAt: now },
+    skills: workflowSkills(true),
+    updatedAt: now,
+    evidence: [...requirement.evidence, evidence('intent-drafting', questions.map((question) => `${question.title}: ${question.answer}`).join('；'), '完成 grilling 设计树并确认共同理解', '需求可以进入只读探索与 Spec 生成')],
+  })
   return getWorkbenchSnapshot()
 }
 
@@ -221,4 +257,30 @@ async function saveProcessFacts(
       evidence('project-adaptation', processFacts.command, action, output),
     ],
   })
+}
+
+function createGrillingQuestions(input: CreateRequirementInput) {
+  return [
+    {
+      id: 'desired-outcome',
+      title: '成功结果',
+      prompt: '用户最终应该观察到什么结果？',
+      recommendation: input.requestedOutcome,
+      answer: null,
+    },
+    {
+      id: 'change-boundary',
+      title: '修改边界',
+      prompt: '本次修改应限制在哪个页面和工程范围？',
+      recommendation: `只修改目标页面 ${input.targetPage} 及配置范围内的必要代码`,
+      answer: null,
+    },
+    {
+      id: 'acceptance-signal',
+      title: '验收信号',
+      prompt: '用什么可观察证据判断需求完成？',
+      recommendation: `真实预览中可以验证“${input.requestedOutcome}”，且没有新增控制台错误`,
+      answer: null,
+    },
+  ]
 }

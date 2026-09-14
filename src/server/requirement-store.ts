@@ -12,7 +12,7 @@ export class RequirementStore {
 
   async load(): Promise<Requirement | null> {
     try {
-      return JSON.parse(await readFile(this.#filePath, 'utf8')) as Requirement
+      return migrateRequirement(JSON.parse(await readFile(this.#filePath, 'utf8')) as Requirement)
     } catch (error) {
       if (isMissingFile(error)) {
         return null
@@ -37,3 +37,23 @@ function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
 }
 
 export const requirementStore = new RequirementStore()
+
+function migrateRequirement(requirement: Requirement): Requirement {
+  return {
+    ...requirement,
+    grilling: requirement.grilling ?? {
+      status: 'confirmed',
+      questions: [],
+      confirmedAt: requirement.createdAt,
+    },
+    branch: requirement.branch ?? null,
+    codex: requirement.codex ?? {
+      status: 'idle',
+      sessionId: null,
+      activeTicketId: null,
+      changedFiles: [],
+      events: [],
+      error: null,
+    },
+  }
+}

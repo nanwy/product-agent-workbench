@@ -167,7 +167,14 @@ async function waitUntilHealthy(
       const response = await fetch(config.healthUrl, {
         signal: AbortSignal.timeout(1500),
       })
-      if (response.ok) return
+      if (response.ok) {
+        // A stale process can briefly satisfy the URL while the child we own is
+        // failing (for example EADDRINUSE). Prove the spawned child stayed alive.
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        if (child.exitCode === null) return
+        lastError = '健康地址由其他进程占用，工作台启动的进程已经退出'
+        continue
+      }
       lastError = `健康检查返回 ${response.status}`
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error)

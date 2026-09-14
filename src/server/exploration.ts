@@ -14,11 +14,14 @@ import type {
 const ignoredDirectories = new Set(['.git', '.next', '.output', 'coverage', 'dist', 'node_modules'])
 const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue'])
 
-const workflowSkills: DiscoveredSkill[] = [
-  { name: 'to-spec', description: '把产品意图整理为可确认的规格。', source: 'workflow', kind: 'workflow', active: true, activationReason: 'SDD 规格阶段要求' },
-  { name: 'to-tickets', description: '把规格拆成可独立执行和验证的执行票。', source: 'workflow', kind: 'workflow', active: true, activationReason: 'SDD 执行票阶段要求' },
-  { name: 'implement', description: '根据已确认规格和执行票形成候选实现。', source: 'workflow', kind: 'workflow', active: false, activationReason: '等待 Spec 与执行票确认' },
-]
+export function workflowSkills(grillingConfirmed: boolean): DiscoveredSkill[] {
+  return [
+    { name: 'grilling', description: '通过分轮追问消除产品需求中的隐含决策。', source: 'workflow', kind: 'workflow', active: !grillingConfirmed, activationReason: grillingConfirmed ? '共同理解已确认' : '产品需求已建立，必须先完成需求追问' },
+    { name: 'to-spec', description: '把产品意图整理为可确认的规格。', source: 'workflow', kind: 'workflow', active: grillingConfirmed, activationReason: grillingConfirmed ? '需求追问已完成' : '等待 grilling 完成' },
+    { name: 'to-tickets', description: '把规格拆成可独立执行和验证的执行票。', source: 'workflow', kind: 'workflow', active: grillingConfirmed, activationReason: grillingConfirmed ? 'SDD 执行票阶段要求' : '等待 grilling 完成' },
+    { name: 'implement', description: '根据已确认规格和执行票形成候选实现。', source: 'workflow', kind: 'workflow', active: false, activationReason: '等待 Spec 与执行票确认' },
+  ]
+}
 
 export type ExplorationResult = {
   rules: ResolvedRule[]
@@ -30,7 +33,7 @@ export type ExplorationResult = {
 
 export async function exploreRequirement(requirement: Requirement, target: TargetProjectConfig): Promise<ExplorationResult> {
   const rules = await discoverRules(target)
-  const skills = [...workflowSkills, ...(await discoverTargetSkills(requirement, target, rules))]
+  const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, target, rules))]
   const exploration = await inspectTargetCode(requirement, target)
   const tickets = createExecutionTickets(requirement)
 

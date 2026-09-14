@@ -4,12 +4,17 @@ import { assertCreateRequirementInput } from '../domain/workbench'
 import {
   analyzeCurrentRequirement,
   confirmCurrentBoundary,
+  confirmCurrentGrilling,
   confirmCurrentPlan,
   createRequirement,
   getWorkbenchSnapshot,
   startConfiguredTarget,
   stopConfiguredTarget,
 } from './workbench-service'
+import {
+  cancelRequirementExecution,
+  startRequirementExecution,
+} from './workbench-execution'
 
 export const getWorkbench = createServerFn({ method: 'GET' }).handler(() =>
   getWorkbenchSnapshot(),
@@ -22,6 +27,10 @@ export const submitRequirement = createServerFn({ method: 'POST' })
 export const analyzeRequirement = createServerFn({ method: 'POST' }).handler(() =>
   analyzeCurrentRequirement(),
 )
+
+export const confirmGrilling = createServerFn({ method: 'POST' })
+  .validator((answers: Record<string, string>) => answers)
+  .handler(({ data }) => confirmCurrentGrilling(data))
 
 export const confirmPlan = createServerFn({ method: 'POST' }).handler(() =>
   confirmCurrentPlan(),
@@ -38,3 +47,13 @@ export const startTarget = createServerFn({ method: 'POST' }).handler(() =>
 export const stopTarget = createServerFn({ method: 'POST' }).handler(() =>
   stopConfiguredTarget(),
 )
+
+export const executeRequirement = createServerFn({ method: 'POST' }).handler(async () => {
+  await startRequirementExecution()
+  return getWorkbenchSnapshot()
+})
+
+export const cancelExecution = createServerFn({ method: 'POST' }).handler(async () => {
+  await cancelRequirementExecution()
+  return getWorkbenchSnapshot()
+})

@@ -3,7 +3,9 @@ import { useServerFn } from '@tanstack/react-start'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+  AgentConsole,
   EvidenceTimeline,
+  GrillingPanel,
   PanelHeader,
   RequirementForm,
   RequirementSummary,
@@ -13,9 +15,12 @@ import {
 import type { WorkbenchSnapshot } from '../domain/workbench'
 import {
   analyzeRequirement,
+  cancelExecution,
   confirmBoundary,
+  confirmGrilling,
   confirmPlan,
   getWorkbench,
+  executeRequirement,
   startTarget,
   stopTarget,
   submitRequirement,
@@ -36,10 +41,13 @@ function WorkbenchPage() {
   const refresh = useServerFn(getWorkbench)
   const create = useServerFn(submitRequirement)
   const analyze = useServerFn(analyzeRequirement)
+  const confirmGrill = useServerFn(confirmGrilling)
   const confirm = useServerFn(confirmPlan)
   const confirmRisk = useServerFn(confirmBoundary)
   const start = useServerFn(startTarget)
   const stop = useServerFn(stopTarget)
+  const execute = useServerFn(executeRequirement)
+  const cancel = useServerFn(cancelExecution)
 
   useEffect(() => setHydrated(true), [])
   useEffect(() => {
@@ -47,6 +55,11 @@ function WorkbenchPage() {
       void refresh().then(setSnapshot).catch(() => undefined)
     }, 3000)
     return () => window.clearInterval(timer)
+  }, [refresh])
+  useEffect(() => {
+    const events = new EventSource('/api/events')
+    events.onmessage = () => void refresh().then(setSnapshot).catch(() => undefined)
+    return () => events.close()
   }, [refresh])
 
   async function runAction(name: string, action: () => Promise<WorkbenchSnapshot>) {
@@ -97,7 +110,16 @@ function WorkbenchPage() {
 
         <section className="panel evidence-panel" aria-label="执行 Agent 与证据">
           <PanelHeader index="02" title="执行 Agent" hint="Context & Evidence" />
-          <div className="agent-placeholder"><span className="agent-mark">A</span><div><strong>Codex 会话将在规格确认后接入</strong><p>前三张票先把输入、规则、预览与可核查证据准备好。</p></div></div>
+          {requirement?.grilling.status === 'pending' ? (
+            <GrillingPanel requirement={requirement} busy={busyAction === 'grilling'} onConfirm={(answers) => runAction('grilling', () => confirmGrill({ data: answers }) as Promise<WorkbenchSnapshot>)} />
+          ) : requirement ? (
+            <AgentConsole
+              requirement={requirement}
+              busyAction={busyAction}
+              onExecute={() => runAction('execute', () => execute() as Promise<WorkbenchSnapshot>)}
+              onCancel={() => runAction('cancel', () => cancel() as Promise<WorkbenchSnapshot>)}
+            />
+          ) : <div className="empty-copy">建立产品需求后，这里会进入 grilling 需求追问。</div>}
           <EvidenceTimeline requirement={requirement} />
         </section>
 
