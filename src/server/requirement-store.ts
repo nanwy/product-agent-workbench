@@ -67,6 +67,7 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
   // 旧版把工作流步骤与目标项目 Skill 混在 skills 中；读取时拆开，写回后即使用新模型。
   const legacySkills = (requirement.skills ?? []) as Array<DiscoveredSkill & {
     kind?: 'workflow' | 'target-project'
+    content?: string | null
   }>
   const workflow = requirement.workflow ?? legacySkills
     .filter((skill) => skill.kind === 'workflow')
@@ -76,17 +77,10 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
       active,
       activationReason,
     }))
-  const skills = await Promise.all(legacySkills
+  const skills = legacySkills
     .filter((skill) => skill.kind !== 'workflow')
-    .map(async ({ kind: _legacyKind, ...skill }) => {
-      if (!skill.active || skill.content) return { ...skill, content: skill.content ?? null }
-      // 旧快照只有 Skill 相对路径；迁移时从原目标仓库补齐已激活 Skill 的全文。
-      const source = path.resolve(requirement.targetSnapshot.repositoryRoot, skill.source)
-      const root = requirement.targetSnapshot.repositoryRoot
-      const insideRoot = source === root || source.startsWith(`${root}${path.sep}`)
-      const content = insideRoot ? await readFile(source, 'utf8').catch(() => null) : null
-      return { ...skill, content }
-    }))
+    // 旧快照可能缓存 Skill 全文；迁移时丢弃缓存，只保留可审计的目标仓库相对路径。
+    .map(({ kind: _legacyKind, content: _legacyContent, ...skill }) => skill)
   return {
     ...requirement,
     specId: requirement.specId ?? requirement.id.replace(/^REQ-/, 'SPEC-'),

@@ -10,6 +10,7 @@
 - localhost-only 预览网关、iframe 刷新和外部打开；
 - 根与最近目录 `AGENTS.md` 解析；
 - 可用/生效 Skill 区分及激活原因；
+- 随仓库分发的产品工作流 Skill，以及由 Codex 按路径读取的目标项目 Skill；
 - 真实代码位置探索、候选 Spec、按结果切分的执行票和高风险边界确认。
 - 干净工作区检查、独立需求分支、连续 Codex session、SSE 事件与串行执行票。
 - 宿主验证矩阵、显式产品验收、稳定候选提交与前端交付 Handoff。
@@ -34,6 +35,12 @@ pnpm build
 ```
 
 Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务仓库。
+
+## Skill 分发
+
+产品工作流位于 `.agents/skills/`，会随 Git 仓库一起交付。执行 Codex 时，工作台只传递 `SKILL.md` 的入口路径，由 Codex 自行读取正文和按需引用的资源，不在 Requirement JSON 或 prompt 中缓存 Skill 全文。
+
+目标业务仓库可以在自己的 `.agents/skills/` 或 `.codex/skills/` 中提供项目专属 Skill；工作台负责发现和激活，Codex 负责读取和执行。默认从工作台仓库根目录启动；其他部署方式可通过 `WORKBENCH_ROOT` 指定本仓库绝对路径。
 
 ## 代码地图
 

@@ -51,11 +51,10 @@ export type WorkflowStep = {
 export type DiscoveredSkill = {
   name: string
   description: string
+  // 相对目标仓库根目录的入口；执行 Agent 按此路径自行读取，Requirement 不缓存全文。
   source: string
   active: boolean
   activationReason: string
-  // 未激活时只保留 frontmatter；激活后保存完整 SKILL.md，供执行 prompt 使用。
-  content: string | null
 }
 
 export type GrillingQuestion = {

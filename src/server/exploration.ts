@@ -111,7 +111,7 @@ async function discoverTargetSkills(requirement: Requirement, target: TargetProj
   const requirementText = `${requirement.title}\n${requirement.requestedOutcome}`.toLowerCase()
 
   return Promise.all(manifests.map(async (source) => {
-    // 探索阶段只读前置元数据；Skill 真正生效时才由执行 Agent 读取全文。
+    // 探索阶段只读 frontmatter；Skill 正文由执行 Agent 按 source 在目标仓库中自行读取。
     const metadata = await readSkillMetadata(source)
     const name = metadata.name ?? path.basename(path.dirname(source))
     const description = metadata.description ?? '未提供说明'
@@ -126,8 +126,6 @@ async function discoverTargetSkills(requirement: Requirement, target: TargetProj
       source: normalizeRelative(target.repositoryRoot, source),
       active,
       activationReason: namedByProduct ? '产品需求点名' : requiredByRule ? '生效规则要求' : copyMatch ? '需求类型确定性匹配' : '已发现，但与当前需求无确定关联',
-      // 只给当前需求真正激活的 Skill 读取全文，避免把无关 Skill 塞进 Requirement 和 prompt。
-      content: active ? await readFile(source, 'utf8') : null,
     }
   }))
 }

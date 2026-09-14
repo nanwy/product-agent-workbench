@@ -5,6 +5,7 @@ import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from './git-workspace'
 import { requirementStore } from './requirement-store'
 import { verifyCurrentRequirement } from './verification'
+import { assertWorkbenchSkillBundle, resolveWorkbenchSkillPath } from './workbench-skills'
 
 const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecution?: Promise<void> | null
@@ -29,6 +30,8 @@ async function prepareExecution() {
   if (globalExecution.__workbenchExecution) return
   let requirement = await requireRequirement()
   if (requirement.stage !== 'implementation') throw new Error('只有已确认规格与边界的需求可以执行')
+  // 产品流程 Skill 必须随工作台仓库完整交付；缺失时在修改目标 Git 状态前失败。
+  await assertWorkbenchSkillBundle()
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
 
@@ -178,7 +181,10 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
 }
 
 export function buildExecutionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {
-  // prompt 由已确认 Spec、当前票和解析后规则组成，不包含可执行 shell 片段。
+  const targetSkillSources = requirement.skills
+    .filter((skill) => skill.active)
+    .map((skill) => `- ${skill.name}：${skill.source}`)
+  // prompt 只传 Skill 入口路径，不复制正文；Codex 在自己的文件上下文中读取唯一事实源。
   return [
     `实现已确认需求：${requirement.spec?.title}`,
     `当前执行票 ${ticket.id}：${ticket.title}`,
@@ -186,10 +192,14 @@ export function buildExecutionPrompt(requirement: Requirement, ticket: Requireme
     `唯一允许写入的范围：${requirement.spec?.proposedScope ?? requirement.targetSnapshot.modificationScope}`,
     `验收条件：\n${ticket.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}`,
     `生效规则：\n${requirement.rules.map((rule) => `- ${rule.source} (${rule.scope})`).join('\n')}`,
-    `目标项目生效 Skills：\n${requirement.skills.filter((skill) => skill.active).map((skill) => [
-      `## ${skill.name}（${skill.source}）`,
-      skill.content ?? 'Skill 指令未加载，停止执行并报告配置错误。',
-    ].join('\n')).join('\n\n') || '无'}`,
+    '实现方式：直接实现，不采用 TDD；完成后再运行与改动相关的回归验证。',
+    '代码可读性：关键函数补充中文多行 JSDoc，解释职责、关键调用和返回结果，便于鼠标悬浮阅读。',
+    [
+      '执行前使用文件读取工具完整读取以下 Skill 入口，并遵循其中按需引用的资源。',
+      '这些路径才是本次执行的指令来源，不要仅凭 Skill 名称假定它已加载：',
+      `- 工作台实现流程：${resolveWorkbenchSkillPath('implement')}`,
+      `- 目标项目生效 Skills：\n${targetSkillSources.join('\n') || '  无'}`,
+    ].join('\n'),
     '直接实现并自行检查；不要提交、推送、创建 PR，也不要修改允许范围之外的文件。',
   ].join('\n\n')
 }

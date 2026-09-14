@@ -21,7 +21,7 @@ describe('target project exploration', () => {
     expect(result.skills.find((skill) => skill.name === 'product-copy-change')).toMatchObject({
       active: true,
       activationReason: '需求类型确定性匹配',
-      content: expect.stringContaining('Keep the change narrow'),
+      source: '.agents/skills/product-copy-change/SKILL.md',
     })
     expect(result.workflow.map((step) => step.name)).toEqual(['grilling', 'to-spec', 'to-tickets', 'implement'])
     expect(result.spec.exploration.candidateCodeLocations).toContain(
@@ -33,14 +33,14 @@ describe('target project exploration', () => {
     expect(result.tickets).toHaveLength(1)
   })
 
-  it('keeps unrelated target Skills available without loading their instructions', async () => {
+  it('keeps unrelated target Skills available without activating them', async () => {
     const result = await exploreRequirement(requirementFixture('调整比赛筛选逻辑'), targetFixture())
     const skill = result.skills.find((candidate) => candidate.name === 'product-copy-change')
 
-    expect(skill).toMatchObject({ active: false, content: null })
+    expect(skill).toMatchObject({ active: false })
   })
 
-  it('sends only active target-project Skill instructions to the execution prompt', async () => {
+  it('asks Codex to read only active target-project Skills by path', async () => {
     const requirement = requirementFixture('更新首页空状态文案')
     const result = await exploreRequirement(requirement, targetFixture())
     const executable = { ...requirement, spec: result.spec, tickets: result.tickets, rules: result.rules, workflow: result.workflow, skills: result.skills }
@@ -48,7 +48,11 @@ describe('target project exploration', () => {
     const prompt = buildExecutionPrompt(executable, result.tickets[0])
 
     expect(prompt).toContain('product-copy-change')
-    expect(prompt).toContain('Keep the change narrow and verify it in the browser.')
+    expect(prompt).toContain('.agents/skills/product-copy-change/SKILL.md')
+    expect(prompt).toContain(path.resolve('.agents/skills/implement/SKILL.md'))
+    expect(prompt).not.toContain('Keep the change narrow and verify it in the browser.')
+    expect(prompt).toContain('不采用 TDD')
+    expect(prompt).toContain('中文多行 JSDoc')
     expect(prompt).not.toContain('to-spec')
     expect(prompt).not.toContain('to-tickets')
   })

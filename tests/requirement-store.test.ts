@@ -40,7 +40,13 @@ describe('requirement persistence', () => {
 
     expect(restored?.workflow.map((step) => step.name)).toEqual(['to-spec'])
     expect(restored?.skills.map((skill) => skill.name)).toEqual(['product-copy-change'])
-    expect(restored?.skills[0].content).toContain('Keep the change narrow')
+    expect(restored?.skills[0]).toEqual({
+      name: 'product-copy-change',
+      description: 'target',
+      source: 'tests/fixtures/target-project/.agents/skills/product-copy-change/SKILL.md',
+      active: true,
+      activationReason: 'legacy',
+    })
   })
 })
 
