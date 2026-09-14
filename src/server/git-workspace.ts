@@ -25,10 +25,10 @@ export async function inspectGitWorkspace(target: TargetProjectConfig): Promise<
   }
 }
 
-export async function createRequirementBranch(requirement: Pick<Requirement, 'id' | 'title'>, target: TargetProjectConfig) {
+export async function createRequirementBranch(requirement: Pick<Requirement, 'specId' | 'title'>, target: TargetProjectConfig) {
   const before = await inspectGitWorkspace(target)
   if (before.blockedReason) return before
-  const branchName = `product/${requirement.id.toLowerCase()}-${slug(requirement.title)}`.slice(0, 100)
+  const branchName = `product/${requirement.specId.toLowerCase()}-${slug(requirement.title)}`.slice(0, 100)
   await git(target.repositoryRoot, ['switch', '-c', branchName, before.baseRevision])
   const after = await inspectGitWorkspace(target)
   if (after.baseRevision !== before.baseRevision || after.startingWorkingTree.length) {

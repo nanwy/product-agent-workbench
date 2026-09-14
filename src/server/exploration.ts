@@ -34,9 +34,11 @@ export type ExplorationResult = {
 export async function exploreRequirement(requirement: Requirement, target: TargetProjectConfig): Promise<ExplorationResult> {
   const grillingAnswers = Object.fromEntries(requirement.grilling.questions.map((question) => [question.id, question.answer ?? question.recommendation]))
   const desiredBehavior = grillingAnswers['desired-outcome'] || requirement.requestedOutcome
-  const rules = await discoverRules(target)
-  const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, target, rules))]
-  const exploration = await inspectTargetCode(requirement, target)
+  const proposedScope = grillingAnswers['change-boundary'] || target.modificationScope
+  const scopedTarget = { ...target, modificationScope: proposedScope }
+  const rules = await discoverRules(scopedTarget)
+  const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, scopedTarget, rules))]
+  const exploration = await inspectTargetCode(requirement, scopedTarget)
   const tickets = createExecutionTickets(requirement, desiredBehavior)
 
   return {
@@ -47,11 +49,11 @@ export async function exploreRequirement(requirement: Requirement, target: Targe
       title: requirement.title,
       desiredBehavior,
       targetPage: requirement.targetPage,
-      proposedScope: target.modificationScope,
+      proposedScope,
       exploration,
       acceptanceCriteria: [
         grillingAnswers['acceptance-signal'] || `在 ${requirement.targetPage} 可以观察到：${desiredBehavior}`,
-        `确认的修改边界：${grillingAnswers['change-boundary'] || target.modificationScope}`,
+        `确认的修改边界：${proposedScope}`,
         '目标页面可以通过工作台预览，并且没有新增浏览器控制台错误',
         '实现遵守页面修改范围内的生效规则和生效 Skill',
       ],

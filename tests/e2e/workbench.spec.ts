@@ -61,7 +61,7 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByTestId('codex-status')).toContainText('completed')
   await expect(page.locator('.ticket-row[data-status="completed"]')).toHaveCount(2)
   await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
-  await expect(page.getByText(/product\/req-/)).toBeVisible()
+  await expect(page.getByText(/product\/spec-/)).toBeVisible()
   await expect(page.getByTestId('changed-files')).toContainText('apps/front/app/competition/page.tsx')
 
   await page.getByRole('button', { name: '停止' }).click()

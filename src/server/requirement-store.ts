@@ -62,6 +62,7 @@ function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
 function migrateRequirement(requirement: Requirement): Requirement {
   return {
     ...requirement,
+    specId: requirement.specId ?? requirement.id.replace(/^REQ-/, 'SPEC-'),
     grilling: requirement.grilling ?? { status: 'confirmed', questions: [], confirmedAt: requirement.createdAt },
     branch: requirement.branch ?? null,
     codex: requirement.codex ?? { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null },

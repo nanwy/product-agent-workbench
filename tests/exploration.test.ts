@@ -43,7 +43,7 @@ describe('target project exploration', () => {
     const requirement = requirementFixture('原始模糊描述')
     requirement.grilling.questions = [
       { id: 'desired-outcome', title: '成功结果', prompt: '', recommendation: '', answer: '更新赛事空状态文案，同时增加返回入口；保留现有筛选条件' },
-      { id: 'change-boundary', title: '修改边界', prompt: '', recommendation: '', answer: '仅修改赛事页' },
+      { id: 'change-boundary', title: '修改边界', prompt: '', recommendation: '', answer: 'apps/front/app/competition' },
       { id: 'acceptance-signal', title: '验收信号', prompt: '', recommendation: '', answer: '预览出现新文案与返回入口' },
     ]
     const result = await exploreRequirement(requirement, targetFixture())
@@ -56,7 +56,7 @@ describe('target project exploration', () => {
     ])
     expect(result.spec.desiredBehavior).toContain('增加返回入口')
     expect(result.spec.acceptanceCriteria).toContain('预览出现新文案与返回入口')
-    expect(result.spec.acceptanceCriteria).toContain('确认的修改边界：仅修改赛事页')
+    expect(result.spec.acceptanceCriteria).toContain('确认的修改边界：apps/front/app/competition')
   })
 })
 
@@ -77,6 +77,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
   const targetSnapshot = targetFixture()
   return {
     id: 'REQ-FIXTURE',
+    specId: 'SPEC-FIXTURE',
     title: 'Fixture requirement',
     targetPage: '/',
     requestedOutcome,

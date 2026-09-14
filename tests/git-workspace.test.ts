@@ -28,9 +28,9 @@ describe('safe requirement branches', () => {
     await execFileAsync('git', ['commit', '-m', 'baseline'], { cwd: root })
     const target = targetFixture(root)
 
-    const branch = await createRequirementBranch({ id: 'REQ-001', title: 'Copy update' }, target)
+    const branch = await createRequirementBranch({ specId: 'SPEC-001', title: 'Copy update' }, target)
 
-    expect(branch.requirementBranch).toBe('product/req-001-copy-update')
+    expect(branch.requirementBranch).toBe('product/spec-001-copy-update')
     expect(branch.startingWorkingTree).toEqual([])
     await writeFile(path.join(root, 'dirty.txt'), 'do not touch\n')
     const dirty = await inspectGitWorkspace(target)

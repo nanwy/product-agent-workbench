@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 
 import {
   assertCreateRequirementInput,
@@ -38,6 +39,7 @@ export async function createRequirement(
   const processFacts = getTargetProcessSnapshot(target)
   const requirement: Requirement = {
     id: `REQ-${now.slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8)}`,
+    specId: `SPEC-${now.slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8)}`,
     title: input.title,
     targetPage: input.targetPage,
     requestedOutcome: input.requestedOutcome,
@@ -48,7 +50,7 @@ export async function createRequirement(
     grilling: {
       status: 'pending',
       confirmedAt: null,
-      questions: createGrillingQuestions(input),
+      questions: createGrillingQuestions(input, target),
     },
     spec: null,
     tickets: [],
@@ -127,6 +129,8 @@ export async function confirmCurrentGrilling(answers: Record<string, string>): P
     if (!answer) throw new Error(`请回答：${question.title}`)
     return { ...question, answer }
   })
+  const confirmedScope = questions.find((question) => question.id === 'change-boundary')?.answer ?? ''
+  assertConfirmedScope(confirmedScope, requirement.targetSnapshot)
   const now = new Date().toISOString()
   await requirementStore.save({
     ...requirement,
@@ -248,18 +252,21 @@ async function saveProcessFacts(
 ) {
   const requirement = await requirementStore.load()
   if (!requirement) return
-  await requirementStore.save({
-    ...requirement,
-    processFacts,
-    updatedAt: new Date().toISOString(),
-    evidence: [
-      ...requirement.evidence,
-      evidence('project-adaptation', processFacts.command, action, output),
-    ],
+  await requirementStore.update((current) => {
+    if (!current) throw new Error('产品需求已不存在')
+    return {
+      ...current,
+      processFacts,
+      updatedAt: new Date().toISOString(),
+      evidence: [
+        ...current.evidence,
+        evidence('project-adaptation', processFacts.command, action, output),
+      ],
+    }
   })
 }
 
-function createGrillingQuestions(input: CreateRequirementInput) {
+function createGrillingQuestions(input: CreateRequirementInput, target: Requirement['targetSnapshot']) {
   return [
     {
       id: 'desired-outcome',
@@ -271,8 +278,8 @@ function createGrillingQuestions(input: CreateRequirementInput) {
     {
       id: 'change-boundary',
       title: '修改边界',
-      prompt: '本次修改应限制在哪个页面和工程范围？',
-      recommendation: `只修改目标页面 ${input.targetPage} 及配置范围内的必要代码`,
+      prompt: '填写本次唯一可写的仓库相对目录；可以等于或收窄已配置范围。',
+      recommendation: target.modificationScope,
       answer: null,
     },
     {
@@ -283,4 +290,12 @@ function createGrillingQuestions(input: CreateRequirementInput) {
       answer: null,
     },
   ]
+}
+
+function assertConfirmedScope(scope: string, target: Requirement['targetSnapshot']) {
+  const configuredRoot = path.resolve(target.repositoryRoot, target.modificationScope)
+  const confirmedRoot = path.resolve(target.repositoryRoot, scope)
+  if (!scope || path.isAbsolute(scope) || (confirmedRoot !== configuredRoot && !confirmedRoot.startsWith(`${configuredRoot}${path.sep}`))) {
+    throw new Error(`修改边界必须是 ${target.modificationScope} 或其子目录`)
+  }
 }

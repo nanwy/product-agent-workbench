@@ -1,5 +1,3 @@
-import path from 'node:path'
-
 import type { AgentEvent, Requirement } from '../domain/workbench'
 import { publishAgentEvent } from './agent-events'
 import { cancelCodexTurn, event, runCodexTurn } from './codex-adapter'
@@ -24,7 +22,8 @@ async function prepareExecution() {
   if (globalExecution.__workbenchExecution) return
   let requirement = await requireRequirement()
   if (requirement.stage !== 'implementation') throw new Error('只有已确认规格与边界的需求可以执行')
-  const target = await loadTargetProjectConfig()
+  const configuredTarget = await loadTargetProjectConfig()
+  const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
 
   if (!requirement.branch?.requirementBranch) {
     const branch = await createRequirementBranch(requirement, target)
@@ -86,14 +85,14 @@ export async function cancelRequirementExecution() {
 
 async function executeQueue(signal: AbortSignal) {
   const target = await loadTargetProjectConfig()
-  const workspaceRoot = path.resolve(target.repositoryRoot, target.modificationScope)
   while (true) {
     const requirement = await requireRequirement()
     if (requirement.codex.status !== 'running' || !requirement.branch) return
     const ticket = requirement.tickets.find((candidate) => candidate.status === 'active')
     if (!ticket) return
+    const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
     const result = await runCodexTurn({
-      workspaceRoot,
+      workspaceRoot: target.repositoryRoot,
       prompt: executionPrompt(requirement, ticket),
       sessionId: requirement.codex.sessionId,
       signal,
@@ -101,9 +100,9 @@ async function executeQueue(signal: AbortSignal) {
     })
     const latest = await requireRequirement()
     if (latest.codex.status === 'cancelled') return
-    const changedFiles = await changedFilesSince(requirement.branch.baseRevision, target)
-    const outside = filesOutsideScope(changedFiles, target)
-    const workspaceProblem = await executionWorkspaceProblem(latest, target)
+    const changedFiles = await changedFilesSince(requirement.branch.baseRevision, scopedTarget)
+    const outside = filesOutsideScope(changedFiles, scopedTarget)
+    const workspaceProblem = await executionWorkspaceProblem(latest, scopedTarget)
     if (result.exitCode !== 0 || outside.length || workspaceProblem) {
       const reason = outside.length ? `Codex 修改越出范围：${outside.join(', ')}` : workspaceProblem ?? `Codex turn 退出码为 ${result.exitCode}`
       await recordExecutionFailure(reason, result.sessionId, changedFiles, ticket.id)
@@ -157,7 +156,7 @@ function executionPrompt(requirement: Requirement, ticket: Requirement['tickets'
     `实现已确认需求：${requirement.spec?.title}`,
     `当前执行票 ${ticket.id}：${ticket.title}`,
     `目标页面：${requirement.targetPage}`,
-    `唯一允许写入的范围：${requirement.targetSnapshot.modificationScope}`,
+    `唯一允许写入的范围：${requirement.spec?.proposedScope ?? requirement.targetSnapshot.modificationScope}`,
     `验收条件：\n${ticket.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}`,
     `生效规则：\n${requirement.rules.map((rule) => `- ${rule.source} (${rule.scope})`).join('\n')}`,
     `生效 Skills：${requirement.skills.filter((skill) => skill.active).map((skill) => skill.name).join(', ')}`,

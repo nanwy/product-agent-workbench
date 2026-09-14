@@ -112,6 +112,7 @@ export type RequirementSpec = {
 
 export type Requirement = {
   id: string
+  specId: string
   title: string
   targetPage: string
   requestedOutcome: string
