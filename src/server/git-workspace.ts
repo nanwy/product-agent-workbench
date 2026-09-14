@@ -48,8 +48,14 @@ export async function changedFilesSince(baseRevision: string, target: TargetProj
 }
 
 export function filesOutsideScope(files: string[], target: TargetProjectConfig) {
-  const scope = target.modificationScope.replace(/\/$/, '')
-  return files.filter((file) => file !== scope && !file.startsWith(`${scope}/`))
+  const scope = path.posix.normalize(target.modificationScope.replaceAll(path.sep, '/'))
+  return files.filter((file) => {
+    const normalized = path.posix.normalize(file.replaceAll(path.sep, '/'))
+    if (normalized.startsWith('../') || path.posix.isAbsolute(normalized)) return true
+    if (scope === '.') return false
+    const relative = path.posix.relative(scope, normalized)
+    return relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative)
+  })
 }
 
 async function git(cwd: string, args: string[]) {

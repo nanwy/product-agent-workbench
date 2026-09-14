@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { appendFile } from 'node:fs/promises'
+import { appendFile, rm, stat } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 
 if (process.argv.includes('--version')) {
@@ -14,8 +15,12 @@ const sessionId = process.argv.includes('resume')
   : '00000000-0000-4000-8000-000000000001'
 
 console.log(JSON.stringify({ type: 'thread.started', thread_id: sessionId }))
-if (prompt.includes('SLOW_TURN')) await new Promise((resolve) => setTimeout(resolve, 5000))
+const slowMarker = path.join(os.tmpdir(), 'product-agent-workbench-slow-turn')
+if (prompt.includes('SLOW_TURN') || await stat(slowMarker).then(() => true).catch(() => false)) {
+  await rm(slowMarker, { force: true })
+  await new Promise((resolve) => setTimeout(resolve, 5000))
+}
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: `正在实现 ${ticket}` } }))
-await appendFile(path.join(process.cwd(), 'apps/front/app/competition/page.tsx'), `\n// implemented ${ticket}\n`)
+await appendFile(path.join(process.cwd(), 'app/competition/page.tsx'), `\n// implemented ${ticket}\n`)
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', name: 'apps/front/app/competition/page.tsx' } }))
 console.log(JSON.stringify({ type: 'turn.completed' }))

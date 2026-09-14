@@ -12,19 +12,23 @@ const globalCodex = globalThis as typeof globalThis & { __workbenchCodexChild?: 
 export type CodexTurnResult = { exitCode: number; sessionId: string | null }
 
 export async function runCodexTurn(input: {
-  repositoryRoot: string
+  workspaceRoot: string
   prompt: string
   sessionId: string | null
+  signal?: AbortSignal
   onEvent: (event: AgentEvent, sessionId: string | null) => Promise<void>
 }): Promise<CodexTurnResult> {
   if (globalCodex.__workbenchCodexChild) throw new Error('已有 Codex turn 正在运行')
   const command = await resolveCodexCommand()
   await verifyCodexCommand(command)
+  if (input.signal?.aborted) throw new Error('Codex turn 已取消')
   const args = input.sessionId
     ? ['exec', 'resume', '--json', input.sessionId, input.prompt]
-    : ['exec', '--json', '--color', 'never', '-C', input.repositoryRoot, '-s', 'workspace-write', '-a', 'never', input.prompt]
-  const child = spawn(command, args, { cwd: input.repositoryRoot, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', '-a', 'never', input.prompt]
+  const child = spawn(command, args, { cwd: input.workspaceRoot, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
   globalCodex.__workbenchCodexChild = child
+  const abort = () => terminateCodexChild(child)
+  input.signal?.addEventListener('abort', abort, { once: true })
   const completion = new Promise<number>((resolve, reject) => {
     child.once('error', reject)
     child.once('close', (code) => resolve(code ?? 1))
@@ -40,12 +44,13 @@ export async function runCodexTurn(input: {
       await input.onEvent(normalizeEvent(parsed, line), sessionId)
     }
   } catch (error) {
-    child.kill('SIGTERM')
+    terminateCodexChild(child)
     await completion.catch(() => undefined)
     globalCodex.__workbenchCodexChild = null
     throw error
   }
   const exitCode = await completion.finally(() => {
+    input.signal?.removeEventListener('abort', abort)
     if (globalCodex.__workbenchCodexChild === child) globalCodex.__workbenchCodexChild = null
   })
   if (exitCode !== 0 && stderr) {
@@ -57,8 +62,33 @@ export async function runCodexTurn(input: {
 export function cancelCodexTurn() {
   const child = globalCodex.__workbenchCodexChild
   if (!child?.pid || child.exitCode !== null) return false
-  child.kill('SIGTERM')
+  terminateCodexChild(child)
   return true
+}
+
+function terminateCodexChild(child: ChildProcess) {
+  if (!child.pid || child.exitCode !== null) return
+  try {
+    if (process.platform === 'win32') child.kill('SIGTERM')
+    else process.kill(-child.pid, 'SIGTERM')
+  } catch (error) {
+    if (!isMissingProcess(error)) throw error
+  }
+  const pid = child.pid
+  const timer = setTimeout(() => {
+    if (child.exitCode !== null) return
+    try {
+      if (process.platform === 'win32') child.kill('SIGKILL')
+      else process.kill(-pid, 'SIGKILL')
+    } catch (error) {
+      if (!isMissingProcess(error)) throw error
+    }
+  }, 3000)
+  timer.unref()
+}
+
+function isMissingProcess(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'ESRCH'
 }
 
 async function resolveCodexCommand() {

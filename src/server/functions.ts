@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 
-import { assertCreateRequirementInput } from '../domain/workbench'
+import { assertCreateRequirementInput, type CreateRequirementInput } from '../domain/workbench'
+import { runIdempotentMutation } from './idempotency'
 import {
   analyzeCurrentRequirement,
   confirmCurrentBoundary,
@@ -11,49 +12,51 @@ import {
   startConfiguredTarget,
   stopConfiguredTarget,
 } from './workbench-service'
-import {
-  cancelRequirementExecution,
-  startRequirementExecution,
-} from './workbench-execution'
+import { cancelRequirementExecution, startRequirementExecution } from './workbench-execution'
 
-export const getWorkbench = createServerFn({ method: 'GET' }).handler(() =>
-  getWorkbenchSnapshot(),
-)
+type MutationInput = { idempotencyKey: string }
+type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
+type GrillingMutationInput = MutationInput & { answers: Record<string, string> }
+
+function mutationInput(input: MutationInput) {
+  if (!input.idempotencyKey?.trim()) throw new Error('状态变更缺少 idempotencyKey')
+  return input
+}
+
+export const getWorkbench = createServerFn({ method: 'GET' }).handler(() => getWorkbenchSnapshot())
 
 export const submitRequirement = createServerFn({ method: 'POST' })
-  .validator(assertCreateRequirementInput)
-  .handler(({ data }) => createRequirement(data))
-
-export const analyzeRequirement = createServerFn({ method: 'POST' }).handler(() =>
-  analyzeCurrentRequirement(),
-)
+  .validator((input: RequirementMutationInput) => ({ ...mutationInput(input), requirement: assertCreateRequirementInput(input.requirement) }))
+  .handler(({ data }) => runIdempotentMutation(data.idempotencyKey, () => createRequirement(data.requirement)))
 
 export const confirmGrilling = createServerFn({ method: 'POST' })
-  .validator((answers: Record<string, string>) => answers)
-  .handler(({ data }) => confirmCurrentGrilling(data))
+  .validator((input: GrillingMutationInput) => ({ ...mutationInput(input), answers: input.answers }))
+  .handler(({ data }) => runIdempotentMutation(data.idempotencyKey, () => confirmCurrentGrilling(data.answers)))
 
-export const confirmPlan = createServerFn({ method: 'POST' }).handler(() =>
-  confirmCurrentPlan(),
+export const analyzeRequirement = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, analyzeCurrentRequirement),
 )
-
-export const confirmBoundary = createServerFn({ method: 'POST' }).handler(() =>
-  confirmCurrentBoundary(),
+export const confirmPlan = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, confirmCurrentPlan),
 )
-
-export const startTarget = createServerFn({ method: 'POST' }).handler(() =>
-  startConfiguredTarget(),
+export const confirmBoundary = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, confirmCurrentBoundary),
 )
-
-export const stopTarget = createServerFn({ method: 'POST' }).handler(() =>
-  stopConfiguredTarget(),
+export const startTarget = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, startConfiguredTarget),
 )
-
-export const executeRequirement = createServerFn({ method: 'POST' }).handler(async () => {
-  await startRequirementExecution()
-  return getWorkbenchSnapshot()
-})
-
-export const cancelExecution = createServerFn({ method: 'POST' }).handler(async () => {
-  await cancelRequirementExecution()
-  return getWorkbenchSnapshot()
-})
+export const stopTarget = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, stopConfiguredTarget),
+)
+export const executeRequirement = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, async () => {
+    await startRequirementExecution()
+    return getWorkbenchSnapshot()
+  }),
+)
+export const cancelExecution = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation(data.idempotencyKey, async () => {
+    await cancelRequirementExecution()
+    return getWorkbenchSnapshot()
+  }),
+)

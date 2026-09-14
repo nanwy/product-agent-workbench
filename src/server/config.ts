@@ -19,6 +19,10 @@ export async function loadTargetProjectConfig(): Promise<TargetProjectConfig> {
   )
 
   validateConfig(parsed)
+  const scopeRoot = path.resolve(repositoryRoot, parsed.modificationScope)
+  if (scopeRoot !== repositoryRoot && !scopeRoot.startsWith(`${repositoryRoot}${path.sep}`)) {
+    throw new Error('目标项目 modificationScope 超出仓库根目录')
+  }
 
   return {
     ...parsed,

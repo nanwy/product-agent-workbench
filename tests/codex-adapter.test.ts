@@ -12,11 +12,22 @@ afterEach(() => {
 })
 
 describe('Codex adapter', () => {
+  it('fails clearly when the configured CLI cannot be started', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = '/missing/workbench-codex'
+    await expect(runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'never runs',
+      sessionId: null,
+      signal: undefined,
+      onEvent: async () => undefined,
+    })).rejects.toThrow('Codex CLI 不可用')
+  })
+
   it('cancels only the active turn process', async () => {
     process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     let cancelled = false
     const result = await runCodexTurn({
-      repositoryRoot: process.cwd(),
+      workspaceRoot: process.cwd(),
       prompt: 'SLOW_TURN',
       sessionId: null,
       onEvent: async () => {

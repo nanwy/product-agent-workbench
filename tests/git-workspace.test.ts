@@ -37,6 +37,7 @@ describe('safe requirement branches', () => {
     expect(dirty.blockedReason).toBe('工作区存在 1 条未提交变更')
     expect(dirty.startingWorkingTree).toEqual([{ status: '??', path: 'dirty.txt' }])
     expect(filesOutsideScope(['apps/front/page.tsx', 'apps/admin/page.tsx'], { ...target, modificationScope: 'apps/front' })).toEqual(['apps/admin/page.tsx'])
+    expect(filesOutsideScope(['README.md', 'apps/front/page.tsx'], target)).toEqual([])
   })
 })
 

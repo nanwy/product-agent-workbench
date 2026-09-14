@@ -168,7 +168,10 @@ function RuleManifest({ requirement }: { requirement: Requirement }) {
 }
 
 function SkillGroup({ title, skills }: { title: string; skills: Requirement['skills'] }) {
-  return <div className="skill-group"><h5>{title}</h5>{skills.map((skill) => <div className="skill-row" key={`${skill.kind}-${skill.name}`}><span className={skill.active ? 'active-badge' : 'available-badge'}>{skill.active ? '生效' : '可用'}</span><div><strong>{skill.name}</strong><p>{skill.activationReason}</p></div></div>)}</div>
+  return <div className="skill-group"><h5>{title}</h5>{skills.map((skill) => {
+    const completed = skill.name === 'grilling' && skill.activationReason === '共同理解已确认'
+    return <div className="skill-row" key={`${skill.kind}-${skill.name}`}><span className={skill.active || completed ? 'active-badge' : 'available-badge'}>{completed ? '完成' : skill.active ? '生效' : '可用'}</span><div><strong>{skill.name}</strong><p>{skill.activationReason}</p></div></div>
+  })}</div>
 }
 
 export function EvidenceTimeline({ requirement }: { requirement: Requirement | null }) {

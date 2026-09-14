@@ -62,11 +62,11 @@ function WorkbenchPage() {
     return () => events.close()
   }, [refresh])
 
-  async function runAction(name: string, action: () => Promise<WorkbenchSnapshot>) {
+  async function runAction(name: string, action: (idempotencyKey: string) => Promise<WorkbenchSnapshot>) {
     setBusyAction(name)
     setError(null)
     try {
-      setSnapshot(await action())
+      setSnapshot(await action(crypto.randomUUID()))
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : String(actionError))
     } finally {
@@ -95,15 +95,15 @@ function WorkbenchPage() {
             <RequirementSummary
               requirement={requirement}
               busyAction={busyAction}
-              onAnalyze={() => runAction('analyze', () => analyze() as Promise<WorkbenchSnapshot>)}
-              onConfirm={() => runAction('confirm', () => confirm() as Promise<WorkbenchSnapshot>)}
-              onConfirmBoundary={() => runAction('boundary', () => confirmRisk() as Promise<WorkbenchSnapshot>)}
+              onAnalyze={() => runAction('analyze', (idempotencyKey) => analyze({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+              onConfirm={() => runAction('confirm', (idempotencyKey) => confirm({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+              onConfirmBoundary={() => runAction('boundary', (idempotencyKey) => confirmRisk({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             />
           ) : (
             <RequirementForm
               busy={busyAction === 'create'}
               ready={hydrated}
-              onSubmit={(data) => runAction('create', () => create({ data }) as Promise<WorkbenchSnapshot>)}
+              onSubmit={(requirement) => runAction('create', (idempotencyKey) => create({ data: { idempotencyKey, requirement } }) as Promise<WorkbenchSnapshot>)}
             />
           )}
         </section>
@@ -111,13 +111,13 @@ function WorkbenchPage() {
         <section className="panel evidence-panel" aria-label="执行 Agent 与证据">
           <PanelHeader index="02" title="执行 Agent" hint="Context & Evidence" />
           {requirement?.grilling.status === 'pending' ? (
-            <GrillingPanel requirement={requirement} busy={busyAction === 'grilling'} onConfirm={(answers) => runAction('grilling', () => confirmGrill({ data: answers }) as Promise<WorkbenchSnapshot>)} />
+            <GrillingPanel requirement={requirement} busy={busyAction === 'grilling'} onConfirm={(answers) => runAction('grilling', (idempotencyKey) => confirmGrill({ data: { idempotencyKey, answers } }) as Promise<WorkbenchSnapshot>)} />
           ) : requirement ? (
             <AgentConsole
               requirement={requirement}
               busyAction={busyAction}
-              onExecute={() => runAction('execute', () => execute() as Promise<WorkbenchSnapshot>)}
-              onCancel={() => runAction('cancel', () => cancel() as Promise<WorkbenchSnapshot>)}
+              onExecute={() => runAction('execute', (idempotencyKey) => execute({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+              onCancel={() => runAction('cancel', (idempotencyKey) => cancel({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             />
           ) : <div className="empty-copy">建立产品需求后，这里会进入 grilling 需求追问。</div>}
           <EvidenceTimeline requirement={requirement} />
@@ -129,8 +129,8 @@ function WorkbenchPage() {
             snapshot={snapshot}
             busyAction={busyAction}
             previewUrl={previewUrl}
-            onStart={() => runAction('start', () => start() as Promise<WorkbenchSnapshot>)}
-            onStop={() => runAction('stop', () => stop() as Promise<WorkbenchSnapshot>)}
+            onStart={() => runAction('start', (idempotencyKey) => start({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+            onStop={() => runAction('stop', (idempotencyKey) => stop({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             onRefresh={() => setPreviewRevision((value) => value + 1)}
           />
           {previewUrl ? <iframe key={previewRevision} className="preview-frame" src={previewUrl} title="目标页面预览" /> : (

@@ -1,3 +1,7 @@
+import { rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
 import { expect, test } from '@playwright/test'
 
 test.describe.configure({ mode: 'serial' })
@@ -40,7 +44,20 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await page.getByRole('button', { name: '确认 Spec 与执行票' }).click()
   await expect(page.getByText('规格边界已确认，可以创建安全需求分支并执行。')).toBeVisible()
 
+  const targetRoot = path.join(os.tmpdir(), 'product-agent-workbench-e2e-target')
+  const unrelatedFile = path.join(targetRoot, 'unrelated.txt')
+  await writeFile(unrelatedFile, 'existing user work\n')
   await page.getByRole('button', { name: '创建分支并执行' }).click()
+  await expect(page.getByText('工作区存在 1 条未提交变更').first()).toBeVisible()
+  await rm(unrelatedFile)
+
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), 'slow\n')
+  await page.getByRole('button', { name: '创建分支并执行' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('running')
+  await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
+  await page.getByRole('button', { name: '停止当前 Turn' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('cancelled')
+  await page.getByRole('button', { name: '继续当前 Session' }).click()
   await expect(page.getByTestId('codex-status')).toContainText('completed')
   await expect(page.locator('.ticket-row[data-status="completed"]')).toHaveCount(2)
   await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')

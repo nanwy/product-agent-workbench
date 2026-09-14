@@ -32,10 +32,12 @@ export type ExplorationResult = {
 }
 
 export async function exploreRequirement(requirement: Requirement, target: TargetProjectConfig): Promise<ExplorationResult> {
+  const grillingAnswers = Object.fromEntries(requirement.grilling.questions.map((question) => [question.id, question.answer ?? question.recommendation]))
+  const desiredBehavior = grillingAnswers['desired-outcome'] || requirement.requestedOutcome
   const rules = await discoverRules(target)
   const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, target, rules))]
   const exploration = await inspectTargetCode(requirement, target)
-  const tickets = createExecutionTickets(requirement)
+  const tickets = createExecutionTickets(requirement, desiredBehavior)
 
   return {
     rules,
@@ -43,19 +45,20 @@ export async function exploreRequirement(requirement: Requirement, target: Targe
     tickets,
     spec: {
       title: requirement.title,
-      desiredBehavior: requirement.requestedOutcome,
+      desiredBehavior,
       targetPage: requirement.targetPage,
       proposedScope: target.modificationScope,
       exploration,
       acceptanceCriteria: [
-        `在 ${requirement.targetPage} 可以观察到：${requirement.requestedOutcome}`,
+        grillingAnswers['acceptance-signal'] || `在 ${requirement.targetPage} 可以观察到：${desiredBehavior}`,
+        `确认的修改边界：${grillingAnswers['change-boundary'] || target.modificationScope}`,
         '目标页面可以通过工作台预览，并且没有新增浏览器控制台错误',
         '实现遵守页面修改范围内的生效规则和生效 Skill',
       ],
     },
     boundaryItems: [
-      ...detectBoundaryItems(requirement.requestedOutcome),
-      ...detectRuleConflicts(requirement.requestedOutcome, rules),
+      ...detectBoundaryItems(desiredBehavior),
+      ...detectRuleConflicts(desiredBehavior, rules),
     ],
   }
 }
@@ -122,7 +125,8 @@ async function inspectTargetCode(requirement: Requirement, target: TargetProject
   assertWithinRoot(scopeRoot, target.repositoryRoot)
   const files = (await findSourceFiles(scopeRoot)).slice(0, 600)
   const routeTokens = requirement.targetPage.split('/').filter(Boolean)
-  const terms = `${requirement.title} ${requirement.requestedOutcome}`
+  const confirmedOutcome = requirement.grilling.questions.find((question) => question.id === 'desired-outcome')?.answer
+  const terms = `${requirement.title} ${confirmedOutcome ?? requirement.requestedOutcome}`
     .toLowerCase()
     .split(/[\s，。；、,:：/]+/)
     .filter((term) => term.length >= 2)
@@ -154,13 +158,13 @@ async function inspectTargetCode(requirement: Requirement, target: TargetProject
   }
 }
 
-function createExecutionTickets(requirement: Requirement): ExecutionTicket[] {
-  const clauses = requirement.requestedOutcome
+function createExecutionTickets(requirement: Requirement, desiredBehavior: string): ExecutionTicket[] {
+  const clauses = desiredBehavior
     .split(/[。；;]|，并|，同时|并且|以及/)
     .map((clause) => clause.trim().replace(/^[，,]+|[，,]+$/g, ''))
     .filter((clause) => clause.length >= 4)
     .slice(0, 4)
-  const slices = clauses.length ? clauses : [requirement.requestedOutcome]
+  const slices = clauses.length ? clauses : [desiredBehavior]
   return slices.map((slice, index) => ({
     id: `TICKET-${String(index + 1).padStart(2, '0')}`,
     title: slice.length > 32 ? `${slice.slice(0, 31)}…` : slice,
