@@ -9,23 +9,25 @@ import type {
   RequirementSpec,
   ResolvedRule,
   TargetProjectConfig,
+  WorkflowStep,
 } from '../domain/workbench'
 
 const ignoredDirectories = new Set(['.git', '.next', '.output', 'coverage', 'dist', 'node_modules'])
 const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue'])
 
-// workflow Skills 描述工作台的 SDD 阶段，不等于 Codex session 中真实可调用的本地 Skill。
-export function workflowSkills(grillingConfirmed: boolean): DiscoveredSkill[] {
+// workflow 描述工作台已经完成或正在执行的 SDD 步骤，不属于 Codex Skill 能力清单。
+export function workflowSteps(grillingConfirmed: boolean): WorkflowStep[] {
   return [
-    { name: 'grilling', description: '通过分轮追问消除产品需求中的隐含决策。', source: 'workflow', kind: 'workflow', active: !grillingConfirmed, activationReason: grillingConfirmed ? '共同理解已确认' : '产品需求已建立，必须先完成需求追问' },
-    { name: 'to-spec', description: '把产品意图整理为可确认的规格。', source: 'workflow', kind: 'workflow', active: grillingConfirmed, activationReason: grillingConfirmed ? '需求追问已完成' : '等待 grilling 完成' },
-    { name: 'to-tickets', description: '把规格拆成可独立执行和验证的执行票。', source: 'workflow', kind: 'workflow', active: grillingConfirmed, activationReason: grillingConfirmed ? 'SDD 执行票阶段要求' : '等待 grilling 完成' },
-    { name: 'implement', description: '根据已确认规格和执行票形成候选实现。', source: 'workflow', kind: 'workflow', active: false, activationReason: '等待 Spec 与执行票确认' },
+    { name: 'grilling', description: '通过分轮追问消除产品需求中的隐含决策。', active: !grillingConfirmed, activationReason: grillingConfirmed ? '共同理解已确认' : '产品需求已建立，必须先完成需求追问' },
+    { name: 'to-spec', description: '把产品意图整理为可确认的规格。', active: grillingConfirmed, activationReason: grillingConfirmed ? '需求追问已完成' : '等待 grilling 完成' },
+    { name: 'to-tickets', description: '把规格拆成可独立执行和验证的执行票。', active: grillingConfirmed, activationReason: grillingConfirmed ? 'SDD 执行票阶段要求' : '等待 grilling 完成' },
+    { name: 'implement', description: '根据已确认规格和执行票形成候选实现。', active: false, activationReason: '等待 Spec 与执行票确认' },
   ]
 }
 
 export type ExplorationResult = {
   rules: ResolvedRule[]
+  workflow: WorkflowStep[]
   skills: DiscoveredSkill[]
   spec: RequirementSpec
   tickets: ExecutionTicket[]
@@ -40,12 +42,14 @@ export async function exploreRequirement(requirement: Requirement, target: Targe
   const scopedTarget = { ...target, modificationScope: proposedScope }
   // 先以最终确认范围解析规则/Skill，再做代码定位，保证探索与实施使用同一边界。
   const rules = await discoverRules(scopedTarget)
-  const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, scopedTarget, rules))]
+  const workflow = workflowSteps(requirement.grilling.status === 'confirmed')
+  const skills = await discoverTargetSkills(requirement, scopedTarget, rules)
   const exploration = await inspectTargetCode(requirement, scopedTarget)
   const tickets = createExecutionTickets(requirement, desiredBehavior)
 
   return {
     rules,
+    workflow,
     skills,
     tickets,
     spec: {
@@ -120,9 +124,10 @@ async function discoverTargetSkills(requirement: Requirement, target: TargetProj
       name,
       description,
       source: normalizeRelative(target.repositoryRoot, source),
-      kind: 'target-project' as const,
       active,
       activationReason: namedByProduct ? '产品需求点名' : requiredByRule ? '生效规则要求' : copyMatch ? '需求类型确定性匹配' : '已发现，但与当前需求无确定关联',
+      // 只给当前需求真正激活的 Skill 读取全文，避免把无关 Skill 塞进 Requirement 和 prompt。
+      content: active ? await readFile(source, 'utf8') : null,
     }
   }))
 }

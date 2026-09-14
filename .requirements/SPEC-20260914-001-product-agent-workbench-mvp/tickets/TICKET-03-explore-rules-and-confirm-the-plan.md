@@ -1,7 +1,7 @@
 # TICKET-03 只读探索规则并确认 Spec 与执行票
 
 **Type:** AFK  
-**Status:** Partial
+**Status:** Complete
 
 ## Parent
 
@@ -34,14 +34,6 @@ Grilling 确认后，对目标范围执行只读探索：定位目标路由和�
 
 - TICKET-02 建立产品需求、Grilling 门禁与可恢复状态。
 
-## Audit result · 2026-09-15
+## Closure · 2026-09-15
 
-主功能已实现：只读代码定位、根/最近目录规则、Skill 元数据发现、候选 Spec、多票切分和边界确认均已落地。
-
-仍缺：
-
-- 工作流阶段虽然在 UI 中按 `kind` 分组，但仍与目标项目 Skill 共用一个 `Requirement.skills` 字段。
-- 执行 prompt 会发送所有 active Skill 名称，包括 `to-spec`、`to-tickets`、`implement` 等工作流阶段；这些不等于 Codex 真正可调用的 Skill。
-- 目标项目 Skill 只读取 frontmatter，当前执行链没有显式加载或传入已激活 Skill 的完整指令。
-- 浏览器级测试未覆盖单票需求、高风险边界和 Spec/仓库规则冲突路径。
-
+只读代码定位、根/最近目录规则、Skill 元数据发现、候选 Spec、多票切分和边界确认均已落地。领域模型现以 `workflow` 和 `skills` 两个字段分别保存 SDD 步骤与目标项目能力，并兼容迁移旧 JSON；未激活 Skill 只读 frontmatter，激活后加载完整 `SKILL.md` 进入执行 prompt，工作流名称不会再发送给 Codex。单票、多票、激活/未激活 Skill、规则冲突和 UI 分组均有自动化覆盖。

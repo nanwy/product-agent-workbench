@@ -5,11 +5,12 @@ import {
   assertCreateRequirementInput,
   type CreateRequirementInput,
   type EvidenceRecord,
+  type GrillingQuestion,
   type Requirement,
   type WorkbenchSnapshot,
 } from '../domain/workbench'
 import { loadTargetProjectConfig } from './config'
-import { exploreRequirement, workflowSkills } from './exploration'
+import { exploreRequirement, workflowSteps } from './exploration'
 import { requirementStore } from './requirement-store'
 import { commitAcceptedCandidate } from './git-workspace'
 import {
@@ -41,7 +42,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
 /**
  * 创建新的 Requirement 聚合并原子保存。
  *
- * 初始化 Grilling 问题、流程 Skill、目标配置快照、Codex 空闲态和首批审计证据。
+ * 初始化 Grilling 问题、工作流步骤、目标配置快照、Codex 空闲态和首批审计证据。
  * 此时不会探索目标代码、创建 Git 分支或启动 Codex。
  */
 export async function createRequirement(
@@ -70,7 +71,8 @@ export async function createRequirement(
     spec: null,
     tickets: [],
     rules: [],
-    skills: workflowSkills(false),
+    workflow: workflowSteps(false),
+    skills: [],
     boundaryItems: [],
     targetSnapshot: target,
     processFacts,
@@ -101,7 +103,11 @@ export async function createRequirement(
     ],
   }
 
-  await requirementStore.save(requirement)
+  // UI 只显示一个表单不是安全边界；服务端同样禁止 API 覆盖仍可继续的活动需求。
+  await requirementStore.update((current) => {
+    assertCanCreateRequirement(current)
+    return requirement
+  })
   return getWorkbenchSnapshot()
 }
 
@@ -126,6 +132,7 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
     spec: result.spec,
     tickets: result.tickets,
     rules: result.rules,
+    workflow: result.workflow,
     skills: result.skills,
     boundaryItems: result.boundaryItems,
     evidence: [
@@ -152,11 +159,7 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
 export async function confirmCurrentGrilling(answers: Record<string, string>): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   if (requirement.grilling.status === 'confirmed') return getWorkbenchSnapshot()
-  const questions = requirement.grilling.questions.map((question) => {
-    const answer = answers[question.id]?.trim()
-    if (!answer) throw new Error(`请回答：${question.title}`)
-    return { ...question, answer }
-  })
+  const questions = confirmGrillingAnswers(requirement.grilling.questions, answers)
   const confirmedScope = questions.find((question) => question.id === 'change-boundary')?.answer ?? ''
   // 用户可以收窄修改范围，但不能借回答问题扩大配置文件授权的目录。
   assertConfirmedScope(confirmedScope, requirement.targetSnapshot)
@@ -164,7 +167,7 @@ export async function confirmCurrentGrilling(answers: Record<string, string>): P
   await requirementStore.save({
     ...requirement,
     grilling: { status: 'confirmed', questions, confirmedAt: now },
-    skills: workflowSkills(true),
+    workflow: workflowSteps(true),
     updatedAt: now,
     evidence: [...requirement.evidence, evidence('intent-drafting', questions.map((question) => `${question.title}: ${question.answer}`).join('；'), '完成 grilling 设计树并确认共同理解', '需求可以进入只读探索与 Spec 生成')],
   })
@@ -190,8 +193,8 @@ export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
     ...requirement,
     stage,
     updatedAt: new Date().toISOString(),
-    skills: activateImplementationSkill(
-      requirement.skills,
+    workflow: activateImplementationStep(
+      requirement.workflow,
       !requiresBoundary,
       requiresBoundary ? '等待边界确认' : 'Spec 与执行票已确认',
     ),
@@ -211,7 +214,7 @@ export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
 /**
  * 确认全部工程边界项并开放候选实现。
  *
- * 这里只记录产品决定和激活 implement Skill，不会直接修改目标仓库。
+ * 这里只记录产品决定和激活 implement 工作流步骤，不会直接修改目标仓库。
  */
 export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
@@ -226,8 +229,8 @@ export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
       ...item,
       confirmed: true,
     })),
-    skills: activateImplementationSkill(
-      requirement.skills,
+    workflow: activateImplementationStep(
+      requirement.workflow,
       true,
       'Spec、执行票与工程边界均已确认',
     ),
@@ -330,16 +333,16 @@ function evidence(
   return { stage, input, action, output, recordedAt: new Date().toISOString() }
 }
 
-/** 切换 implement Skill 的激活状态，同时保留其他 Skill 原样。 */
-function activateImplementationSkill(
-  skills: Requirement['skills'],
+/** 切换 implement 工作流步骤的激活状态，同时保留其他步骤原样。 */
+function activateImplementationStep(
+  workflow: Requirement['workflow'],
   active: boolean,
   activationReason: string,
 ) {
-  return skills.map((skill) =>
-    skill.name === 'implement'
-      ? { ...skill, active, activationReason }
-      : skill,
+  return workflow.map((step) =>
+    step.name === 'implement'
+      ? { ...step, active, activationReason }
+      : step,
   )
 }
 
@@ -394,8 +397,24 @@ function createGrillingQuestions(input: CreateRequirementInput, target: Requirem
   ]
 }
 
+/** 阻止新请求覆盖仍可继续的唯一活动 Requirement；accepted 是唯一可替换终态。 */
+export function assertCanCreateRequirement(current: Pick<Requirement, 'stage'> | null) {
+  if (current && current.stage !== 'accepted') {
+    throw new Error('当前产品需求尚未验收，不能建立第二条活动需求')
+  }
+}
+
+/** 校验每道 Grilling 问题都有非空回答，并返回已去除首尾空白的确认结果。 */
+export function confirmGrillingAnswers(questions: GrillingQuestion[], answers: Record<string, string>) {
+  return questions.map((question) => {
+    const answer = answers[question.id]?.trim()
+    if (!answer) throw new Error(`请回答：${question.title}`)
+    return { ...question, answer }
+  })
+}
+
 /** 校验确认范围只能等于或位于配置范围之下，并阻止绝对路径与目录穿越。 */
-function assertConfirmedScope(scope: string, target: Requirement['targetSnapshot']) {
+export function assertConfirmedScope(scope: string, target: Requirement['targetSnapshot']) {
   // resolve 后再比较，防止 `../` 等路径穿越绕过仓库相对目录限制。
   const configuredRoot = path.resolve(target.repositoryRoot, target.modificationScope)
   const confirmedRoot = path.resolve(target.repositoryRoot, scope)

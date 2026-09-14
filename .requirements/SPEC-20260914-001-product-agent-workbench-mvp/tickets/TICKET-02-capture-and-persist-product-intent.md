@@ -1,7 +1,7 @@
 # TICKET-02 建立产品需求、Grilling 门禁与可恢复状态
 
 **Type:** AFK  
-**Status:** Partial
+**Status:** Complete
 
 ## Parent
 
@@ -34,13 +34,6 @@ Requirement 及阶段证据保存到本地 JSON。所有写动作需要幂等键
 
 - TICKET-01 建立本地工作台并托管真实目标项目预览。
 
-## Audit result · 2026-09-15
+## Closure · 2026-09-15
 
-主功能已实现：输入校验、三道 Grilling、范围收窄、JSON 原子写入、证据追加、幂等去重和浏览器刷新恢复均已落地。
-
-仍缺：
-
-- `submitRequirement` 服务端没有阻止覆盖一条尚未结束的活动 Requirement；当前主要依赖 UI 隐藏表单。
-- 自动化测试没有覆盖输入错误、Grilling 未完成、确认范围越界和服务进程重启后的恢复。
-- E2E 只证明浏览器 reload 恢复，没有证明 Node 服务重启后仍能恢复且不会重放副作用。
-
+输入校验、三道 Grilling、范围收窄、JSON 原子写入、证据追加、幂等去重和浏览器刷新恢复均已落地。服务端现在拒绝覆盖未验收的活动 Requirement；测试覆盖输入错误、Grilling 缺答、范围穿越、唯一活动需求，并通过全新 `RequirementStore` 实例证明服务内存丢失后仍从磁盘恢复同一聚合。

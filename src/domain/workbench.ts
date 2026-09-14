@@ -39,13 +39,23 @@ export type ResolvedRule = {
   content: string
 }
 
+/** 工作台自身的 SDD 流程步骤，只用于解释当前工作流，不会发送给执行 Agent。 */
+export type WorkflowStep = {
+  name: string
+  description: string
+  active: boolean
+  activationReason: string
+}
+
+/** 从目标仓库发现、且可能真正进入 Codex 执行上下文的 Skill。 */
 export type DiscoveredSkill = {
   name: string
   description: string
   source: string
-  kind: 'workflow' | 'target-project'
   active: boolean
   activationReason: string
+  // 未激活时只保留 frontmatter；激活后保存完整 SKILL.md，供执行 prompt 使用。
+  content: string | null
 }
 
 export type GrillingQuestion = {
@@ -129,6 +139,7 @@ export type Requirement = {
   spec: RequirementSpec | null
   tickets: ExecutionTicket[]
   rules: ResolvedRule[]
+  workflow: WorkflowStep[]
   skills: DiscoveredSkill[]
   boundaryItems: BoundaryItem[]
   evidence: EvidenceRecord[]

@@ -113,7 +113,7 @@ async function executeQueue(signal: AbortSignal) {
     const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
     const result = await runCodexTurn({
       workspaceRoot: target.repositoryRoot,
-      prompt: executionPrompt(requirement, ticket),
+      prompt: buildExecutionPrompt(requirement, ticket),
       sessionId: requirement.codex.sessionId,
       signal,
       onEvent: persistAgentEvent,
@@ -177,7 +177,7 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
   publishAgentEvent(failed)
 }
 
-function executionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {
+export function buildExecutionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {
   // prompt 由已确认 Spec、当前票和解析后规则组成，不包含可执行 shell 片段。
   return [
     `实现已确认需求：${requirement.spec?.title}`,
@@ -186,7 +186,10 @@ function executionPrompt(requirement: Requirement, ticket: Requirement['tickets'
     `唯一允许写入的范围：${requirement.spec?.proposedScope ?? requirement.targetSnapshot.modificationScope}`,
     `验收条件：\n${ticket.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}`,
     `生效规则：\n${requirement.rules.map((rule) => `- ${rule.source} (${rule.scope})`).join('\n')}`,
-    `生效 Skills：${requirement.skills.filter((skill) => skill.active).map((skill) => skill.name).join(', ')}`,
+    `目标项目生效 Skills：\n${requirement.skills.filter((skill) => skill.active).map((skill) => [
+      `## ${skill.name}（${skill.source}）`,
+      skill.content ?? 'Skill 指令未加载，停止执行并报告配置错误。',
+    ].join('\n')).join('\n\n') || '无'}`,
     '直接实现并自行检查；不要提交、推送、创建 PR，也不要修改允许范围之外的文件。',
   ].join('\n\n')
 }

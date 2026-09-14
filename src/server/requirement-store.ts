@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import type { Requirement } from '../domain/workbench'
+import type { DiscoveredSkill, Requirement, WorkflowStep } from '../domain/workbench'
 
 export class RequirementStore {
   readonly #filePath: string
@@ -42,7 +42,7 @@ export class RequirementStore {
 
   async #loadDirect(): Promise<Requirement | null> {
     try {
-      return migrateRequirement(JSON.parse(await readFile(this.#filePath, 'utf8')) as Requirement)
+      return await migrateRequirement(JSON.parse(await readFile(this.#filePath, 'utf8')) as Requirement)
     } catch (error) {
       if (isMissingFile(error)) return null
       throw error
@@ -62,12 +62,37 @@ function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }
 
-function migrateRequirement(requirement: Requirement): Requirement {
+async function migrateRequirement(requirement: Requirement): Promise<Requirement> {
   // JSON 是持久合约：新版字段必须在读取时补默认值，而不要求用户删除当前需求。
+  // 旧版把工作流步骤与目标项目 Skill 混在 skills 中；读取时拆开，写回后即使用新模型。
+  const legacySkills = (requirement.skills ?? []) as Array<DiscoveredSkill & {
+    kind?: 'workflow' | 'target-project'
+  }>
+  const workflow = requirement.workflow ?? legacySkills
+    .filter((skill) => skill.kind === 'workflow')
+    .map(({ name, description, active, activationReason }): WorkflowStep => ({
+      name,
+      description,
+      active,
+      activationReason,
+    }))
+  const skills = await Promise.all(legacySkills
+    .filter((skill) => skill.kind !== 'workflow')
+    .map(async ({ kind: _legacyKind, ...skill }) => {
+      if (!skill.active || skill.content) return { ...skill, content: skill.content ?? null }
+      // 旧快照只有 Skill 相对路径；迁移时从原目标仓库补齐已激活 Skill 的全文。
+      const source = path.resolve(requirement.targetSnapshot.repositoryRoot, skill.source)
+      const root = requirement.targetSnapshot.repositoryRoot
+      const insideRoot = source === root || source.startsWith(`${root}${path.sep}`)
+      const content = insideRoot ? await readFile(source, 'utf8').catch(() => null) : null
+      return { ...skill, content }
+    }))
   return {
     ...requirement,
     specId: requirement.specId ?? requirement.id.replace(/^REQ-/, 'SPEC-'),
     grilling: requirement.grilling ?? { status: 'confirmed', questions: [], confirmedAt: requirement.createdAt },
+    workflow,
+    skills,
     branch: requirement.branch ?? null,
     codex: requirement.codex ?? { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null },
     validation: requirement.validation ?? [],

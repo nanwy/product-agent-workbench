@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Requirement, TargetProjectConfig } from '../src/domain/workbench'
 import { exploreRequirement } from '../src/server/exploration'
+import { buildExecutionPrompt } from '../src/server/workbench-execution'
 
 // 探索测试固定规则覆盖、Skill 激活、边界识别和执行票拆分这四个纯只读行为。
 describe('target project exploration', () => {
@@ -20,13 +21,36 @@ describe('target project exploration', () => {
     expect(result.skills.find((skill) => skill.name === 'product-copy-change')).toMatchObject({
       active: true,
       activationReason: '需求类型确定性匹配',
+      content: expect.stringContaining('Keep the change narrow'),
     })
+    expect(result.workflow.map((step) => step.name)).toEqual(['grilling', 'to-spec', 'to-tickets', 'implement'])
     expect(result.spec.exploration.candidateCodeLocations).toContain(
       'apps/front/app/competition/page.tsx',
     )
     expect(result.spec.exploration.existingBehaviorEvidence[0]).toContain(
       '当前没有可展示的赛事',
     )
+    expect(result.tickets).toHaveLength(1)
+  })
+
+  it('keeps unrelated target Skills available without loading their instructions', async () => {
+    const result = await exploreRequirement(requirementFixture('调整比赛筛选逻辑'), targetFixture())
+    const skill = result.skills.find((candidate) => candidate.name === 'product-copy-change')
+
+    expect(skill).toMatchObject({ active: false, content: null })
+  })
+
+  it('sends only active target-project Skill instructions to the execution prompt', async () => {
+    const requirement = requirementFixture('更新首页空状态文案')
+    const result = await exploreRequirement(requirement, targetFixture())
+    const executable = { ...requirement, spec: result.spec, tickets: result.tickets, rules: result.rules, workflow: result.workflow, skills: result.skills }
+
+    const prompt = buildExecutionPrompt(executable, result.tickets[0])
+
+    expect(prompt).toContain('product-copy-change')
+    expect(prompt).toContain('Keep the change narrow and verify it in the browser.')
+    expect(prompt).not.toContain('to-spec')
+    expect(prompt).not.toContain('to-tickets')
   })
 
   it('raises a boundary item for authentication changes', async () => {
@@ -90,6 +114,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
     spec: null,
     tickets: [],
     rules: [],
+    workflow: [],
     skills: [],
     boundaryItems: [],
     evidence: [],

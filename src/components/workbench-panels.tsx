@@ -193,23 +193,21 @@ function PlanReview({ requirement }: { requirement: Requirement }) {
 }
 
 function RuleManifest({ requirement }: { requirement: Requirement }) {
-  // 工作流 Skill 约束“怎么做”，目标项目 Skill 约束“在这个仓库里怎么做”，分组展示来源。
-  const workflowSkills = requirement.skills.filter((skill) => skill.kind === 'workflow')
-  const targetSkills = requirement.skills.filter((skill) => skill.kind === 'target-project')
+  // 工作流步骤解释 SDD 进度；目标项目 Skills 才是执行 Agent 可读取的仓库能力。
   return (
     <div className="rule-manifest">
       <div className="section-label">生效规则</div>
       {requirement.rules.map((rule) => <details key={rule.source} className="rule-card"><summary><span className="active-badge">生效</span><strong>{rule.source}</strong></summary><p>{rule.summary}</p><small>{rule.activationReason}</small><pre>{rule.content}</pre></details>)}
-      <SkillGroup title="工作流 Skills" skills={workflowSkills} />
-      <SkillGroup title="目标项目 Skills" skills={targetSkills} />
+      <SkillGroup title="工作流步骤" skills={requirement.workflow} />
+      <SkillGroup title="目标项目 Skills" skills={requirement.skills} />
     </div>
   )
 }
 
-function SkillGroup({ title, skills }: { title: string; skills: Requirement['skills'] }) {
+function SkillGroup({ title, skills }: { title: string; skills: Requirement['skills'] | Requirement['workflow'] }) {
   return <div className="skill-group"><h5>{title}</h5>{skills.map((skill) => {
     const completed = skill.name === 'grilling' && skill.activationReason === '共同理解已确认'
-    return <div className="skill-row" key={`${skill.kind}-${skill.name}`}><span className={skill.active || completed ? 'active-badge' : 'available-badge'}>{completed ? '完成' : skill.active ? '生效' : '可用'}</span><div><strong>{skill.name}</strong><p>{skill.activationReason}</p></div></div>
+    return <div className="skill-row" key={`${title}-${skill.name}`}><span className={skill.active || completed ? 'active-badge' : 'available-badge'}>{completed ? '完成' : skill.active ? '生效' : '可用'}</span><div><strong>{skill.name}</strong><p>{skill.activationReason}</p></div></div>
   })}</div>
 }
 

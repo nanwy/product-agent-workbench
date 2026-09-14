@@ -61,7 +61,7 @@ export const submitRequirement = createServerFn({ method: 'POST' })
  * 提交并确认 Grilling 阶段的全部回答。
  *
  * `confirmCurrentGrilling()` 会检查每道题都有答案，并验证“修改边界”只能等于或收窄
- * 项目配置中的授权范围；成功后激活相应工作流 Skill，需求才允许进入只读探索。
+ * 项目配置中的授权范围；成功后推进工作流步骤，需求才允许进入只读探索。
  * 重复请求由 `runIdempotentMutation()` 直接返回当前快照，不会重复追加证据。
  *
  * @returns Grilling 已确认的最新工作台快照。

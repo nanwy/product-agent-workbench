@@ -44,6 +44,8 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByText('AGENTS.md', { exact: true })).toBeVisible()
   await expect(page.getByText('apps/front/AGENTS.md', { exact: true })).toBeVisible()
   await expect(page.getByText('product-copy-change', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '工作流步骤' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '目标项目 Skills' })).toBeVisible()
 
   await page.getByRole('button', { name: '确认 Spec 与执行票' }).click()
   await expect(page.getByText('规格边界已确认，可以创建安全需求分支并执行。')).toBeVisible()
