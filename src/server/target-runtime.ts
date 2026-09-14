@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { createConnection } from 'node:net'
 
 import type {
   TargetProcessSnapshot,
@@ -13,6 +14,7 @@ type RuntimeState = {
 
 const emptySnapshot: TargetProcessSnapshot = {
   status: 'stopped',
+  ownership: 'none',
   pid: null,
   command: '',
   healthUrl: '',
@@ -51,6 +53,7 @@ export function getTargetProcessSnapshot(config?: TargetProjectConfig) {
 
   return {
     ...runtime.snapshot,
+    ownership: runtime.snapshot.ownership ?? (runtime.child ? 'workbench' : 'none'),
     command: formatCommand(config),
     healthUrl: config.healthUrl,
     previewUrl: config.previewUrl,
@@ -60,17 +63,34 @@ export function getTargetProcessSnapshot(config?: TargetProjectConfig) {
 }
 
 export async function startTargetProject(config: TargetProjectConfig) {
-  if (runtime.child && ['starting', 'ready'].includes(runtime.snapshot.status)) {
+  if ((runtime.child || runtime.snapshot.ownership === 'external') && ['starting', 'ready'].includes(runtime.snapshot.status)) {
     return getTargetProcessSnapshot(config)
   }
 
   runtime.snapshot = {
     ...getTargetProcessSnapshot(config),
     status: 'starting',
+    ownership: 'none',
     pid: null,
     startedAt: new Date().toISOString(),
     error: null,
     recentOutput: [],
+  }
+
+  // 启动前先识别端口现状：显式健康标记匹配才复用，否则停止而不是误杀或覆盖用户进程。
+  const existing = await inspectExistingRuntime(config)
+  if (existing.kind === 'reusable') {
+    try {
+      await startPreviewGateway(config.previewUrl, config.previewGatewayPort)
+      runtime.snapshot = { ...runtime.snapshot, status: 'ready', ownership: 'external', error: null }
+    } catch (error) {
+      runtime.snapshot = { ...runtime.snapshot, status: 'failed', error: redact(error instanceof Error ? error.message : String(error)) }
+    }
+    return getTargetProcessSnapshot(config)
+  }
+  if (existing.kind === 'occupied') {
+    runtime.snapshot = { ...runtime.snapshot, status: 'failed', error: existing.reason }
+    return getTargetProcessSnapshot(config)
   }
 
   // 命令和参数只来自受信任配置，不开 shell；detached 创建可整组回收的进程组。
@@ -81,6 +101,7 @@ export async function startTargetProject(config: TargetProjectConfig) {
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   runtime.child = child
+  runtime.snapshot.ownership = 'workbench'
   runtime.snapshot.pid = child.pid ?? null
 
   child.stdout?.on('data', (chunk: Buffer) => appendOutput(chunk.toString()))
@@ -92,11 +113,13 @@ export async function startTargetProject(config: TargetProjectConfig) {
       runtime.snapshot.status = 'failed'
       runtime.snapshot.error = `目标项目进程退出（code=${code ?? 'null'}, signal=${signal ?? 'null'}）`
     }
+    runtime.snapshot.ownership = 'none'
     runtime.snapshot.pid = null
     void stopPreviewGateway()
   })
   child.once('error', (error) => {
     runtime.snapshot.status = 'failed'
+    runtime.snapshot.ownership = 'none'
     runtime.snapshot.error = redact(error.message)
   })
 
@@ -151,11 +174,61 @@ export async function stopTargetProject(config: TargetProjectConfig) {
   runtime.snapshot = {
     ...getTargetProcessSnapshot(config),
     status: 'stopped',
+    ownership: 'none',
     pid: null,
     startedAt: null,
     error: null,
   }
   return getTargetProcessSnapshot(config)
+}
+
+type ExistingRuntime =
+  | { kind: 'none' }
+  | { kind: 'reusable' }
+  | { kind: 'occupied'; reason: string }
+
+/** 区分空闲端口、配置允许复用的目标服务，以及身份不明的占用者。 */
+async function inspectExistingRuntime(config: TargetProjectConfig): Promise<ExistingRuntime> {
+  const health = await probeHealth(config.healthUrl)
+  if (health.responded) {
+    const marker = config.runtimeReuse?.healthBodyIncludes
+    if (health.ok && marker && health.body.includes(marker)) return { kind: 'reusable' }
+    if (health.ok && !marker) return { kind: 'occupied', reason: '健康地址已有进程响应，但配置未允许复用；未启动或终止该外部进程' }
+    return { kind: 'occupied', reason: marker ? `健康地址已有响应，但未匹配目标标记：${marker}` : `健康地址已有进程响应（HTTP ${health.status}），不能安全复用` }
+  }
+  if (await endpointIsOccupied(config.previewUrl)) {
+    return { kind: 'occupied', reason: '目标端口已被其他进程占用，但健康检查未通过；未启动或终止该外部进程' }
+  }
+  return { kind: 'none' }
+}
+
+async function probeHealth(url: string) {
+  try {
+    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(700) })
+    return { responded: true as const, ok: response.ok, status: response.status, body: (await response.text()).slice(0, 16_000) }
+  } catch {
+    return { responded: false as const, ok: false, status: 0, body: '' }
+  }
+}
+
+function endpointIsOccupied(rawUrl: string) {
+  const url = new URL(rawUrl)
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host, port })
+    let settled = false
+    const finish = (occupied: boolean) => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(occupied)
+    }
+    socket.setTimeout(300)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
 }
 
 async function waitUntilHealthy(

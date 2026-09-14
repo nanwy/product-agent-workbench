@@ -231,5 +231,5 @@ export function RuntimeToolbar({ snapshot, busyAction, previewUrl, onStart, onSt
 }
 
 export function RuntimeFacts({ snapshot }: { snapshot: WorkbenchSnapshot }) {
-  return <dl className="runtime-facts"><div><dt>状态</dt><dd data-testid="process-status">{snapshot.process.status}</dd></div><div><dt>PID</dt><dd>{snapshot.process.pid ?? '—'}</dd></div><div><dt>命令</dt><dd>{snapshot.process.command || '—'}</dd></div><div><dt>健康地址</dt><dd>{snapshot.process.healthUrl || '—'}</dd></div></dl>
+  return <dl className="runtime-facts"><div><dt>状态</dt><dd data-testid="process-status">{snapshot.process.status}</dd></div><div><dt>所有权</dt><dd data-testid="process-ownership">{snapshot.process.ownership}</dd></div><div><dt>PID</dt><dd>{snapshot.process.pid ?? '—'}</dd></div><div><dt>命令</dt><dd>{snapshot.process.command || '—'}</dd></div><div><dt>健康地址</dt><dd>{snapshot.process.healthUrl || '—'}</dd></div></dl>
 }

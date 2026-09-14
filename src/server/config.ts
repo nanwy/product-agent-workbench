@@ -41,6 +41,9 @@ function validateConfig(config: TargetProjectConfigFile) {
   if (!config.startCommand.command.trim()) {
     throw new Error('目标项目配置缺少 startCommand.command')
   }
+  if (config.runtimeReuse && !config.runtimeReuse.healthBodyIncludes.trim()) {
+    throw new Error('runtimeReuse.healthBodyIncludes 不能为空')
+  }
 
   for (const validation of config.validationCommands ?? []) {
     if (!validation.id.trim() || !validation.label.trim() || !validation.command.trim()) {

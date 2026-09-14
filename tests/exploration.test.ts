@@ -125,6 +125,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
     targetSnapshot,
     processFacts: {
       status: 'stopped',
+      ownership: 'none',
       pid: null,
       command: 'node server.mjs',
       healthUrl: targetSnapshot.healthUrl,

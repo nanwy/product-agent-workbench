@@ -5,7 +5,7 @@ import type { TargetProjectConfig, ValidationCommand, ValidationRecord } from '.
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, filesOutsideScope } from './git-workspace'
 import { requirementStore } from './requirement-store'
-import { getTargetProcessSnapshot } from './target-runtime'
+import { getTargetProcessSnapshot, startTargetProject } from './target-runtime'
 
 /**
  * 第五票的验证编排入口。
@@ -33,6 +33,8 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
   const records: ValidationRecord[] = []
   for (const command of target.validationCommands ?? []) records.push(await runValidationCommand(command, target, signal))
   records.push(await validateScope(requirement.branch.baseRevision, scopedTarget))
+  // 候选实现完成后由宿主确保运行时就绪；执行 Agent 无需在沙箱中监听端口或操作浏览器。
+  if (!signal?.aborted && getTargetProcessSnapshot(target).status !== 'ready') await startTargetProject(target)
   records.push(await validateRuntime(requirement.targetPage, target))
   records.push(record({
     id: 'product-acceptance',
@@ -101,7 +103,7 @@ async function validateRuntime(targetPage: string, target: TargetProjectConfig):
     detail: '目标项目尚未就绪，可启动后重跑验证', notRunReason: '目标运行时未就绪',
   })
   try {
-    const response = await fetch(new URL(targetPage, target.previewUrl), { signal: AbortSignal.timeout(5000) })
+    const response = await fetch(new URL(targetPage, snapshot.gatewayUrl), { signal: AbortSignal.timeout(5000) })
     return record({
       id: 'runtime-preview', criterion: `目标页面 ${targetPage} 可访问`, result: response.ok ? 'verified' : 'failed', source: 'runtime',
       detail: `HTTP ${response.status} ${response.statusText}`,

@@ -87,6 +87,10 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
     grilling: requirement.grilling ?? { status: 'confirmed', questions: [], confirmedAt: requirement.createdAt },
     workflow,
     skills,
+    processFacts: {
+      ...requirement.processFacts,
+      ownership: requirement.processFacts?.ownership ?? 'none',
+    },
     branch: requirement.branch ?? null,
     codex: requirement.codex ?? { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null },
     validation: requirement.validation ?? [],

@@ -32,6 +32,7 @@ test('creates, restores, explores, previews, and confirms a product requirement'
 
   await page.getByRole('button', { name: '启动项目' }).click()
   await expect(page.getByTestId('process-status')).toHaveText('ready')
+  await expect(page.getByTestId('process-ownership')).toHaveText('workbench')
   await expect(page.frameLocator('iframe').getByRole('heading', { name: 'Fixture target' })).toBeVisible()
 
   const gatewayResponse = await request.get('http://127.0.0.1:4174/competition')

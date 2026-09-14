@@ -38,13 +38,23 @@ export async function startPreviewGateway(upstream: string, port: number) {
   state.server = server
   state.port = port
 
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => {
-      server.off('error', reject)
-      resolve()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, '127.0.0.1', () => {
+        server.off('error', reject)
+        resolve()
+      })
     })
-  })
+  } catch (error) {
+    // 监听失败时清掉单例引用，使修复端口冲突后可以直接重试。
+    if (state.server === server) {
+      state.server = null
+      state.upstream = null
+      state.port = null
+    }
+    throw error
+  }
 
   return gatewayOrigin(port)
 }

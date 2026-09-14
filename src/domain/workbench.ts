@@ -163,6 +163,8 @@ export type TargetProjectConfig = {
   previewUrl: string
   previewGatewayPort: number
   startupTimeoutMs: number
+  // 只有响应正文包含显式标记时，才把启动前已存在的服务视为可安全复用。
+  runtimeReuse?: { healthBodyIncludes: string }
   validationCommands?: ValidationCommand[]
 }
 
@@ -216,6 +218,7 @@ export type TargetProcessStatus =
 export type TargetProcessSnapshot = {
   // 进程快照用于展示和审计；真正的 ChildProcess 句柄只存在于 target-runtime 模块内。
   status: TargetProcessStatus
+  ownership: 'none' | 'workbench' | 'external'
   pid: number | null
   command: string
   healthUrl: string

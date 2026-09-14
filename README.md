@@ -25,6 +25,8 @@ pnpm dev
 
 默认连接相邻目录中的 `Mysterious-Realm-v2/apps/front`。目标仓库、启动命令、健康地址和预览地址由 `config/target-project.json` 显式配置，产品输入不能修改命令。
 
+如需复用用户已经启动的目标服务，可配置 `runtimeReuse.healthBodyIncludes`。工作台只在健康响应正文包含该项目专属标记时复用；否则把端口视为身份不明的占用者，既不覆盖也不终止。
+
 ## 验证
 
 ```bash

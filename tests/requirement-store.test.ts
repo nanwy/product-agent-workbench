@@ -62,7 +62,7 @@ function fixtureRequirement(): Requirement {
     stage: 'intent-drafting', createdAt: now, updatedAt: now, modificationRounds: 0,
     grilling: { status: 'pending', questions: [], confirmedAt: null }, spec: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
     targetSnapshot: target,
-    processFacts: { status: 'stopped', pid: null, command: '', healthUrl: target.healthUrl, previewUrl: target.previewUrl, gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },
+    processFacts: { status: 'stopped', ownership: 'none', pid: null, command: '', healthUrl: target.healthUrl, previewUrl: target.previewUrl, gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },
     branch: null, codex: { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null }, validation: [], delivery: null,
   }
 }
