@@ -1,0 +1,13 @@
+{
+  "name": "Fixture Product / front",
+  "repositoryRoot": "./target-project",
+  "modificationScope": "apps/front",
+  "startCommand": {
+    "command": "node",
+    "args": ["server.mjs"]
+  },
+  "healthUrl": "http://127.0.0.1:4173/health",
+  "previewUrl": "http://127.0.0.1:4173",
+  "previewGatewayPort": 4174,
+  "startupTimeoutMs": 5000
+}
