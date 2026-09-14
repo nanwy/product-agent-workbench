@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { rm, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -76,6 +76,19 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByTestId('delivery-card')).toContainText('apps/front/app/competition/page.tsx')
   const { stdout: commitSubject } = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: targetRoot })
   expect(commitSubject).toContain('SPEC-')
+
+  // Simulate a turn that started before the verification transition existed:
+  // its persisted state says implementation is complete, but has no matrix yet.
+  const requirementPath = path.join(os.tmpdir(), 'product-agent-workbench-e2e-data', 'current-requirement.json')
+  const legacyRequirement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  legacyRequirement.stage = 'implementation'
+  legacyRequirement.validation = []
+  legacyRequirement.delivery = null
+  await writeFile(requirementPath, `${JSON.stringify(legacyRequirement, null, 2)}\n`)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '开始验证' })).toBeVisible()
+  await page.getByRole('button', { name: '开始验证' }).click()
+  await expect(page.getByText('Verification Matrix')).toBeVisible()
 
   await page.getByRole('button', { name: '停止' }).click()
   await expect(page.getByTestId('process-status')).toHaveText('stopped')

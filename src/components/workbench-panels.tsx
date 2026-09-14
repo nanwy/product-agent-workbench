@@ -145,7 +145,13 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: 
 }) {
   // UI 只根据持久化的矩阵渲染，不通过日志文案推断验证结果。
   // disabled 是交互反馈；真正的验收门禁在 acceptCurrentRequirement 服务端函数中。
-  if (!requirement.validation.length && !['verification', 'awaiting-product-acceptance', 'accepted'].includes(requirement.stage)) return null
+  // 开发服务热更时，已经运行的旧 executeQueue 可能只写入 completed，没有触发新增的验证转移。
+  // 这个稳定的持久化组合提供显式恢复入口，避免在 GET 轮询中暗中执行验证命令。
+  const canStartVerification = requirement.stage === 'implementation'
+    && requirement.codex.status === 'completed'
+    && requirement.tickets.length > 0
+    && requirement.tickets.every((ticket) => ticket.status === 'completed')
+  if (!canStartVerification && !requirement.validation.length && !['verification', 'awaiting-product-acceptance', 'accepted'].includes(requirement.stage)) return null
   const hasFailure = requirement.validation.some((item) => item.result === 'failed')
   return (
     <section className="validation-panel" aria-label="验证与产品验收">
@@ -158,7 +164,7 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: 
           {item.notRunReason ? <small>{item.notRunReason}</small> : null}
         </article>)}
       </div>
-      {requirement.stage === 'verification' ? <button className="primary-button" disabled={busyAction !== null} onClick={onRerun} type="button">{busyAction === 'verify' ? '正在重跑验证…' : '重跑验证'}</button> : null}
+      {canStartVerification || requirement.stage === 'verification' ? <button className="primary-button" disabled={busyAction !== null} onClick={onRerun} type="button">{busyAction === 'verify' ? '正在验证…' : canStartVerification ? '开始验证' : '重跑验证'}</button> : null}
       {requirement.stage === 'awaiting-product-acceptance' ? <><p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p><button className="primary-button" disabled={busyAction !== null || hasFailure} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button></> : null}
       {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
     </section>
