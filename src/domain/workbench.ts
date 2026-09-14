@@ -187,15 +187,30 @@ export type ValidationCommand = {
  */
 export type ValidationRecord = {
   id: string
+  // Spec 条件使用 SPEC-AC-01 这类稳定编号；基础设施检查没有关联条件时为 null。
+  criterionId: string | null
   criterion: string
+  // required 决定该行是否属于产品验收前的机器门禁。
+  required: boolean
   result: 'verified' | 'failed' | 'not-run'
-  source: 'command' | 'git-scope' | 'runtime' | 'product'
+  source: 'command' | 'git-scope' | 'runtime' | 'browser' | 'workflow' | 'product'
   detail: string
   command: string | null
   exitCode: number | null
   startedAt: string
   completedAt: string
   notRunReason: string | null
+  browserEvidence: BrowserEvidence | null
+}
+
+/** agent-browser 对真实目标路由留下的结构化证据；Playwright 只负责固化后续稳定断言。 */
+export type BrowserEvidence = {
+  targetUrl: string
+  viewport: { width: number; height: number }
+  // Accessibility Tree 中的 @eN 即语义化引用；限长后持久化，避免需求文件无限膨胀。
+  accessibilityTree: string
+  semanticRefs: string[]
+  consoleErrors: string[]
 }
 
 /** 产品验收后冻结的交付快照，指向一个不再变动的 Git revision。 */

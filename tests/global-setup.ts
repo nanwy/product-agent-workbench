@@ -17,6 +17,7 @@ export default async function globalSetup() {
   await mkdir(path.dirname(target), { recursive: true })
   await cp(source, target, { recursive: true })
   await chmod(path.resolve('tests/fixtures/fake-codex.mjs'), 0o755)
+  await chmod(path.resolve('tests/fixtures/fake-agent-browser.mjs'), 0o755)
   await execFileAsync('git', ['init', '-b', 'main'], { cwd: target })
   await execFileAsync('git', ['config', 'user.name', 'Workbench Fixture'], { cwd: target })
   await execFileAsync('git', ['config', 'user.email', 'fixture@example.test'], { cwd: target })

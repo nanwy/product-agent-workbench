@@ -26,6 +26,7 @@ export default defineConfig({
       WORKBENCH_DATA_DIR: path.join(os.tmpdir(), 'product-agent-workbench-e2e-data'),
       WORKBENCH_TARGET_CONFIG: 'tests/fixtures/target-config.json',
       WORKBENCH_CODEX_COMMAND: path.resolve('tests/fixtures/fake-codex.mjs'),
+      WORKBENCH_AGENT_BROWSER_COMMAND: path.resolve('tests/fixtures/fake-agent-browser.mjs'),
       WORKBENCH_TARGET_ROOT: path.join(os.tmpdir(), 'product-agent-workbench-e2e-target'),
     },
   },

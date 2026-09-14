@@ -283,17 +283,19 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   // 第一层门禁：只有验证编排已结束并转入待验收阶段，按钮才能生效。
   // 第二层门禁：服务端再次检查 failed，不信任前端的 disabled 状态。
   if (requirement.stage !== 'awaiting-product-acceptance') throw new Error('只有自动验证完成的候选实现可以验收')
-  if (requirement.validation.some((item) => item.result === 'failed')) throw new Error('存在失败的验证项，不能验收')
+  if (requirement.validation.some((item) => item.required && item.result !== 'verified')) {
+    throw new Error('存在失败或未运行的必要验证项，不能验收')
+  }
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
   // 验收的副作用是“冻结候选实现”：先重查当前分支/范围，再创建稳定 commit。
   // 只有 commit 成功后才会把 Requirement 写成 accepted，中途失败不会产生假验收。
   const committed = await commitAcceptedCandidate(requirement, target)
   const acceptedAt = new Date().toISOString()
-  const validation = requirement.validation.map((item) => item.id === 'product-acceptance' ? {
+  const validation = requirement.validation.map((item) => item.source === 'product' && item.result === 'not-run' ? {
     ...item,
     result: 'verified' as const,
-    detail: '产品已在工作台显式确认候选实现',
+    detail: item.id === 'product-acceptance' ? '产品已在工作台显式确认候选实现' : '产品已结合真实预览与 agent-browser 证据确认该验收条件',
     notRunReason: null,
     completedAt: acceptedAt,
   } : item)

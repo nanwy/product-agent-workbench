@@ -129,6 +129,10 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .validation-list header span { font: 800 9px/1 monospace; text-transform: uppercase; }
 .validation-list p, .validation-list small { display: block; margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .validation-list code { display: block; margin-top: 5px; overflow-wrap: anywhere; font-size: 9px; }
+.validation-list time { display: block; margin-top: 5px; color: var(--muted); font: 8px/1.4 monospace; }
+.validation-list details { margin-top: 7px; }
+.validation-list details summary { cursor: pointer; font-size: 9px; font-weight: 800; }
+.validation-list details pre { max-height: 180px; margin: 6px 0 0; overflow: auto; white-space: pre-wrap; font-size: 8px; }
 .acceptance-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .delivery-card { padding: 12px; border: 1px solid var(--ink); background: rgba(200,255,54,.12); box-shadow: 4px 4px 0 var(--ink); }
 .delivery-card dl { display: grid; gap: 5px; margin: 10px 0; }

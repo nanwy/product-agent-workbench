@@ -93,7 +93,13 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
     },
     branch: requirement.branch ?? null,
     codex: requirement.codex ?? { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null },
-    validation: requirement.validation ?? [],
+    validation: (requirement.validation ?? []).map((record) => ({
+      // 兼容第五票补全前已经落盘的矩阵，避免要求用户删除当前需求。
+      ...record,
+      criterionId: record.criterionId ?? null,
+      required: record.required ?? record.id !== 'product-acceptance',
+      browserEvidence: record.browserEvidence ?? null,
+    })),
     delivery: requirement.delivery ?? null,
   }
 }

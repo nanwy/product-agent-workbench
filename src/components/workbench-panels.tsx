@@ -156,20 +156,24 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: 
     && requirement.tickets.length > 0
     && requirement.tickets.every((ticket) => ticket.status === 'completed')
   if (!canStartVerification && !requirement.validation.length && !['verification', 'awaiting-product-acceptance', 'accepted'].includes(requirement.stage)) return null
-  const hasFailure = requirement.validation.some((item) => item.result === 'failed')
+  const hasBlockingRecord = requirement.validation.some((item) => item.required && item.result !== 'verified')
   return (
     <section className="validation-panel" aria-label="验证与产品验收">
       <div className="section-label">Verification Matrix</div>
+      <p className="acceptance-note" data-testid="candidate-status">候选实现状态：{requirement.stage === 'accepted' ? '已验收' : hasBlockingRecord ? '验证受阻' : requirement.stage === 'awaiting-product-acceptance' ? '等待产品验收' : '正在验证'}</p>
       <div className="validation-list">
         {requirement.validation.map((item) => <article data-result={item.result} key={item.id}>
-          <header><strong>{item.criterion}</strong><span>{item.result}</span></header>
+          <header><strong>{item.criterionId ? `${item.criterionId} · ` : ''}{item.criterion}</strong><span>{item.result}</span></header>
           <p>{item.detail}</p>
+          <small>来源：{item.source} · {item.required ? '必要门禁' : '非机器门禁'}</small>
           {item.command ? <code>{item.command} · exit {item.exitCode}</code> : null}
           {item.notRunReason ? <small>{item.notRunReason}</small> : null}
+          {item.browserEvidence ? <details><summary>agent-browser 证据</summary><small>{item.browserEvidence.targetUrl} · {item.browserEvidence.viewport.width}×{item.browserEvidence.viewport.height} · refs {item.browserEvidence.semanticRefs.join(', ') || '无'}</small><pre>{item.browserEvidence.accessibilityTree}</pre>{item.browserEvidence.consoleErrors.length ? <pre>{item.browserEvidence.consoleErrors.join('\n')}</pre> : null}</details> : null}
+          <time>{new Date(item.startedAt).toLocaleString('zh-CN')} → {new Date(item.completedAt).toLocaleString('zh-CN')}</time>
         </article>)}
       </div>
       {canStartVerification || requirement.stage === 'verification' ? <button className="primary-button" disabled={busyAction !== null} onClick={onRerun} type="button">{busyAction === 'verify' ? '正在验证…' : canStartVerification ? '开始验证' : '重跑验证'}</button> : null}
-      {requirement.stage === 'awaiting-product-acceptance' ? <><p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p><button className="primary-button" disabled={busyAction !== null || hasFailure} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button></> : null}
+      {requirement.stage === 'awaiting-product-acceptance' ? <><p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p><button className="primary-button" disabled={busyAction !== null || hasBlockingRecord} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button></> : null}
       {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
     </section>
   )

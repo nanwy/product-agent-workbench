@@ -96,4 +96,45 @@ test('creates, restores, explores, previews, and confirms a product requirement'
 
   await page.getByRole('button', { name: '停止' }).click()
   await expect(page.getByTestId('process-status')).toHaveText('stopped')
+
+  // 第五票的负路径直接重放持久化矩阵快照：它们验证 UI/门禁，不重跑 Codex 或新建分支。
+  const verifiedSnapshot = JSON.parse(await readFile(requirementPath, 'utf8'))
+  const verifiedRecord = verifiedSnapshot.validation.find((item: { required: boolean; result: string }) => item.required && item.result === 'verified')
+
+  await test.step('代码检查失败时停留在 verification', async () => {
+    const failed = { ...verifiedSnapshot, stage: 'verification', validation: [{ ...verifiedRecord, id: 'code-failure', result: 'failed', detail: 'typecheck failed', exitCode: 2 }] }
+    await writeFile(requirementPath, `${JSON.stringify(failed, null, 2)}\n`)
+    await page.reload()
+    await expect(page.locator('.validation-list article[data-result="failed"]')).toHaveCount(1)
+    await expect(page.getByTestId('candidate-status')).toContainText('验证受阻')
+    await expect(page.getByRole('button', { name: '通过产品验收' })).toHaveCount(0)
+  })
+
+  await test.step('环境原因 not-run 时阻止验收并展示原因', async () => {
+    const notRun = { ...verifiedRecord, id: 'browser-not-run', source: 'browser', result: 'not-run', notRunReason: 'environment: agent-browser 未安装' }
+    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'verification', validation: [notRun] }, null, 2)}\n`)
+    await page.reload()
+    await expect(page.locator('.validation-list article[data-result="not-run"]')).toContainText('agent-browser 未安装')
+    await expect(page.getByTestId('candidate-status')).toContainText('验证受阻')
+  })
+
+  await test.step('新增 console error 作为失败证据', async () => {
+    const consoleFailure = {
+      ...verifiedRecord,
+      id: 'console-error', source: 'browser', result: 'failed', detail: '发现 1 条新增 browser console/page error',
+      browserEvidence: { targetUrl: 'http://127.0.0.1:4174/competition', viewport: { width: 1440, height: 900 }, accessibilityTree: '@e1 [heading] "Fixture target"', semanticRefs: ['@e1'], consoleErrors: ['[error] boom'] },
+    }
+    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'verification', validation: [consoleFailure] }, null, 2)}\n`)
+    await page.reload()
+    await expect(page.getByText('发现 1 条新增 browser console/page error')).toBeVisible()
+    await page.getByText('agent-browser 证据').click()
+    await expect(page.getByText('[error] boom')).toBeVisible()
+  })
+
+  await test.step('即使快照阶段错误，必要 not-run 仍禁用验收按钮', async () => {
+    const notRun = { ...verifiedRecord, id: 'required-not-run', result: 'not-run', notRunReason: 'environment: preview unavailable' }
+    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'awaiting-product-acceptance', validation: [notRun] }, null, 2)}\n`)
+    await page.reload()
+    await expect(page.getByRole('button', { name: '通过产品验收' })).toBeDisabled()
+  })
 })

@@ -19,6 +19,24 @@
       "timeoutMs": 120000,
       "environment": "production",
       "proxyPolicy": "auto"
+    },
+    {
+      "id": "front-test",
+      "label": "Front focused integration test",
+      "command": "pnpm",
+      "args": ["-F", "front", "test:event-map-focus"],
+      "timeoutMs": 120000,
+      "environment": "test",
+      "proxyPolicy": "auto"
+    },
+    {
+      "id": "front-build",
+      "label": "Front production build",
+      "command": "pnpm",
+      "args": ["-F", "front", "build"],
+      "timeoutMs": 300000,
+      "environment": "production",
+      "proxyPolicy": "auto"
     }
   ]
 }
