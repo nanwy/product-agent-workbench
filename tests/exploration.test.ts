@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Requirement, TargetProjectConfig } from '../src/domain/workbench'
 import { exploreRequirement } from '../src/server/exploration'
-import { buildExecutionPrompt } from '../src/server/workbench-execution'
+import { buildExecutionPrompt, executionWritableRoot, recoverInterruptedRequirement } from '../src/server/workbench-execution'
 
 // 探索测试固定规则覆盖、Skill 激活、边界识别和执行票拆分这四个纯只读行为。
 describe('target project exploration', () => {
@@ -55,6 +55,23 @@ describe('target project exploration', () => {
     expect(prompt).toContain('中文多行 JSDoc')
     expect(prompt).not.toContain('to-spec')
     expect(prompt).not.toContain('to-tickets')
+  })
+
+  it('narrows the Codex writable root to the confirmed modification scope', () => {
+    const target = targetFixture()
+    expect(executionWritableRoot(target)).toBe(path.resolve(target.repositoryRoot, 'apps/front'))
+    expect(() => executionWritableRoot({ ...target, modificationScope: '../outside' })).toThrow('超出目标仓库')
+  })
+
+  it('recovers a persisted running ticket after the owning service process disappears', () => {
+    const requirement = requirementFixture('更新文案')
+    requirement.tickets = [{ id: 'TICKET-01', title: '更新文案', status: 'active', acceptanceCriteria: [] }]
+    requirement.codex = { ...requirement.codex, status: 'running', activeTicketId: 'TICKET-01', sessionId: 'session-1' }
+
+    const recovered = recoverInterruptedRequirement(requirement, '服务已重启')
+
+    expect(recovered.tickets[0].status).toBe('blocked')
+    expect(recovered.codex).toMatchObject({ status: 'failed', sessionId: 'session-1', activeTicketId: 'TICKET-01', error: '服务已重启' })
   })
 
   it('raises a boundary item for authentication changes', async () => {

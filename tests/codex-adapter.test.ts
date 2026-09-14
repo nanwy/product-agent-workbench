@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { cancelCodexTurn, runCodexTurn } from '../src/server/codex-adapter'
+import { cancelCodexTurn, normalizeCodexEvent, runCodexTurn } from '../src/server/codex-adapter'
 
 // 适配器测试只验证 CLI 协议、事件归一化和取消语义，不依赖本机真实 Codex。
 const originalCommand = process.env.WORKBENCH_CODEX_COMMAND
@@ -56,5 +56,20 @@ describe('Codex adapter', () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.sessionId).toBe('00000000-0000-4000-8000-000000000001')
     expect(cancelCodexTurn()).toBe(false)
+  })
+
+  it('normalizes session, message, tool, file, completion, failure, and malformed JSONL', () => {
+    const cases = [
+      [{ type: 'thread.started', thread_id: 'session-1' }, 'session'],
+      [{ type: 'item.completed', item: { type: 'agent_message', text: 'implemented' } }, 'message'],
+      [{ type: 'item.started', item: { type: 'command_execution', command: 'pnpm test' } }, 'tool'],
+      [{ type: 'item.completed', item: { type: 'file_change', path: 'src/page.tsx' } }, 'file'],
+      [{ type: 'turn.completed' }, 'completed'],
+      [{ type: 'turn.failed', message: 'token=private' }, 'failed'],
+      [{ type: 'unknown', message: 'not-json' }, 'unknown'],
+    ] as const
+
+    for (const [input, expected] of cases) expect(normalizeCodexEvent(input, JSON.stringify(input)).type).toBe(expected)
+    expect(normalizeCodexEvent(cases[5][0], '').message).toContain('token=[REDACTED]')
   })
 })

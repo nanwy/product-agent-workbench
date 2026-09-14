@@ -1,6 +1,8 @@
+import path from 'node:path'
+
 import type { AgentEvent, Requirement } from '../domain/workbench'
 import { publishAgentEvent } from './agent-events'
-import { cancelCodexTurn, event, runCodexTurn } from './codex-adapter'
+import { cancelCodexTurn, event, hasActiveCodexTurn, runCodexTurn } from './codex-adapter'
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from './git-workspace'
 import { requirementStore } from './requirement-store'
@@ -24,6 +26,36 @@ export function startRequirementExecution() {
   const start = prepareExecution()
   globalExecution.__workbenchExecutionStart = start
   return start.finally(() => { globalExecution.__workbenchExecutionStart = null })
+}
+
+/**
+ * 把服务重启遗留的 running 状态恢复为可重试失败态。
+ *
+ * Requirement 会持久化，而 Promise 与 ChildProcess 只属于旧 Node 进程。若内存中已无
+ * 执行事实，当前票改回 blocked；分支和 session 保留，用户可以继续而不必重建需求。
+ */
+export async function reconcileInterruptedExecution() {
+  const requirement = await requirementStore.load()
+  if (!requirement || requirement.codex.status !== 'running') return requirement
+  if (globalExecution.__workbenchExecution || hasActiveCodexTurn()) return requirement
+  const reason = '工作台服务在 Codex 执行期间重启；原进程已不存在，可从当前 Session 继续'
+  const interrupted = event('failed', reason)
+  const recovered = await requirementStore.update((current) => {
+    if (!current || current.codex.status !== 'running') return current ?? requirement
+    return recoverInterruptedRequirement(current, reason, interrupted)
+  })
+  publishAgentEvent(interrupted)
+  return recovered
+}
+
+/** 纯状态转换，便于验证重启恢复不会丢失分支、session 或已完成票。 */
+export function recoverInterruptedRequirement(requirement: Requirement, reason: string, interrupted = event('failed', reason)): Requirement {
+  return {
+    ...requirement,
+    tickets: requirement.tickets.map((ticket) => ticket.id === requirement.codex.activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
+    codex: { ...requirement.codex, status: 'failed', error: reason, events: [...requirement.codex.events, interrupted].slice(-200) },
+    updatedAt: new Date().toISOString(),
+  }
 }
 
 async function prepareExecution() {
@@ -114,8 +146,10 @@ async function executeQueue(signal: AbortSignal) {
     const ticket = requirement.tickets.find((candidate) => candidate.status === 'active')
     if (!ticket) return
     const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
+    const writableRoot = executionWritableRoot(scopedTarget)
     const result = await runCodexTurn({
-      workspaceRoot: target.repositoryRoot,
+      // -C 与 workspace-write 同时指向确认范围，越界写入会在发生前被 Codex 沙箱拒绝。
+      workspaceRoot: writableRoot,
       prompt: buildExecutionPrompt(requirement, ticket),
       sessionId: requirement.codex.sessionId,
       signal,
@@ -183,7 +217,7 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
 export function buildExecutionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {
   const targetSkillSources = requirement.skills
     .filter((skill) => skill.active)
-    .map((skill) => `- ${skill.name}：${skill.source}`)
+    .map((skill) => `- ${skill.name}：${path.resolve(requirement.targetSnapshot.repositoryRoot, skill.source)}`)
   // prompt 只传 Skill 入口路径，不复制正文；Codex 在自己的文件上下文中读取唯一事实源。
   return [
     `实现已确认需求：${requirement.spec?.title}`,
@@ -202,6 +236,14 @@ export function buildExecutionPrompt(requirement: Requirement, ticket: Requireme
     ].join('\n'),
     '直接实现并自行检查；不要提交、推送、创建 PR，也不要修改允许范围之外的文件。',
   ].join('\n\n')
+}
+
+/** 将确认范围解析成 Codex 唯一可写根，并拒绝通过绝对路径或 `..` 逃逸仓库。 */
+export function executionWritableRoot(target: Pick<Awaited<ReturnType<typeof loadTargetProjectConfig>>, 'repositoryRoot' | 'modificationScope'>) {
+  const root = path.resolve(target.repositoryRoot)
+  const writableRoot = path.resolve(root, target.modificationScope)
+  if (writableRoot !== root && !writableRoot.startsWith(`${root}${path.sep}`)) throw new Error('执行写入范围超出目标仓库')
+  return writableRoot
 }
 
 async function requireRequirement() {

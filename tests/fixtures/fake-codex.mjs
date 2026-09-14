@@ -31,6 +31,9 @@ if (prompt.includes('SLOW_TURN') || await stat(slowMarker).then(() => true).catc
   await new Promise((resolve) => setTimeout(resolve, 5000))
 }
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: `正在实现 ${ticket}` } }))
-await appendFile(path.join(process.cwd(), 'apps/front/app/competition/page.tsx'), `\n// implemented ${ticket}\n`)
+const targetFile = process.cwd().endsWith(path.join('apps', 'front'))
+  ? path.join(process.cwd(), 'app/competition/page.tsx')
+  : path.join(process.cwd(), 'apps/front/app/competition/page.tsx')
+await appendFile(targetFile, `\n// implemented ${ticket}\n`)
 console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', name: 'apps/front/app/competition/page.tsx' } }))
 console.log(JSON.stringify({ type: 'turn.completed' }))

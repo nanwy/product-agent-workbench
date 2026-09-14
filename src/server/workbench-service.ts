@@ -12,6 +12,7 @@ import {
 import { loadTargetProjectConfig } from './config'
 import { exploreRequirement, workflowSteps } from './exploration'
 import { requirementStore } from './requirement-store'
+import { reconcileInterruptedExecution } from './workbench-execution'
 import { commitAcceptedCandidate } from './git-workspace'
 import {
   getTargetProcessSnapshot,
@@ -26,6 +27,8 @@ import {
  * 路由和 UI 应读取这个快照，不应分别访问底层模块后自行拼装状态。
  */
 export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
+  // 首次读取也承担服务重启恢复：不会重放写动作，只把失去进程的 running 变为可继续状态。
+  await reconcileInterruptedExecution()
   const [requirement, target] = await Promise.all([
     requirementStore.load(),
     loadTargetProjectConfig().catch(() => null),

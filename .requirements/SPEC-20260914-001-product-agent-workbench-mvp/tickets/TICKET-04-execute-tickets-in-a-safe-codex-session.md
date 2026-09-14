@@ -1,7 +1,7 @@
 # TICKET-04 在安全需求分支中连续执行 Codex 票
 
-**Type:** AFK  
-**Status:** Partial
+**Type:** AFK
+**Status:** Done
 
 ## Parent
 
@@ -20,16 +20,16 @@ Spec 与边界确认后，记录目标仓库的 base branch、base revision 和�
 
 ## Acceptance criteria
 
-- [ ] 执行前记录 base branch、base revision 和完整 working-tree 状态。
-- [ ] 脏工作区、merge/rebase 或无法安全分离的变更会阻止建分支，且不破坏现有内容。
-- [ ] 首次执行创建需求分支；失败或取消后的重试复用同一 Requirement 和分支。
-- [ ] Codex 以目标仓库为 cwd，首票创建 session，后续票通过 resume 使用同一 session ID。
-- [ ] 只有一张 active Ticket；完成后自动推进下一张，失败时当前票标为 blocked。
-- [ ] 执行上下文只声明真实可用的目标项目 Skill，并让 Codex 能读取生效规则和 Skill 指令。
-- [ ] 每个 turn 前后核对分支、HEAD 和修改范围；范围外修改阻止继续执行并明确显示文件。
-- [ ] SSE 只推送状态变化，刷新后从持久化 Requirement 恢复，不重复执行写动作。
-- [ ] 取消会终止工作台拥有的 Codex 进程组，保留 session ID，并允许继续当前票。
-- [ ] 自动化测试覆盖建分支、脏工作区保护、多票串行、session 续接、失败、取消和范围越界。
+- [x] 执行前记录 base branch、base revision 和完整 working-tree 状态。
+- [x] 脏工作区、merge/rebase 或无法安全分离的变更会阻止建分支，且不破坏现有内容。
+- [x] 首次执行创建需求分支；失败或取消后的重试复用同一 Requirement 和分支。
+- [x] Codex 以确认修改范围为 cwd，首票创建 session，后续票通过 resume 使用同一 session ID。
+- [x] 只有一张 active Ticket；完成后自动推进下一张，失败时当前票标为 blocked。
+- [x] 执行上下文只声明真实可用的目标项目 Skill，并让 Codex 能读取生效规则和 Skill 指令。
+- [x] Codex 沙箱在写入前限制修改范围，并在每个 turn 前后复核分支、HEAD 和改动文件。
+- [x] SSE 只推送状态变化；刷新从持久化 Requirement 恢复，服务重启遗留状态转为可续接失败态。
+- [x] 取消会终止工作台拥有的 Codex 进程组，保留 session ID，并允许继续当前票。
+- [x] 自动化测试覆盖建分支、脏工作区保护、多票串行、session 续接、失败、取消、范围和 JSONL 事件。
 
 ## Blocked by
 
@@ -39,11 +39,4 @@ Spec 与边界确认后，记录目标仓库的 base branch、base revision 和�
 
 主功能已实现：Git 起点记录、脏工作区阻断、需求分支、串行票、连续 session、SSE、取消与恢复按钮均已落地。
 
-仍缺：
-
-- Codex 的 workspace-write 沙箱覆盖整个目标仓库；修改范围目前依赖 prompt 和 turn 后 Git 检查，不能阻止范围外文件先被写入。
-- 工作台发现范围外修改后会阻止后续执行，但不会也不应擅自回滚，因此需要明确的人工恢复路径。
-- Node 服务若在 Codex 运行中退出，持久状态可能停在 `running`，重启后没有内存队列且 UI 不提供恢复按钮。
-- Codex adapter 测试没有完整覆盖 message、tool、file、failure 等 JSONL 归一化事件。
-- “执行上下文只包含真实可用 Skill”仍受 TICKET-03 的 Skill 真值缺口影响。
-
+补齐结果：Codex 的 cwd 与 `workspace-write` 已收窄至确认目录，turn 后 Git 检查继续作为纵深防御；服务重启会把失去进程的 `running` 恢复为保留 session 的可重试状态；adapter 已覆盖 session、message、tool、file、completed、failed 和未知 JSONL 事件。目标项目 Skill 使用可追溯绝对入口路径读取。

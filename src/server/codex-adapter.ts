@@ -46,7 +46,7 @@ export async function runCodexTurn(input: {
       // CLI 事件形状可随版本变动，adapter 在这里归一化为应用稳定 AgentEvent。
       const parsed = parseJson(line)
       sessionId = extractSessionId(parsed) ?? sessionId
-      await input.onEvent(normalizeEvent(parsed, line), sessionId)
+      await input.onEvent(normalizeCodexEvent(parsed, line), sessionId)
     }
   } catch (error) {
     terminateCodexChild(child)
@@ -69,6 +69,12 @@ export function cancelCodexTurn() {
   if (!child?.pid || child.exitCode !== null) return false
   terminateCodexChild(child)
   return true
+}
+
+/** 服务重启恢复时用来区分“真实子进程仍在”与“只有 JSON 还写着 running”。 */
+export function hasActiveCodexTurn() {
+  const child = globalCodex.__workbenchCodexChild
+  return Boolean(child?.pid && child.exitCode === null)
 }
 
 function terminateCodexChild(child: ChildProcess) {
@@ -127,13 +133,14 @@ function extractSessionId(value: unknown) {
   return typeof candidate === 'string' ? candidate : null
 }
 
-function normalizeEvent(value: unknown, raw: string): AgentEvent {
+/** 把易变的 Codex JSONL 形状压缩为工作台稳定的事件类型。 */
+export function normalizeCodexEvent(value: unknown, raw: string): AgentEvent {
   // 只暴露 UI 需要的少量语义类型，不让页面耦合 Codex CLI 的全部内部事件名。
   if (!value || typeof value !== 'object') return event('unknown', raw)
   const record = value as Record<string, unknown>
   const rawType = String(record.type ?? 'unknown')
   const item = record.item && typeof record.item === 'object' ? record.item as Record<string, unknown> : null
-  const message = String(record.message ?? item?.text ?? item?.name ?? rawType)
+  const message = String(record.message ?? item?.text ?? item?.name ?? item?.command ?? item?.path ?? rawType)
   if (/thread|session/.test(rawType)) return event('session', message)
   if (/message|agent_message/.test(`${rawType} ${item?.type ?? ''}`)) return event('message', message)
   if (/tool|command/.test(`${rawType} ${item?.type ?? ''}`)) return event('tool', message)
