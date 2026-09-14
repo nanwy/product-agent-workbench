@@ -7,6 +7,7 @@ import type { AgentEvent } from '../domain/workbench'
 
 const execFileAsync = promisify(execFile)
 const bundledCodex = '/Applications/ChatGPT.app/Contents/Resources/codex'
+// MVP 只允许一个 Codex turn 占用目标仓库；globalThis 让热更后仍能取消原 child。
 const globalCodex = globalThis as typeof globalThis & { __workbenchCodexChild?: ChildProcess | null }
 
 export type CodexTurnResult = { exitCode: number; sessionId: string | null }
@@ -22,6 +23,8 @@ export async function runCodexTurn(input: {
   const command = await resolveCodexCommand()
   await verifyCodexCommand(command)
   if (input.signal?.aborted) throw new Error('Codex turn 已取消')
+  // 首张票创建 session，后续票/返修用 resume 保留共同理解。
+  // -C 和 workspace-write 把执行位置与写权限锁在目标仓库；实际文件范围还会在 turn 后二次检查。
   const args = input.sessionId
     ? ['exec', 'resume', '--json', input.sessionId, input.prompt]
     : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', input.prompt]
@@ -29,6 +32,7 @@ export async function runCodexTurn(input: {
   globalCodex.__workbenchCodexChild = child
   const abort = () => terminateCodexChild(child)
   input.signal?.addEventListener('abort', abort, { once: true })
+  // stdout 是可解析 JSONL 事件，stderr 只在非零退出时作为失败证据。
   const completion = new Promise<number>((resolve, reject) => {
     child.once('error', reject)
     child.once('close', (code) => resolve(code ?? 1))
@@ -39,6 +43,7 @@ export async function runCodexTurn(input: {
   const lines = createInterface({ input: child.stdout! })
   try {
     for await (const line of lines) {
+      // CLI 事件形状可随版本变动，adapter 在这里归一化为应用稳定 AgentEvent。
       const parsed = parseJson(line)
       sessionId = extractSessionId(parsed) ?? sessionId
       await input.onEvent(normalizeEvent(parsed, line), sessionId)
@@ -75,6 +80,7 @@ function terminateCodexChild(child: ChildProcess) {
     if (!isMissingProcess(error)) throw error
   }
   const pid = child.pid
+  // 先终止整个 turn 进程组；3 秒后仍未退出才强制清理。
   const timer = setTimeout(() => {
     if (child.exitCode !== null) return
     try {
@@ -92,6 +98,7 @@ function isMissingProcess(error: unknown): error is NodeJS.ErrnoException {
 }
 
 async function resolveCodexCommand() {
+  // 测试可注入 fake CLI；macOS 优先桌面应用内置二进制，其他环境回退 PATH。
   if (process.env.WORKBENCH_CODEX_COMMAND) return process.env.WORKBENCH_CODEX_COMMAND
   try {
     await access(bundledCodex)
@@ -121,6 +128,7 @@ function extractSessionId(value: unknown) {
 }
 
 function normalizeEvent(value: unknown, raw: string): AgentEvent {
+  // 只暴露 UI 需要的少量语义类型，不让页面耦合 Codex CLI 的全部内部事件名。
   if (!value || typeof value !== 'object') return event('unknown', raw)
   const record = value as Record<string, unknown>
   const rawType = String(record.type ?? 'unknown')
@@ -136,6 +144,7 @@ function normalizeEvent(value: unknown, raw: string): AgentEvent {
 }
 
 export function event(type: AgentEvent['type'], message: string): AgentEvent {
+  // 入库/推送前统一脱敏和限长，避免终端输出把凭据或无界日志带到浏览器。
   return { id: crypto.randomUUID(), type, message: redact(message).slice(0, 2000), recordedAt: new Date().toISOString() }
 }
 

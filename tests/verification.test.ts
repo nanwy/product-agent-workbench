@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { TargetProjectConfig, ValidationCommand } from '../src/domain/workbench'
 import { runValidationCommand } from '../src/server/verification'
 
+// 验证命令测试覆盖成功、非零退出和超时，确保三种结果都能形成确定性证据。
 describe('host validation commands', () => {
   it('records success and non-zero exits without losing the actionable output', async () => {
     const success = await runValidationCommand(command('success', ['-e', "console.log('checked')"]), target())

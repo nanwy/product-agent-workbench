@@ -14,6 +14,7 @@ import type {
 const ignoredDirectories = new Set(['.git', '.next', '.output', 'coverage', 'dist', 'node_modules'])
 const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue'])
 
+// workflow Skills 描述工作台的 SDD 阶段，不等于 Codex session 中真实可调用的本地 Skill。
 export function workflowSkills(grillingConfirmed: boolean): DiscoveredSkill[] {
   return [
     { name: 'grilling', description: '通过分轮追问消除产品需求中的隐含决策。', source: 'workflow', kind: 'workflow', active: !grillingConfirmed, activationReason: grillingConfirmed ? '共同理解已确认' : '产品需求已建立，必须先完成需求追问' },
@@ -32,10 +33,12 @@ export type ExplorationResult = {
 }
 
 export async function exploreRequirement(requirement: Requirement, target: TargetProjectConfig): Promise<ExplorationResult> {
+  // grilling 的确认答案是 Spec 输入；原始需求只在答案缺失时兜底。
   const grillingAnswers = Object.fromEntries(requirement.grilling.questions.map((question) => [question.id, question.answer ?? question.recommendation]))
   const desiredBehavior = grillingAnswers['desired-outcome'] || requirement.requestedOutcome
   const proposedScope = grillingAnswers['change-boundary'] || target.modificationScope
   const scopedTarget = { ...target, modificationScope: proposedScope }
+  // 先以最终确认范围解析规则/Skill，再做代码定位，保证探索与实施使用同一边界。
   const rules = await discoverRules(scopedTarget)
   const skills = [...workflowSkills(requirement.grilling.status === 'confirmed'), ...(await discoverTargetSkills(requirement, scopedTarget, rules))]
   const exploration = await inspectTargetCode(requirement, scopedTarget)
@@ -73,6 +76,7 @@ async function discoverRules(target: TargetProjectConfig): Promise<ResolvedRule[
   const applicable = sources
     .map((source) => ({ source, directory: path.dirname(source) }))
     .filter(({ directory }) => directory === target.repositoryRoot || scopeDirectory === directory || scopeDirectory.startsWith(`${directory}${path.sep}`))
+  // 根 AGENTS.md 始终生效；嵌套规则只取距离修改范围最近的一层，避免不相关子项目规则泄漏进上下文。
   const rootRule = applicable.find(({ directory }) => directory === target.repositoryRoot)
   const closestNested = applicable
     .filter(({ directory }) => directory !== target.repositoryRoot)
@@ -107,6 +111,7 @@ async function discoverTargetSkills(requirement: Requirement, target: TargetProj
     const metadata = await readSkillMetadata(source)
     const name = metadata.name ?? path.basename(path.dirname(source))
     const description = metadata.description ?? '未提供说明'
+    // Skill 生效必须有可解释来源：产品点名、规则要求或极少量确定性类型匹配。
     const namedByProduct = requirementText.includes(`$${name.toLowerCase()}`) || requirementText.includes(name.toLowerCase())
     const requiredByRule = activeRuleText.includes(`$${name}`) || activeRuleText.includes(`/${name}`)
     const copyMatch = name === 'product-copy-change' && /(文案|文字|标题|空状态|copy|text)/i.test(requirementText)
@@ -133,6 +138,7 @@ async function inspectTargetCode(requirement: Requirement, target: TargetProject
     .split(/[\s，。；、,:：/]+/)
     .filter((term) => term.length >= 2)
     .slice(0, 12)
+  // 这是只读启发式排名，目的是给 Spec 提供候选代码证据，不是在此处决定最终修改文件。
   const inspected = await Promise.all(files.map(async (source) => {
     const content = await readFile(source, 'utf8').catch(() => '')
     const relative = normalizeRelative(target.repositoryRoot, source)
@@ -161,6 +167,7 @@ async function inspectTargetCode(requirement: Requirement, target: TargetProject
 }
 
 function createExecutionTickets(requirement: Requirement, desiredBehavior: string): ExecutionTicket[] {
+  // MVP 用结果子句切成最多四张串行票；每张票都保留一个可在真实路由观察的验收点。
   const clauses = desiredBehavior
     .split(/[。；;]|，并|，同时|并且|以及/)
     .map((clause) => clause.trim().replace(/^[，,]+|[，,]+$/g, ''))
@@ -176,6 +183,7 @@ function createExecutionTickets(requirement: Requirement, desiredBehavior: strin
 }
 
 function detectBoundaryItems(outcome: string): BoundaryItem[] {
+  // 高风险关键词只触发“需要人确认”，不替代真正的代码探索和工程审查。
   const categories = [
     ['database', '数据库', /(数据库|数据表|迁移|schema|prisma)/i],
     ['authentication', '认证与权限', /(认证|鉴权|权限|登录|auth)/i],
@@ -217,6 +225,7 @@ function detectRuleConflicts(outcome: string, rules: ResolvedRule[]): BoundaryIt
 }
 
 async function findNamedFiles(root: string, filename: string) {
+  // 规则/Skill 发现跳过依赖和构建产物，避免把第三方包的指令当成目标项目规则。
   const results: string[] = []
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true })
@@ -247,6 +256,7 @@ async function findSourceFiles(root: string) {
 }
 
 async function readSkillMetadata(source: string) {
+  // 探索阶段最多读取 4 KiB frontmatter，不把所有 Skill 全文装入 Requirement。
   const handle = await open(source, 'r')
   try {
     const buffer = Buffer.alloc(4096)

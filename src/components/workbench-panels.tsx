@@ -7,6 +7,7 @@ import {
   type WorkbenchSnapshot,
 } from '../domain/workbench'
 
+// 本文件只负责展示和收集输入；状态迁移与副作用统一留在服务端用例层。
 export const stageLabels: Record<RequirementStage, string> = {
   'project-adaptation': '项目适配',
   'intent-drafting': '需求澄清',
@@ -29,6 +30,7 @@ export function RequirementForm({ busy, ready, onSubmit }: {
   ready: boolean
   onSubmit: (data: { title: string; targetPage: string; requestedOutcome: string }) => Promise<void>
 }) {
+  // 表单只提交产品事实，不允许用户提供命令、仓库根目录等执行参数。
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -63,6 +65,7 @@ export function RequirementSummary({ requirement, busyAction, onAnalyze, onConfi
       <div className="requirement-heading"><span>{requirement.id}</span><h3>{requirement.title}</h3><p>{requirement.requestedOutcome}</p><code>{requirement.targetPage}</code></div>
       <ol className="stage-rail">
         {requirementStages.slice(0, 8).map((stage, index) => {
+          // 轨道状态完全由领域阶段的顺序计算，组件不维护第二份流程状态。
           const currentIndex = requirementStages.indexOf(requirement.stage)
           const stageIndex = requirementStages.indexOf(stage)
           const state = stage === requirement.stage ? 'current' : stageIndex < currentIndex ? 'done' : 'waiting'
@@ -111,6 +114,7 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
   onExecute: () => void
   onCancel: () => void
 }) {
+  // completed 后必须先走验证，不能再次执行；failed/cancelled 则允许在同一需求上恢复。
   const canExecute = requirement.stage === 'implementation' && requirement.codex.status !== 'running' && requirement.codex.status !== 'completed'
   return (
     <div className="agent-console">
@@ -189,6 +193,7 @@ function PlanReview({ requirement }: { requirement: Requirement }) {
 }
 
 function RuleManifest({ requirement }: { requirement: Requirement }) {
+  // 工作流 Skill 约束“怎么做”，目标项目 Skill 约束“在这个仓库里怎么做”，分组展示来源。
   const workflowSkills = requirement.skills.filter((skill) => skill.kind === 'workflow')
   const targetSkills = requirement.skills.filter((skill) => skill.kind === 'target-project')
   return (
@@ -210,6 +215,7 @@ function SkillGroup({ title, skills }: { title: string; skills: Requirement['ski
 
 export function EvidenceTimeline({ requirement }: { requirement: Requirement | null }) {
   if (!requirement) return <div className="empty-copy">建立产品需求后，这里会出现可核查的阶段证据。</div>
+  // 存储按时间正序追加，界面倒序显示，让最近动作保持在最上方。
   return <div className="evidence-list">{requirement.evidence.slice().reverse().map((record, index) => <article key={`${record.recordedAt}-${index}`}><header><span>{stageLabels[record.stage]}</span><time>{new Date(record.recordedAt).toLocaleTimeString('zh-CN')}</time></header><dl><div><dt>输入</dt><dd>{record.input}</dd></div><div><dt>动作</dt><dd>{record.action}</dd></div><div><dt>输出</dt><dd>{record.output}</dd></div></dl></article>)}</div>
 }
 
@@ -221,6 +227,7 @@ export function RuntimeToolbar({ snapshot, busyAction, previewUrl, onStart, onSt
   onStop: () => void
   onRefresh: () => void
 }) {
+  // ready 代表健康检查和预览网关都已就绪；starting 时同样允许用户主动停止。
   const running = ['starting', 'ready'].includes(snapshot.process.status)
   return <div className="runtime-toolbar"><button disabled={busyAction !== null || running || !snapshot.target} onClick={onStart} type="button">{busyAction === 'start' ? '启动中…' : '启动项目'}</button><button disabled={busyAction !== null || !running} onClick={onStop} type="button">停止</button><button disabled={!previewUrl} onClick={onRefresh} type="button">刷新</button>{previewUrl ? <a href={`${snapshot.process.previewUrl}${snapshot.requirement?.targetPage ?? '/'}`} rel="noreferrer" target="_blank">外部打开 ↗</a> : null}</div>
 }

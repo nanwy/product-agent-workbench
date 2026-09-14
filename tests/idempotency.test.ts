@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 import { runIdempotentMutation } from '../src/server/idempotency'
 
+// 并发调用同一动作时，只有首个请求能产生副作用，其他请求读取已有结果。
 describe('workflow mutation idempotency', () => {
   it('runs concurrent requests with the same key exactly once', async () => {
     let calls = 0

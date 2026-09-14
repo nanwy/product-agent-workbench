@@ -12,6 +12,8 @@ const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecutionAbort?: AbortController | null
 }
 
+// start promise 防止双击在分支尚未记录时并发进入 prepareExecution。
+// execution promise 则表示后台执行队列的整个生命周期。
 export function startRequirementExecution() {
   if (globalExecution.__workbenchExecutionStart) return globalExecution.__workbenchExecutionStart
   const start = prepareExecution()
@@ -26,6 +28,7 @@ async function prepareExecution() {
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
 
+  // 首次执行创建需求分支；重试/续接不再建分支，而是校验记录的 Git 起点仍然成立。
   if (!requirement.branch?.requirementBranch) {
     const branch = await createRequirementBranch(requirement, target)
     if (branch.blockedReason) {
@@ -49,6 +52,7 @@ async function prepareExecution() {
     }
   }
 
+  // 优先恢复 active，其次重试 blocked，最后取下一张 queued，从而保持单票串行语义。
   const activeIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'active')
   const blockedIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'blocked')
   const queuedIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'queued')
@@ -61,6 +65,7 @@ async function prepareExecution() {
   })
   const abortController = new AbortController()
   globalExecution.__workbenchExecutionAbort = abortController
+  // 请求只等待“启动完成”，长时间 Codex 队列留在后台，进度通过 JSON 快照 + SSE 展示。
   globalExecution.__workbenchExecution = executeQueue(abortController.signal)
     .catch(async (error) => {
       const current = await requireRequirement()
@@ -75,6 +80,7 @@ async function prepareExecution() {
 export async function cancelRequirementExecution() {
   const requirement = await requireRequirement()
   if (requirement.codex.status !== 'running') return
+  // AbortSignal 停止 adapter 消费，cancelCodexTurn 终止实际进程；两者都不删除 session ID。
   globalExecution.__workbenchExecutionAbort?.abort()
   cancelCodexTurn()
   const cancelled = event('cancelled', `已停止 ${requirement.codex.activeTicketId ?? '当前执行票'} 的 Codex turn`)
@@ -87,6 +93,7 @@ export async function cancelRequirementExecution() {
 }
 
 async function executeQueue(signal: AbortSignal) {
+  // 每轮都从 store 重读 Requirement，确保取消、热更和页面操作产生的最新状态能被看到。
   const target = await loadTargetProjectConfig()
   while (true) {
     const requirement = await requireRequirement()
@@ -103,6 +110,7 @@ async function executeQueue(signal: AbortSignal) {
     })
     const latest = await requireRequirement()
     if (latest.codex.status === 'cancelled') return
+    // Codex 退出后不相信其文本声明，而是用 Git 真值检查改动文件、分支和 HEAD。
     const changedFiles = await changedFilesSince(requirement.branch.baseRevision, scopedTarget)
     const outside = filesOutsideScope(changedFiles, scopedTarget)
     const workspaceProblem = await executionWorkspaceProblem(latest, scopedTarget)
@@ -160,6 +168,7 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
 }
 
 function executionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {
+  // prompt 由已确认 Spec、当前票和解析后规则组成，不包含可执行 shell 片段。
   return [
     `实现已确认需求：${requirement.spec?.title}`,
     `当前执行票 ${ticket.id}：${ticket.title}`,
@@ -179,6 +188,7 @@ async function requireRequirement() {
 }
 
 async function executionWorkspaceProblem(requirement: Requirement, target: Awaited<ReturnType<typeof loadTargetProjectConfig>>) {
+  // 这是每个 turn 前后都可重用的安全不变式：分支、HEAD、Git 操作和修改范围必须与记录一致。
   if (!requirement.branch?.requirementBranch) return '需求分支尚未创建'
   const current = await inspectGitWorkspace(target)
   if (current.baseBranch !== requirement.branch.requirementBranch) return `目标仓库已切换到其他分支：${current.baseBranch}`

@@ -20,6 +20,8 @@ type MutationInput = { idempotencyKey: string }
 type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
 type GrillingMutationInput = MutationInput & { answers: Record<string, string> }
 
+// 这是浏览器与 Node 控制服务之间的能力白名单。
+// 页面只能表达“确认 Spec”“启动目标”等业务意图，不能传入任意文件路径或命令。
 function mutationInput(input: MutationInput) {
   if (!input.idempotencyKey?.trim()) throw new Error('状态变更缺少 idempotencyKey')
   return input
@@ -63,6 +65,7 @@ export const cancelExecution = createServerFn({ method: 'POST' }).validator(muta
   }),
 )
 export const rerunVerification = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  // 验证可单独重跑，不会重放 Codex turn 或重新建分支。
   runIdempotentMutation('rerun-verification', data.idempotencyKey, getWorkbenchSnapshot, async () => {
     await verifyCurrentRequirement()
     return getWorkbenchSnapshot()

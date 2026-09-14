@@ -13,6 +13,7 @@ export class RequirementStore {
   }
 
   async load(): Promise<Requirement | null> {
+    // 等待先前的写入队列，防止读到 rename 前的旧快照。
     await this.#queue.catch(() => undefined)
     return this.#loadDirect()
   }
@@ -25,6 +26,7 @@ export class RequirementStore {
   }
 
   update(mutator: (current: Requirement | null) => Requirement | Promise<Requirement>): Promise<Requirement> {
+    // 把“读当前值 → 计算新值 → 原子写入”放进同一队列，避免 SSE 事件和按钮请求互相覆盖。
     return this.#enqueue(async () => {
       const next = await mutator(await this.#loadDirect())
       await this.#writeDirect(next)
@@ -50,6 +52,7 @@ export class RequirementStore {
   async #writeDirect(requirement: Requirement) {
     await mkdir(path.dirname(this.#filePath), { recursive: true })
     const temporaryPath = `${this.#filePath}.${process.pid}.${randomUUID()}.tmp`
+    // 0600 限制为当前用户可读写；同目录 rename 确保页面刷新时只会看到旧或新完整 JSON。
     await writeFile(temporaryPath, `${JSON.stringify(requirement, null, 2)}\n`, { mode: 0o600 })
     await rename(temporaryPath, this.#filePath)
   }
@@ -60,6 +63,7 @@ function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function migrateRequirement(requirement: Requirement): Requirement {
+  // JSON 是持久合约：新版字段必须在读取时补默认值，而不要求用户删除当前需求。
   return {
     ...requirement,
     specId: requirement.specId ?? requirement.id.replace(/^REQ-/, 'SPEC-'),

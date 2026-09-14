@@ -18,6 +18,7 @@ export default defineConfig({
     },
   ],
   webServer: {
+    // E2E 使用独立数据目录、临时 Git 仓库和假 Codex，绝不操作开发者的真实目标仓库。
     command: 'pnpm dev --host 127.0.0.1',
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: false,

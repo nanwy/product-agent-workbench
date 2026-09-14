@@ -5,6 +5,7 @@ import {
   resolvePreviewTarget,
 } from '../src/server/preview-gateway'
 
+// 网关只放宽 iframe 嵌入限制，同时必须把所有请求锁死在配置的上游 origin。
 describe('preview gateway response policy', () => {
   it('removes only embedding restrictions', () => {
     const headers = removeEmbeddingRestrictions({

@@ -8,6 +8,8 @@ type GatewayState = {
   port: number | null
 }
 
+// 独立 localhost 端口保留目标应用的 /assets 等绝对路径语义。
+// 状态放到 globalThis，避免 Vite 热更重新加载模块时重复监听同一端口。
 const globalGateway = globalThis as typeof globalThis & {
   __productAgentPreviewGateway?: GatewayState
 }
@@ -22,6 +24,7 @@ export async function startPreviewGateway(upstream: string, port: number) {
   const upstreamUrl = new URL(upstream)
   assertLoopback(upstreamUrl)
 
+  // 同端口已由本工作台持有时只更新上游，不打断 iframe/HMR 连接。
   if (state.server && state.port === port) {
     state.upstream = upstreamUrl
     return gatewayOrigin(port)
@@ -62,6 +65,7 @@ export async function stopPreviewGateway() {
 export function removeEmbeddingRestrictions(
   headers: http.IncomingHttpHeaders,
 ): http.OutgoingHttpHeaders {
+  // 只移除阻止开发期 iframe 的两类策略；其他 CSP、Cookie 和业务响应头原样保留。
   const filtered: http.OutgoingHttpHeaders = { ...headers }
   delete filtered['x-frame-options']
 
@@ -98,6 +102,7 @@ function proxyHttpRequest(request: IncomingMessage, response: ServerResponse) {
     response.writeHead(400).end('Invalid preview path')
     return
   }
+  // 上游 host 必须改成目标应用，但不转发 hop-by-hop connection 头。
   const transport = target.protocol === 'https:' ? https : http
   const headers = { ...request.headers, host: target.host }
   delete headers.connection
@@ -125,6 +130,7 @@ function proxyWebSocketUpgrade(
   browserSocket: net.Socket,
   head: Buffer,
 ) {
+  // Vite/Next 的 HMR 使用 WebSocket；只代理 HTTP 会导致首屏能看、代码修改不刷新。
   const upstream = state.upstream
   if (!upstream) {
     browserSocket.destroy()
@@ -169,6 +175,7 @@ function assertLoopback(url: URL) {
 }
 
 export function resolvePreviewTarget(rawPath: string, upstream: URL) {
+  // 拒绝 //host 形式的 protocol-relative URL，防止请求逃离已校验的 loopback 上游。
   if (!rawPath.startsWith('/') || rawPath.startsWith('//')) {
     throw new Error('预览请求必须使用站内路径')
   }

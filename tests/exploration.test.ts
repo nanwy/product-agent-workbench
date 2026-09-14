@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { Requirement, TargetProjectConfig } from '../src/domain/workbench'
 import { exploreRequirement } from '../src/server/exploration'
 
+// 探索测试固定规则覆盖、Skill 激活、边界识别和执行票拆分这四个纯只读行为。
 describe('target project exploration', () => {
   it('resolves the root rule, closest scoped rule, and matching Skill', async () => {
     const target = targetFixture()

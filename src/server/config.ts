@@ -7,12 +7,15 @@ type TargetProjectConfigFile = Omit<TargetProjectConfig, 'repositoryRoot'> & {
   repositoryRoot: string
 }
 
+// 目标项目是受控配置，不从产品输入或终端输出猜测仓库、命令和端口。
+// 测试可用环境变量指向一次性 fixture，生产默认读取 config/target-project.json。
 export async function loadTargetProjectConfig(): Promise<TargetProjectConfig> {
   const configPath = path.resolve(
     process.env.WORKBENCH_TARGET_CONFIG ?? 'config/target-project.json',
   )
   const content = await readFile(configPath, 'utf8')
   const parsed = JSON.parse(content) as TargetProjectConfigFile
+  // realpath 消除 .. 和符号链接差异，后续所有路径边界判断都基于这个规范根目录。
   const repositoryRoot = await realpath(
     process.env.WORKBENCH_TARGET_ROOT ??
       path.resolve(path.dirname(configPath), parsed.repositoryRoot),
@@ -48,6 +51,7 @@ function validateConfig(config: TargetProjectConfigFile) {
     }
   }
 
+  // 首版明确是本地工作台，禁止把预览网关变成任意远程代理。
   for (const value of [config.healthUrl, config.previewUrl]) {
     const url = new URL(value)
     if (!isLoopback(url.hostname)) {

@@ -3,6 +3,7 @@ import { rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
+// 极小目标服务同时提供健康检查与带嵌入限制的 HTML，用于验证进程和预览网关。
 const pidFile = path.join(os.tmpdir(), 'product-agent-workbench-fixture-server.pid')
 
 const server = http.createServer((request, response) => {

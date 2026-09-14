@@ -3,6 +3,7 @@ import { appendFile, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
+// 假 CLI 复刻工作台依赖的最小 JSONL 协议，并通过真实文件改动模拟 Agent 实现。
 if (process.argv.includes('--version')) {
   console.log('codex-cli fixture-1.0.0')
   process.exit(0)

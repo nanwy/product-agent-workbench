@@ -10,6 +10,7 @@ import type { TargetProjectConfig } from '../src/domain/workbench'
 import { commitAcceptedCandidate, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from '../src/server/git-workspace'
 
 const execFileAsync = promisify(execFile)
+// 每个用例创建一次性 Git 仓库，才能真实验证分支与 commit，而不污染项目自身。
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {

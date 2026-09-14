@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* 设计令牌：纸张底色、荧光状态色和蓝图色共同构成工作台视觉语言。 */
 :root {
   --ink: #171914;
   --paper: #f2efe6;
@@ -24,6 +25,8 @@ body {
 }
 button, input, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
+
+/* 页面骨架：顶部目标状态 + 三列工作区。 */
 .workbench-shell { min-height: 100vh; padding: 22px; }
 .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; min-height: 112px; padding: 16px 18px 20px; border-top: 7px solid var(--ink); }
 .eyebrow, .panel-header p, .section-label { margin: 0; color: var(--muted); font: 700 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; }
@@ -40,6 +43,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .panel-header { display: flex; align-items: center; gap: 12px; margin: -18px -18px 20px; padding: 12px 16px; border-bottom: 1px solid var(--ink); background: rgba(23, 25, 20, .045); }
 .panel-header > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: var(--ink); color: var(--paper); font: 700 11px/1 monospace; }
 .panel-header h2 { margin: 0 0 2px; font-size: 17px; letter-spacing: -.02em; }
+
+/* 左栏：需求录入、阶段轨道、Spec 和规则清单。 */
 .requirement-form { display: grid; gap: 16px; }
 .requirement-form label { display: grid; gap: 7px; }
 .requirement-form label > span, .runtime-facts dt, .plan-review dt { color: var(--muted); font: 700 11px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .07em; text-transform: uppercase; }
@@ -85,6 +90,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .skill-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-bottom: 1px dotted var(--line); }
 .skill-row strong { font-size: 12px; }
 .skill-row p { margin: 2px 0 0; color: var(--muted); font-size: 10px; }
+
+/* 中栏：Grilling、Codex 事件、Git 事实、验证矩阵和交付卡。 */
 .agent-placeholder { display: flex; gap: 12px; padding: 12px; border: 1px dashed var(--line); background: rgba(200,255,54,.08); }
 .agent-placeholder p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .agent-mark { display: grid; flex: none; width: 34px; height: 34px; place-items: center; border: 1px solid var(--ink); background: var(--signal); box-shadow: 3px 3px 0 var(--ink); font-weight: 900; }
@@ -128,6 +135,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .delivery-card dl div { display: grid; grid-template-columns: 60px 1fr; gap: 7px; font-size: 10px; }
 .delivery-card dd { margin: 0; overflow-wrap: anywhere; }
 .delivery-card pre { max-height: 220px; margin: 0; padding: 9px; overflow: auto; background: #20231d; color: #e9eddd; white-space: pre-wrap; font: 9px/1.45 monospace; }
+
+/* 证据流独立于日志：它用产品语言记录阶段输入、动作和输出。 */
 .evidence-list { display: grid; gap: 11px; margin-top: 16px; }
 .evidence-list article { border-left: 2px solid var(--ink); padding: 1px 0 1px 12px; animation: reveal .3s ease both; }
 .evidence-list article header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -137,6 +146,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .evidence-list dl div { display: grid; grid-template-columns: 35px 1fr; gap: 7px; font-size: 11px; line-height: 1.4; }
 .evidence-list dt { color: var(--muted); font-weight: 800; }
 .evidence-list dd { margin: 0; }
+
+/* 右栏：目标进程控制、网关 iframe 和可核查的运行事实。 */
 .runtime-toolbar { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
 .runtime-toolbar button, .runtime-toolbar a { border: 1px solid var(--line); background: rgba(255,255,255,.7); padding: 7px 9px; color: var(--ink); text-decoration: none; font-size: 11px; font-weight: 700; }
 .runtime-toolbar button:first-child { border-color: var(--ink); background: var(--signal); }
@@ -150,6 +161,8 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .runtime-facts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin: 12px 0 0; }
 @keyframes pulse { to { transform: scale(1.35); } }
 @keyframes reveal { from { opacity: 0; transform: translateY(5px); } }
+
+/* 平板改成两列、移动端改单列，流程顺序仍保持左 → 中 → 右。 */
 @media (max-width: 1120px) {
   .workbench-grid { grid-template-columns: minmax(280px, .85fr) minmax(360px, 1.15fr); }
   .preview-panel { grid-column: 1 / -1; border-top: 1px solid var(--ink); border-left: 0 !important; }

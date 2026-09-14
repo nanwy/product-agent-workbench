@@ -4,6 +4,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import appCss from '../styles.css?url'
 
+// 根路由只负责 HTML shell、全局元数据和开发工具；业务状态留在 index 路由。
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -36,6 +37,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        {/* Devtools 会在生产构建中由 Vite 插件移除，不进入最终交付包。 */}
         <TanStackDevtools
           config={{
             position: 'bottom-right',

@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+// 全局准备把夹具复制到临时目录并初始化 Git，模拟一个完全独立的目标项目。
 export default async function globalSetup() {
   await stopPreviousFixture()
   await rm(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), { force: true })

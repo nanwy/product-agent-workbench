@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { cancelCodexTurn, runCodexTurn } from '../src/server/codex-adapter'
 
+// 适配器测试只验证 CLI 协议、事件归一化和取消语义，不依赖本机真实 Codex。
 const originalCommand = process.env.WORKBENCH_CODEX_COMMAND
 
 afterEach(() => {

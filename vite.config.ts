@@ -9,6 +9,7 @@ import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  // 插件顺序覆盖开发工具、Nitro 服务端、Tailwind、TanStack Start 路由和 React 编译。
   plugins: [
     devtools(),
     nitro({ rollupConfig: { external: [/^@sentry\//] } }),

@@ -23,6 +23,8 @@ const emptySnapshot: TargetProcessSnapshot = {
   recentOutput: [],
 }
 
+// child 是工作台拥有的真实进程句柄，snapshot 是可安全返回浏览器的事实。
+// globalThis 让开发期模块热更不会遗失进程所有权。
 const globalRuntime = globalThis as typeof globalThis & {
   __productAgentTargetRuntime?: RuntimeState
   __productAgentRuntimeCleanupInstalled?: boolean
@@ -34,6 +36,7 @@ const runtime = (globalRuntime.__productAgentTargetRuntime ??= {
 })
 
 if (!globalRuntime.__productAgentRuntimeCleanupInstalled) {
+  // 清理钩子全进程只注册一次，否则热更会累积 signal listener。
   globalRuntime.__productAgentRuntimeCleanupInstalled = true
   process.once('exit', terminateOwnedProcess)
   process.once('SIGINT', () => shutdownFromSignal(130))
@@ -41,6 +44,7 @@ if (!globalRuntime.__productAgentRuntimeCleanupInstalled) {
 }
 
 export function getTargetProcessSnapshot(config?: TargetProjectConfig) {
+  // 返回拷贝，避免页面或持久化层意外改写进程内真值。
   if (!config) {
     return { ...emptySnapshot, status: 'unconfigured' as const }
   }
@@ -69,6 +73,7 @@ export async function startTargetProject(config: TargetProjectConfig) {
     recentOutput: [],
   }
 
+  // 命令和参数只来自受信任配置，不开 shell；detached 创建可整组回收的进程组。
   const child = spawn(config.startCommand.command, config.startCommand.args, {
     cwd: config.repositoryRoot,
     detached: process.platform !== 'win32',
@@ -112,6 +117,7 @@ export async function startTargetProject(config: TargetProjectConfig) {
 }
 
 export async function stopTargetProject(config: TargetProjectConfig) {
+  // 只终止 runtime.child 记录的自有进程，不扫描端口、不杀用户手动启动的服务。
   const child = runtime.child
   runtime.child = null
   await stopPreviewGateway()
@@ -124,6 +130,7 @@ export async function stopTargetProject(config: TargetProjectConfig) {
       if (!isMissingProcess(error)) throw error
     }
 
+    // 先给 SIGTERM 3 秒优雅退出时间，仅对仍存活的自有进程升级为 SIGKILL。
     await Promise.race([
       child.exitCode === null
         ? new Promise<void>((resolve) => child.once('exit', () => resolve()))
@@ -155,6 +162,7 @@ async function waitUntilHealthy(
   config: TargetProjectConfig,
   child: ChildProcess,
 ) {
+  // ready 的定义是“健康 URL 成功，且刚启动的 child 仍存活”，两者缺一不可。
   const deadline = Date.now() + config.startupTimeoutMs
   let lastError = '尚未收到健康响应'
 
@@ -168,8 +176,8 @@ async function waitUntilHealthy(
         signal: AbortSignal.timeout(1500),
       })
       if (response.ok) {
-        // A stale process can briefly satisfy the URL while the child we own is
-        // failing (for example EADDRINUSE). Prove the spawned child stayed alive.
+        // 旧进程可能占用同一健康地址，而新 child 因 EADDRINUSE 刚刚退出。
+        // 因此健康响应后再让出 100ms，确认工作台启动的进程确实存活。
         await new Promise((resolve) => setTimeout(resolve, 100))
         if (child.exitCode === null) return
         lastError = '健康地址由其他进程占用，工作台启动的进程已经退出'

@@ -45,7 +45,7 @@ TanStack Start / Node 控制服务
 
 状态先写临时文件再原子 rename。页面刷新后重新读取聚合，不依赖浏览器内存恢复流程。
 
-## 三个关键设计取舍
+## 五个关键设计取舍
 
 ### 1. 显式配置，不自动猜测
 
@@ -76,6 +76,48 @@ TanStack Start / Node 控制服务
 主验收边界是浏览器：Playwright 启动真实工作台，工作台再启动一个一次性目标项目 fixture。测试从产品需求输入开始，覆盖刷新恢复、进程启动、网关预览、响应头保留、规则解析、Skill 激活和 Spec 确认。
 
 小型 Vitest 契约测试只覆盖浏览器不适合精确断言的边界，例如 CSP 指令过滤和最近目录规则解析。
+
+## 代码阅读地图
+
+建议按下面的顺序读，而不是从组件一路跳进工具函数：
+
+1. `src/domain/workbench.ts`：先认识 Requirement 聚合、阶段状态机和 WorkbenchSnapshot。
+2. `src/routes/index.tsx`：看浏览器如何取得快照、订阅变化，并把动作交给 Server Functions。
+3. `src/server/functions.ts`：看浏览器可调用的最小能力白名单，以及每个写动作的幂等边界。
+4. `src/server/workbench-service.ts`：看需求创建、Grilling、Spec 确认、边界确认和产品验收如何迁移状态。
+5. `src/server/exploration.ts`：看只读探索如何解析 AGENTS.md、Skills、候选代码位置和执行票。
+6. `src/server/workbench-execution.ts`：看分支创建、串行票队列、Codex turn 和自动验证如何接力。
+7. `src/server/codex-adapter.ts` 与 `src/server/git-workspace.ts`：看两个高风险外部边界如何被收窄。
+8. `src/server/verification.ts`：看命令、Git 范围、运行时和产品判断如何汇入同一验证矩阵。
+9. `src/server/target-runtime.ts` 与 `src/server/preview-gateway.ts`：看目标进程的所有权和真实预览。
+10. `src/server/requirement-store.ts`、`idempotency.ts`、`agent-events.ts`：最后理解持久化、重复请求和实时通知。
+11. `src/components/workbench-panels.tsx`：此时再读 UI，会发现它基本只是状态投影和事件入口。
+
+### 一次点击如何穿过系统
+
+以“创建分支并执行”为例：
+
+```text
+AgentConsole.onExecute
+  → index.tsx/runAction（生成幂等键）
+  → functions.ts/executeRequirement（浏览器能力边界）
+  → workbench-execution.ts/startRequirementExecution（创建或复用后台任务）
+  → git-workspace.ts（检查干净工作区并创建需求分支）
+  → codex-adapter.ts（逐票执行或 resume 同一个 Codex session）
+  → requirement-store.ts（持久化票、事件、改动文件与阶段）
+  → agent-events.ts → /api/events（通知浏览器重新拉取快照）
+  → verification.ts（所有票完成后生成验证矩阵）
+```
+
+这里有两个刻意的异步边界：按钮请求只负责可靠地启动后台队列，不等待整轮 Codex 完成；SSE 也只通知“有变化”，完整状态始终重新读取 JSON 聚合。这样断线、刷新和长任务都不会让浏览器内存成为唯一真相。
+
+### 三类状态分别存在哪里
+
+- 产品与执行事实：`WORKBENCH_DATA_DIR/requirement.json`，通过临时文件加原子 rename 写入。
+- 幂等记录：同一数据目录下的幂等存储，用于抵抗双击和网络重试。
+- 活进程句柄、后台 Promise、SSE 订阅者：只存在 Node 进程内存；页面读取的是它们投影出来的快照。
+
+目标项目源码和 Git 分支仍存放在配置指向的目标仓库中，工作台不会把代码复制进自己的 JSON。
 
 ## 三分钟现场演示
 

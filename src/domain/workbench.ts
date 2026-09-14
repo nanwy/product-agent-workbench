@@ -1,3 +1,4 @@
+// 需求状态机是整个项目的主轴。failed/cancelled 是旁路终态，因此阶段轨道只展示前八步。
 export const requirementStages = [
   'project-adaptation',
   'intent-drafting',
@@ -14,6 +15,7 @@ export const requirementStages = [
 export type RequirementStage = (typeof requirementStages)[number]
 
 export type EvidenceRecord = {
+  // 一条面向产品和工程师的审计事实，而不是可重新执行的命令日志。
   stage: RequirementStage
   input: string
   action: string
@@ -66,6 +68,7 @@ export type WorkingTreeEntry = {
 }
 
 export type BranchFacts = {
+  // 创建需求分支前固定的 Git 基线；用于证明候选实现从哪里开始、改了什么。
   baseBranch: string
   baseRevision: string
   requirementBranch: string | null
@@ -82,6 +85,7 @@ export type AgentEvent = {
 }
 
 export type CodexSession = {
+  // 工作台只保存对 UI 有意义的归一化状态，Codex CLI 原始 JSONL 不进入领域层。
   status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
   sessionId: string | null
   activeTicketId: string | null
@@ -111,6 +115,7 @@ export type RequirementSpec = {
 }
 
 export type Requirement = {
+  // 聚合根同时承载产品契约、执行进度和交付证据，避免多个文件各自维护一套状态机。
   id: string
   specId: string
   title: string
@@ -136,6 +141,7 @@ export type Requirement = {
 }
 
 export type TargetProjectConfig = {
+  // 这是仓库内受信任配置，不由表单输入或 Agent 输出动态改写。
   name: string
   repositoryRoot: string
   modificationScope: string
@@ -196,6 +202,7 @@ export type TargetProcessStatus =
   | 'failed'
 
 export type TargetProcessSnapshot = {
+  // 进程快照用于展示和审计；真正的 ChildProcess 句柄只存在于 target-runtime 模块内。
   status: TargetProcessStatus
   pid: number | null
   command: string
@@ -208,6 +215,7 @@ export type TargetProcessSnapshot = {
 }
 
 export type WorkbenchSnapshot = {
+  // 前端唯一读取模型：持久化需求 + 固定目标配置 + 当前易失运行态。
   requirement: Requirement | null
   target: TargetProjectConfig | null
   process: TargetProcessSnapshot
@@ -222,6 +230,7 @@ export type CreateRequirementInput = {
 export function assertCreateRequirementInput(
   input: CreateRequirementInput,
 ): CreateRequirementInput {
+  // 领域入口先规范化输入；后续层可以假设三个字段非空且目标是站内路径。
   const title = input.title.trim()
   const targetPage = input.targetPage.trim()
   const requestedOutcome = input.requestedOutcome.trim()

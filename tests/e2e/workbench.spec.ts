@@ -9,6 +9,7 @@ import { expect, test } from '@playwright/test'
 test.describe.configure({ mode: 'serial' })
 const execFileAsync = promisify(execFile)
 
+// 主 E2E 按真实用户顺序贯穿需求、Grilling、探索、执行、验证和产品验收。
 test('creates, restores, explores, previews, and confirms a product requirement', async ({
   page,
   request,

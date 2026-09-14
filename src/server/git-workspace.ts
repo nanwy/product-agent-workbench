@@ -7,7 +7,9 @@ import type { BranchFacts, Requirement, TargetProjectConfig, WorkingTreeEntry } 
 
 const execFileAsync = promisify(execFile)
 
+// 该模块只封装非交互式 Git 原语，不 stash/reset，也不替用户处理已有改动。
 export async function inspectGitWorkspace(target: TargetProjectConfig): Promise<BranchFacts> {
+  // 并行读取分支、HEAD、working tree 和进行中的 Git 操作，组成同一时点的安全快照。
   const [baseBranch, baseRevision, status, operation] = await Promise.all([
     git(target.repositoryRoot, ['branch', '--show-current']),
     git(target.repositoryRoot, ['rev-parse', 'HEAD']),
@@ -26,6 +28,7 @@ export async function inspectGitWorkspace(target: TargetProjectConfig): Promise<
 }
 
 export async function createRequirementBranch(requirement: Pick<Requirement, 'specId' | 'title'>, target: TargetProjectConfig) {
+  // MVP 不使用 worktree：只有干净工作区才切换分支，任何既有改动都将执行阻断。
   const before = await inspectGitWorkspace(target)
   if (before.blockedReason) return before
   const branchName = `product/${requirement.specId.toLowerCase()}-${slug(requirement.title)}`.slice(0, 100)
@@ -42,12 +45,14 @@ export async function createRequirementBranch(requirement: Pick<Requirement, 'sp
 }
 
 export async function changedFilesSince(baseRevision: string, target: TargetProjectConfig) {
+  // `git diff <base>` 覆盖已跟踪改动，ls-files 另行补入 Git diff 看不到的未跟踪文件。
   const output = await git(target.repositoryRoot, ['diff', '--name-only', baseRevision])
   const untracked = await git(target.repositoryRoot, ['ls-files', '--others', '--exclude-standard'])
   return [...new Set([...output.split('\n'), ...untracked.split('\n')].map((value) => value.trim()).filter(Boolean))].sort()
 }
 
 export function filesOutsideScope(files: string[], target: TargetProjectConfig) {
+  // 用 path.relative 而不是字符串 startsWith，避免 apps/front-other 被误判为 apps/front 子目录。
   const scope = path.posix.normalize(target.modificationScope.replaceAll(path.sep, '/'))
   return files.filter((file) => {
     const normalized = path.posix.normalize(file.replaceAll(path.sep, '/'))

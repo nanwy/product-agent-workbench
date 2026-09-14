@@ -18,6 +18,8 @@ import {
   stopTargetProject,
 } from './target-runtime'
 
+// 用例服务层：把领域状态、持久化、Git 和目标进程串成一次完整的产品动作。
+// 路由层只能调用这里暴露的动作，不应自行拼装 Requirement 的下一状态。
 export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   const [requirement, target] = await Promise.all([
     requirementStore.load(),
@@ -27,6 +29,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   return {
     requirement,
     target,
+    // 进程是易失的运行时事实，每次读取快照时都以进程管理器为准。
     process: getTargetProcessSnapshot(target ?? undefined),
   }
 }
@@ -38,6 +41,7 @@ export async function createRequirement(
   const target = await loadTargetProjectConfig()
   const now = new Date().toISOString()
   const processFacts = getTargetProcessSnapshot(target)
+  // Requirement 是工作台的聚合根：一次需求从澄清到交付的事实都挂在它下面。
   const requirement: Requirement = {
     id: `REQ-${now.slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8)}`,
     specId: `SPEC-${now.slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8)}`,
@@ -93,6 +97,7 @@ export async function createRequirement(
 
 export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
+  // 状态门禁写在服务端，不能依赖前端是否显示按钮。
   if (requirement.grilling.status !== 'confirmed') {
     throw new Error('请先完成 grilling 并确认共同理解')
   }
@@ -133,6 +138,7 @@ export async function confirmCurrentGrilling(answers: Record<string, string>): P
     return { ...question, answer }
   })
   const confirmedScope = questions.find((question) => question.id === 'change-boundary')?.answer ?? ''
+  // 用户可以收窄修改范围，但不能借回答问题扩大配置文件授权的目录。
   assertConfirmedScope(confirmedScope, requirement.targetSnapshot)
   const now = new Date().toISOString()
   await requirementStore.save({
@@ -151,6 +157,7 @@ export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
     throw new Error('只有待确认的 Spec 和执行票可以被确认')
   }
   const requiresBoundary = requirement.boundaryItems.some((item) => !item.confirmed)
+  // 普通需求直接进入实现；发现跨边界影响时插入一次显式产品确认。
   const stage = requiresBoundary
     ? 'awaiting-boundary-confirmation'
     : 'implementation'
@@ -274,6 +281,7 @@ function evidence(
   action: string,
   output: string,
 ): EvidenceRecord {
+  // 证据只追加、不覆盖，用于回答“谁在什么阶段依据什么做了什么”。
   return { stage, input, action, output, recordedAt: new Date().toISOString() }
 }
 
@@ -282,6 +290,7 @@ function activateImplementationSkill(
   active: boolean,
   activationReason: string,
 ) {
+  // Skill 是否生效属于需求快照的一部分，页面才能解释本轮执行采用了哪些流程规则。
   return skills.map((skill) =>
     skill.name === 'implement'
       ? { ...skill, active, activationReason }
@@ -294,6 +303,7 @@ async function saveProcessFacts(
   action: string,
   output: string,
 ) {
+  // 目标进程可以脱离需求存在；有需求时再把当时的运行事实同步进审计记录。
   const requirement = await requirementStore.load()
   if (!requirement) return
   await requirementStore.update((current) => {
@@ -311,6 +321,7 @@ async function saveProcessFacts(
 }
 
 function createGrillingQuestions(input: CreateRequirementInput, target: Requirement['targetSnapshot']) {
+  // MVP 固定三类问题：结果、写入边界、验收信号。它们共同构成执行前的最小契约。
   return [
     {
       id: 'desired-outcome',
@@ -337,6 +348,7 @@ function createGrillingQuestions(input: CreateRequirementInput, target: Requirem
 }
 
 function assertConfirmedScope(scope: string, target: Requirement['targetSnapshot']) {
+  // resolve 后再比较，防止 `../` 等路径穿越绕过仓库相对目录限制。
   const configuredRoot = path.resolve(target.repositoryRoot, target.modificationScope)
   const confirmedRoot = path.resolve(target.repositoryRoot, scope)
   if (!scope || path.isAbsolute(scope) || (confirmedRoot !== configuredRoot && !confirmedRoot.startsWith(`${configuredRoot}${path.sep}`))) {
