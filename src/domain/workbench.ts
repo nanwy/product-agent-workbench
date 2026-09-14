@@ -227,10 +227,18 @@ export type CreateRequirementInput = {
   requestedOutcome: string
 }
 
+/**
+ * 规范化并校验创建需求的产品输入。
+ *
+ * 确保标题、目标页面、期望结果均非空，并要求目标页面是以 `/` 开头的站内路径。
+ * 该函数不访问文件系统，也不修改任何状态。
+ *
+ * @returns 去除首尾空白后的安全输入。
+ * @throws 字段缺失或目标页面不是站内路径时抛出可展示给用户的错误。
+ */
 export function assertCreateRequirementInput(
   input: CreateRequirementInput,
 ): CreateRequirementInput {
-  // 领域入口先规范化输入；后续层可以假设三个字段非空且目标是站内路径。
   const title = input.title.trim()
   const targetPage = input.targetPage.trim()
   const requestedOutcome = input.requestedOutcome.trim()

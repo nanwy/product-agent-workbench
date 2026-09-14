@@ -12,8 +12,12 @@ const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecutionAbort?: AbortController | null
 }
 
-// start promise 防止双击在分支尚未记录时并发进入 prepareExecution。
-// execution promise 则表示后台执行队列的整个生命周期。
+/**
+ * 准备并启动当前 Requirement 的后台执行队列。
+ *
+ * start promise 防止双击在分支尚未记录时并发进入准备阶段；execution promise
+ * 表示后台队列的完整生命周期。函数在分支与首张活动票可靠落盘后返回，不等待 Codex 完成。
+ */
 export function startRequirementExecution() {
   if (globalExecution.__workbenchExecutionStart) return globalExecution.__workbenchExecutionStart
   const start = prepareExecution()
@@ -77,6 +81,12 @@ async function prepareExecution() {
     })
 }
 
+/**
+ * 取消当前 Codex turn 并等待后台队列退出。
+ *
+ * 同时发送 AbortSignal、终止 CLI 进程并持久化 cancelled 事件；保留分支和 session，
+ * 使用户之后可以继续当前需求。
+ */
 export async function cancelRequirementExecution() {
   const requirement = await requireRequirement()
   if (requirement.codex.status !== 'running') return

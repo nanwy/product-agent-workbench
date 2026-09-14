@@ -18,8 +18,12 @@ import {
   stopTargetProject,
 } from './target-runtime'
 
-// 用例服务层：把领域状态、持久化、Git 和目标进程串成一次完整的产品动作。
-// 路由层只能调用这里暴露的动作，不应自行拼装 Requirement 的下一状态。
+/**
+ * 组合当前工作台的权威读取模型。
+ *
+ * 并行读取 Requirement 与目标配置，再从进程管理器取得易失运行态。
+ * 路由和 UI 应读取这个快照，不应分别访问底层模块后自行拼装状态。
+ */
 export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   const [requirement, target] = await Promise.all([
     requirementStore.load(),
@@ -34,6 +38,12 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
   }
 }
 
+/**
+ * 创建新的 Requirement 聚合并原子保存。
+ *
+ * 初始化 Grilling 问题、流程 Skill、目标配置快照、Codex 空闲态和首批审计证据。
+ * 此时不会探索目标代码、创建 Git 分支或启动 Codex。
+ */
 export async function createRequirement(
   rawInput: CreateRequirementInput,
 ): Promise<WorkbenchSnapshot> {
@@ -95,6 +105,11 @@ export async function createRequirement(
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 对 Grilling 已确认的当前需求执行只读探索。
+ *
+ * 解析代码、规则与 Skills，生成 Spec、执行票和边界项，然后推进到规格确认阶段。
+ */
 export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   // 状态门禁写在服务端，不能依赖前端是否显示按钮。
@@ -129,6 +144,11 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 确认 Grilling 回答并冻结本轮共同理解。
+ *
+ * 要求所有问题都有答案，并验证用户确认的写入目录没有扩大配置授权范围。
+ */
 export async function confirmCurrentGrilling(answers: Record<string, string>): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   if (requirement.grilling.status === 'confirmed') return getWorkbenchSnapshot()
@@ -151,6 +171,11 @@ export async function confirmCurrentGrilling(answers: Record<string, string>): P
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 确认候选 Spec 与执行票。
+ *
+ * 无边界风险时直接开放实现；有未确认边界时先进入边界确认阶段。
+ */
 export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   if (requirement.stage !== 'awaiting-spec-confirmation') {
@@ -183,6 +208,11 @@ export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 确认全部工程边界项并开放候选实现。
+ *
+ * 这里只记录产品决定和激活 implement Skill，不会直接修改目标仓库。
+ */
 export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   if (requirement.stage !== 'awaiting-boundary-confirmation') {
@@ -214,6 +244,11 @@ export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 按受信任配置启动目标开发服务并保存运行证据。
+ *
+ * 实际进程生命周期由 target-runtime 管理，本函数负责把结果接回 Requirement 聚合。
+ */
 export async function startConfiguredTarget(): Promise<WorkbenchSnapshot> {
   const config = await loadTargetProjectConfig()
   const processFacts = await startTargetProject(config)
@@ -221,6 +256,9 @@ export async function startConfiguredTarget(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 停止工作台拥有的目标进程和预览网关，并保存停止证据。
+ */
 export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
   const config = await loadTargetProjectConfig()
   const processFacts = await stopTargetProject(config)
@@ -228,6 +266,12 @@ export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/**
+ * 对通过自动验证的候选实现执行产品验收。
+ *
+ * 服务端重新执行阶段、失败项、分支和修改范围门禁；全部通过后创建稳定 commit，
+ * 将产品验证项标记为 verified，并生成交付 Handoff。不会 push、merge 或发布。
+ */
 export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
   // 第一层门禁：只有验证编排已结束并转入待验收阶段，按钮才能生效。
@@ -269,28 +313,29 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   return getWorkbenchSnapshot()
 }
 
+/** 读取当前 Requirement；没有活动需求时统一抛出领域错误。 */
 async function requireCurrentRequirement() {
   const requirement = await requirementStore.load()
   if (!requirement) throw new Error('请先创建产品需求')
   return requirement
 }
 
+/** 创建一条只追加的阶段证据记录。 */
 function evidence(
   stage: EvidenceRecord['stage'],
   input: string,
   action: string,
   output: string,
 ): EvidenceRecord {
-  // 证据只追加、不覆盖，用于回答“谁在什么阶段依据什么做了什么”。
   return { stage, input, action, output, recordedAt: new Date().toISOString() }
 }
 
+/** 切换 implement Skill 的激活状态，同时保留其他 Skill 原样。 */
 function activateImplementationSkill(
   skills: Requirement['skills'],
   active: boolean,
   activationReason: string,
 ) {
-  // Skill 是否生效属于需求快照的一部分，页面才能解释本轮执行采用了哪些流程规则。
   return skills.map((skill) =>
     skill.name === 'implement'
       ? { ...skill, active, activationReason }
@@ -298,6 +343,7 @@ function activateImplementationSkill(
   )
 }
 
+/** 把易失的目标进程快照同步进 Requirement，并追加对应审计证据。 */
 async function saveProcessFacts(
   processFacts: Requirement['processFacts'],
   action: string,
@@ -320,6 +366,7 @@ async function saveProcessFacts(
   })
 }
 
+/** 根据产品输入和配置边界建立 MVP 的三道固定 Grilling 问题。 */
 function createGrillingQuestions(input: CreateRequirementInput, target: Requirement['targetSnapshot']) {
   // MVP 固定三类问题：结果、写入边界、验收信号。它们共同构成执行前的最小契约。
   return [
@@ -347,6 +394,7 @@ function createGrillingQuestions(input: CreateRequirementInput, target: Requirem
   ]
 }
 
+/** 校验确认范围只能等于或位于配置范围之下，并阻止绝对路径与目录穿越。 */
 function assertConfirmedScope(scope: string, target: Requirement['targetSnapshot']) {
   // resolve 后再比较，防止 `../` 等路径穿越绕过仓库相对目录限制。
   const configuredRoot = path.resolve(target.repositoryRoot, target.modificationScope)
