@@ -8,6 +8,15 @@ if (process.argv.includes('--version')) {
   process.exit(0)
 }
 
+if (process.argv.includes('VALIDATE_EXEC_ARGS')) {
+  if (process.argv.includes('-a')) {
+    console.error("error: unexpected argument '-a' found")
+    process.exit(2)
+  }
+  console.log(JSON.stringify({ type: 'turn.completed' }))
+  process.exit(0)
+}
+
 const prompt = process.argv.at(-1) ?? ''
 const ticket = prompt.match(/当前执行票 (TICKET-\d+)/)?.[1] ?? 'TICKET-UNKNOWN'
 const sessionId = process.argv.includes('resume')

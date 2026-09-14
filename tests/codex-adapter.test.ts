@@ -23,6 +23,20 @@ describe('Codex adapter', () => {
     })).rejects.toThrow('Codex CLI 不可用')
   })
 
+  it('uses arguments accepted by the current non-interactive CLI', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+    const events: string[] = []
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'VALIDATE_EXEC_ARGS',
+      sessionId: null,
+      onEvent: async (event) => { events.push(event.message) },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(events).not.toContain("error: unexpected argument '-a' found")
+  })
+
   it('cancels only the active turn process', async () => {
     process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     let cancelled = false

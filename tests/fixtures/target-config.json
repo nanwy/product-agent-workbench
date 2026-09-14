@@ -9,5 +9,14 @@
   "healthUrl": "http://127.0.0.1:4173/health",
   "previewUrl": "http://127.0.0.1:4173",
   "previewGatewayPort": 4174,
-  "startupTimeoutMs": 5000
+  "startupTimeoutMs": 5000,
+  "validationCommands": [
+    {
+      "id": "fixture-check",
+      "label": "Fixture validation",
+      "command": "node",
+      "args": ["-e", "process.exit(0)"],
+      "timeoutMs": 5000
+    }
+  ]
 }

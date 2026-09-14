@@ -58,6 +58,27 @@ export function filesOutsideScope(files: string[], target: TargetProjectConfig) 
   })
 }
 
+export async function commitAcceptedCandidate(requirement: Pick<Requirement, 'specId' | 'title' | 'branch'>, target: TargetProjectConfig) {
+  if (!requirement.branch?.requirementBranch) throw new Error('需求分支尚未创建')
+  const current = await inspectGitWorkspace(target)
+  if (current.baseBranch !== requirement.branch.requirementBranch) throw new Error(`目标仓库已切换到其他分支：${current.baseBranch}`)
+  const changedFiles = await changedFilesSince(requirement.branch.baseRevision, target)
+  const outside = filesOutsideScope(changedFiles, target)
+  if (outside.length) throw new Error(`不能验收范围外改动：${outside.join(', ')}`)
+  if (!changedFiles.length) throw new Error('候选实现没有可提交的改动')
+
+  await git(target.repositoryRoot, ['add', '--', target.modificationScope])
+  const staged = (await git(target.repositoryRoot, ['diff', '--cached', '--name-only'])).split('\n').map((entry) => entry.trim()).filter(Boolean)
+  const stagedOutside = filesOutsideScope(staged, target)
+  if (stagedOutside.length) throw new Error(`暂存区包含范围外改动：${stagedOutside.join(', ')}`)
+  if (!staged.length) throw new Error('候选实现没有可提交的改动')
+
+  await git(target.repositoryRoot, ['commit', '-m', `feat: ${requirement.specId} ${requirement.title}`])
+  const revision = (await git(target.repositoryRoot, ['rev-parse', 'HEAD'])).trim()
+  const diffStat = (await git(target.repositoryRoot, ['diff', '--stat', `${requirement.branch.baseRevision}..${revision}`])).trim()
+  return { branch: requirement.branch.requirementBranch, revision, changedFiles: staged, diffStat }
+}
+
 async function git(cwd: string, args: string[]) {
   const { stdout } = await execFileAsync('git', args, { cwd, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 })
   return stdout

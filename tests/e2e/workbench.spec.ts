@@ -1,10 +1,13 @@
+import { execFile } from 'node:child_process'
 import { rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import { expect, test } from '@playwright/test'
 
 test.describe.configure({ mode: 'serial' })
+const execFileAsync = promisify(execFile)
 
 test('creates, restores, explores, previews, and confirms a product requirement', async ({
   page,
@@ -48,11 +51,13 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   const unrelatedFile = path.join(targetRoot, 'unrelated.txt')
   await writeFile(unrelatedFile, 'existing user work\n')
   await page.getByRole('button', { name: '创建分支并执行' }).click()
+  await expect(page.getByRole('alert').first()).toContainText('工作区存在 1 条未提交变更')
+  await expect(page.getByText('未能创建需求分支：工作区存在 1 条未提交变更')).toBeVisible()
   await expect(page.getByText('工作区存在 1 条未提交变更').first()).toBeVisible()
   await rm(unrelatedFile)
 
   await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), 'slow\n')
-  await page.getByRole('button', { name: '创建分支并执行' }).click()
+  await page.getByRole('button', { name: '重新检查并执行' }).click()
   await expect(page.getByTestId('codex-status')).toContainText('running')
   await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
   await page.getByRole('button', { name: '停止当前 Turn' }).click()
@@ -63,6 +68,14 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
   await expect(page.getByText(/product\/spec-/)).toBeVisible()
   await expect(page.getByTestId('changed-files')).toContainText('apps/front/app/competition/page.tsx')
+  await expect(page.getByText('Verification Matrix')).toBeVisible()
+  await expect(page.locator('.validation-list article[data-result="failed"]')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '通过产品验收' })).toBeVisible()
+  await page.getByRole('button', { name: '通过产品验收' }).click()
+  await expect(page.getByTestId('delivery-card')).toContainText('Frontend Delivery Handoff')
+  await expect(page.getByTestId('delivery-card')).toContainText('apps/front/app/competition/page.tsx')
+  const { stdout: commitSubject } = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: targetRoot })
+  expect(commitSubject).toContain('SPEC-')
 
   await page.getByRole('button', { name: '停止' }).click()
   await expect(page.getByTestId('process-status')).toHaveText('stopped')

@@ -7,7 +7,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { TargetProjectConfig } from '../src/domain/workbench'
-import { createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from '../src/server/git-workspace'
+import { commitAcceptedCandidate, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from '../src/server/git-workspace'
 
 const execFileAsync = promisify(execFile)
 const temporaryDirectories: string[] = []
@@ -32,6 +32,11 @@ describe('safe requirement branches', () => {
 
     expect(branch.requirementBranch).toBe('product/spec-001-copy-update')
     expect(branch.startingWorkingTree).toEqual([])
+    await writeFile(path.join(root, 'README.md'), 'accepted candidate\n')
+    const delivery = await commitAcceptedCandidate({ specId: 'SPEC-001', title: 'Copy update', branch }, target)
+    expect(delivery.branch).toBe('product/spec-001-copy-update')
+    expect(delivery.changedFiles).toEqual(['README.md'])
+    expect(delivery.diffStat).toContain('README.md')
     await writeFile(path.join(root, 'dirty.txt'), 'do not touch\n')
     const dirty = await inspectGitWorkspace(target)
     expect(dirty.blockedReason).toBe('工作区存在 1 条未提交变更')

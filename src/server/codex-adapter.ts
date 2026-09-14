@@ -24,7 +24,7 @@ export async function runCodexTurn(input: {
   if (input.signal?.aborted) throw new Error('Codex turn 已取消')
   const args = input.sessionId
     ? ['exec', 'resume', '--json', input.sessionId, input.prompt]
-    : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', '-a', 'never', input.prompt]
+    : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', input.prompt]
   const child = spawn(command, args, { cwd: input.workspaceRoot, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
   globalCodex.__workbenchCodexChild = child
   const abort = () => terminateCodexChild(child)

@@ -11,15 +11,18 @@ import {
   RequirementSummary,
   RuntimeFacts,
   RuntimeToolbar,
+  ValidationPanel,
 } from '../components/workbench-panels'
 import type { WorkbenchSnapshot } from '../domain/workbench'
 import {
   analyzeRequirement,
+  acceptRequirement,
   cancelExecution,
   confirmBoundary,
   confirmGrilling,
   confirmPlan,
   getWorkbench,
+  rerunVerification,
   executeRequirement,
   startTarget,
   stopTarget,
@@ -48,6 +51,8 @@ function WorkbenchPage() {
   const stop = useServerFn(stopTarget)
   const execute = useServerFn(executeRequirement)
   const cancel = useServerFn(cancelExecution)
+  const rerun = useServerFn(rerunVerification)
+  const accept = useServerFn(acceptRequirement)
 
   useEffect(() => setHydrated(true), [])
   useEffect(() => {
@@ -66,7 +71,11 @@ function WorkbenchPage() {
     setBusyAction(name)
     setError(null)
     try {
-      setSnapshot(await action(crypto.randomUUID()))
+      const nextSnapshot = await action(crypto.randomUUID())
+      setSnapshot(nextSnapshot)
+      if (name === 'execute' && nextSnapshot.requirement?.codex.status === 'failed') {
+        setError(nextSnapshot.requirement.codex.error ?? '执行启动失败')
+      }
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : String(actionError))
     } finally {
@@ -86,7 +95,7 @@ function WorkbenchPage() {
         <div><p className="eyebrow">Product Agent Workbench</p><h1>让产品意图、执行和证据在同一个页面里发生</h1></div>
         <div className="target-chip"><span className="status-dot" data-status={snapshot.process.status} /><span>{snapshot.target?.name ?? '目标项目未配置'}</span></div>
       </header>
-      {error ? <div className="error-banner">{error}</div> : null}
+      {error ? <div className="error-banner" role="alert">{error}</div> : null}
 
       <div className="workbench-grid">
         <section className="panel workflow-panel" aria-label="产品需求与 SDD 状态">
@@ -120,6 +129,12 @@ function WorkbenchPage() {
               onCancel={() => runAction('cancel', (idempotencyKey) => cancel({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             />
           ) : <div className="empty-copy">建立产品需求后，这里会进入 grilling 需求追问。</div>}
+          {requirement ? <ValidationPanel
+            requirement={requirement}
+            busyAction={busyAction}
+            onRerun={() => runAction('verify', (idempotencyKey) => rerun({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+            onAccept={() => runAction('accept', (idempotencyKey) => accept({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+          /> : null}
           <EvidenceTimeline requirement={requirement} />
         </section>
 

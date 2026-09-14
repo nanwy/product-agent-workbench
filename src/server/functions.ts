@@ -4,6 +4,7 @@ import { assertCreateRequirementInput, type CreateRequirementInput } from '../do
 import { runIdempotentMutation } from './idempotency'
 import {
   analyzeCurrentRequirement,
+  acceptCurrentRequirement,
   confirmCurrentBoundary,
   confirmCurrentGrilling,
   confirmCurrentPlan,
@@ -13,6 +14,7 @@ import {
   stopConfiguredTarget,
 } from './workbench-service'
 import { cancelRequirementExecution, startRequirementExecution } from './workbench-execution'
+import { verifyCurrentRequirement } from './verification'
 
 type MutationInput = { idempotencyKey: string }
 type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
@@ -59,4 +61,13 @@ export const cancelExecution = createServerFn({ method: 'POST' }).validator(muta
     await cancelRequirementExecution()
     return getWorkbenchSnapshot()
   }),
+)
+export const rerunVerification = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('rerun-verification', data.idempotencyKey, getWorkbenchSnapshot, async () => {
+    await verifyCurrentRequirement()
+    return getWorkbenchSnapshot()
+  }),
+)
+export const acceptRequirement = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('accept-requirement', data.idempotencyKey, getWorkbenchSnapshot, acceptCurrentRequirement),
 )

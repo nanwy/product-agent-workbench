@@ -62,7 +62,7 @@ export function RequirementSummary({ requirement, busyAction, onAnalyze, onConfi
     <div className="requirement-summary">
       <div className="requirement-heading"><span>{requirement.id}</span><h3>{requirement.title}</h3><p>{requirement.requestedOutcome}</p><code>{requirement.targetPage}</code></div>
       <ol className="stage-rail">
-        {requirementStages.slice(0, 7).map((stage, index) => {
+        {requirementStages.slice(0, 8).map((stage, index) => {
           const currentIndex = requirementStages.indexOf(requirement.stage)
           const stageIndex = requirementStages.indexOf(stage)
           const state = stage === requirement.stage ? 'current' : stageIndex < currentIndex ? 'done' : 'waiting'
@@ -125,15 +125,41 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
         </div>
       ) : null}
       <div className="agent-actions">
-        {canExecute ? <button className="primary-button" disabled={busyAction !== null} onClick={onExecute} type="button">{requirement.codex.status === 'cancelled' ? '继续当前 Session' : '创建分支并执行'}</button> : null}
+        {canExecute ? <button className="primary-button" disabled={busyAction !== null} onClick={onExecute} type="button">{busyAction === 'execute' ? '正在检查 Git 并启动…' : requirement.codex.status === 'cancelled' ? '继续当前 Session' : requirement.codex.status === 'failed' ? '重新检查并执行' : '创建分支并执行'}</button> : null}
         {requirement.codex.status === 'running' ? <button className="risk-button" disabled={busyAction !== null} onClick={onCancel} type="button">停止当前 Turn</button> : null}
       </div>
-      {requirement.codex.error ? <div className="agent-error">{requirement.codex.error}</div> : null}
+      {requirement.codex.error ? <div className="agent-error" role="alert"><strong>未能开始执行</strong><span>{requirement.codex.error}</span></div> : null}
       <div className="agent-events" aria-live="polite">
         {requirement.codex.events.slice().reverse().map((agentEvent) => <article key={agentEvent.id}><span>{agentEvent.type}</span><p>{agentEvent.message}</p><time>{new Date(agentEvent.recordedAt).toLocaleTimeString('zh-CN')}</time></article>)}
       </div>
       {requirement.codex.changedFiles.length ? <div className="changed-files" data-testid="changed-files"><strong>Changed files</strong>{requirement.codex.changedFiles.map((file) => <code key={file}>{file}</code>)}</div> : null}
     </div>
+  )
+}
+
+export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: {
+  requirement: Requirement
+  busyAction: string | null
+  onRerun: () => void
+  onAccept: () => void
+}) {
+  if (!requirement.validation.length && !['verification', 'awaiting-product-acceptance', 'accepted'].includes(requirement.stage)) return null
+  const hasFailure = requirement.validation.some((item) => item.result === 'failed')
+  return (
+    <section className="validation-panel" aria-label="验证与产品验收">
+      <div className="section-label">Verification Matrix</div>
+      <div className="validation-list">
+        {requirement.validation.map((item) => <article data-result={item.result} key={item.id}>
+          <header><strong>{item.criterion}</strong><span>{item.result}</span></header>
+          <p>{item.detail}</p>
+          {item.command ? <code>{item.command} · exit {item.exitCode}</code> : null}
+          {item.notRunReason ? <small>{item.notRunReason}</small> : null}
+        </article>)}
+      </div>
+      {requirement.stage === 'verification' ? <button className="primary-button" disabled={busyAction !== null} onClick={onRerun} type="button">{busyAction === 'verify' ? '正在重跑验证…' : '重跑验证'}</button> : null}
+      {requirement.stage === 'awaiting-product-acceptance' ? <><p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p><button className="primary-button" disabled={busyAction !== null || hasFailure} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button></> : null}
+      {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
+    </section>
   )
 }
 

@@ -113,5 +113,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
       events: [],
       error: null,
     },
+    validation: [],
+    delivery: null,
   }
 }

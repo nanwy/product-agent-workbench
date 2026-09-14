@@ -11,6 +11,7 @@ import {
 import { loadTargetProjectConfig } from './config'
 import { exploreRequirement, workflowSkills } from './exploration'
 import { requirementStore } from './requirement-store'
+import { commitAcceptedCandidate } from './git-workspace'
 import {
   getTargetProcessSnapshot,
   startTargetProject,
@@ -68,6 +69,8 @@ export async function createRequirement(
       events: [],
       error: null,
     },
+    validation: [],
+    delivery: null,
     evidence: [
       evidence(
         'project-adaptation',
@@ -215,6 +218,42 @@ export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
   const config = await loadTargetProjectConfig()
   const processFacts = await stopTargetProject(config)
   await saveProcessFacts(processFacts, '停止目标项目', '已回收工作台拥有的目标进程与预览网关')
+  return getWorkbenchSnapshot()
+}
+
+export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
+  const requirement = await requireCurrentRequirement()
+  if (requirement.stage !== 'awaiting-product-acceptance') throw new Error('只有自动验证完成的候选实现可以验收')
+  if (requirement.validation.some((item) => item.result === 'failed')) throw new Error('存在失败的验证项，不能验收')
+  const configuredTarget = await loadTargetProjectConfig()
+  const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
+  const committed = await commitAcceptedCandidate(requirement, target)
+  const acceptedAt = new Date().toISOString()
+  const validation = requirement.validation.map((item) => item.id === 'product-acceptance' ? {
+    ...item,
+    result: 'verified' as const,
+    detail: '产品已在工作台显式确认候选实现',
+    notRunReason: null,
+    completedAt: acceptedAt,
+  } : item)
+  const handoff = [
+    `# Frontend Delivery Handoff · ${requirement.specId}`,
+    '',
+    `- 需求：${requirement.title}`,
+    `- 分支：${committed.branch}`,
+    `- 提交：${committed.revision}`,
+    `- 改动文件：${committed.changedFiles.join(', ')}`,
+    `- 验证：${validation.map((item) => `${item.criterion}=${item.result}`).join('；')}`,
+    '- 责任边界：产品验收已完成；生产合并与发布仍由前端工程师负责。',
+  ].join('\n')
+  await requirementStore.save({
+    ...requirement,
+    stage: 'accepted',
+    validation,
+    delivery: { ...committed, acceptedAt, handoff },
+    updatedAt: acceptedAt,
+    evidence: [...requirement.evidence, evidence('accepted', '产品显式验收候选实现', '创建稳定提交并生成前端交付 Handoff', `${committed.branch} @ ${committed.revision.slice(0, 8)}`)],
+  })
   return getWorkbenchSnapshot()
 }
 

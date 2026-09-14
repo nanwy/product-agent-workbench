@@ -39,6 +39,15 @@ function validateConfig(config: TargetProjectConfigFile) {
     throw new Error('目标项目配置缺少 startCommand.command')
   }
 
+  for (const validation of config.validationCommands ?? []) {
+    if (!validation.id.trim() || !validation.label.trim() || !validation.command.trim()) {
+      throw new Error('验证命令缺少 id、label 或 command')
+    }
+    if (!Number.isInteger(validation.timeoutMs) || validation.timeoutMs < 1000) {
+      throw new Error(`验证命令 ${validation.id} 的 timeoutMs 无效`)
+    }
+  }
+
   for (const value of [config.healthUrl, config.previewUrl]) {
     const url = new URL(value)
     if (!isLoopback(url.hostname)) {

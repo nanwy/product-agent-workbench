@@ -131,6 +131,8 @@ export type Requirement = {
   processFacts: TargetProcessSnapshot
   branch: BranchFacts | null
   codex: CodexSession
+  validation: ValidationRecord[]
+  delivery: DeliveryCard | null
 }
 
 export type TargetProjectConfig = {
@@ -145,6 +147,37 @@ export type TargetProjectConfig = {
   previewUrl: string
   previewGatewayPort: number
   startupTimeoutMs: number
+  validationCommands?: ValidationCommand[]
+}
+
+export type ValidationCommand = {
+  id: string
+  label: string
+  command: string
+  args: string[]
+  timeoutMs: number
+}
+
+export type ValidationRecord = {
+  id: string
+  criterion: string
+  result: 'verified' | 'failed' | 'not-run'
+  source: 'command' | 'git-scope' | 'runtime' | 'product'
+  detail: string
+  command: string | null
+  exitCode: number | null
+  startedAt: string
+  completedAt: string
+  notRunReason: string | null
+}
+
+export type DeliveryCard = {
+  branch: string
+  revision: string
+  changedFiles: string[]
+  diffStat: string
+  acceptedAt: string
+  handoff: string
 }
 
 export type TargetProcessStatus =

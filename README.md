@@ -12,6 +12,7 @@
 - 可用/生效 Skill 区分及激活原因；
 - 真实代码位置探索、候选 Spec、按结果切分的执行票和高风险边界确认。
 - 干净工作区检查、独立需求分支、连续 Codex session、SSE 事件与串行执行票。
+- 宿主验证矩阵、显式产品验收、稳定候选提交与前端交付 Handoff。
 
 ## 本地运行
 
@@ -40,6 +41,7 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 - `src/server/`：配置、持久化、规则探索、进程和预览网关；
 - `src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
 - `src/server/codex-adapter.ts`：CLI 探测、JSONL 归一化、续接与取消；
+- `src/server/verification.ts`：声明式命令、修改范围和真实路由验证；
 - `src/routes/`：页面编排和 Server Function 调用；
 - `src/components/`：需求、证据与预览三个可讲解的界面模块；
 - `tests/fixtures/`：确定性目标项目和仓库规则；

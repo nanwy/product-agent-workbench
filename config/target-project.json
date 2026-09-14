@@ -9,5 +9,14 @@
   "healthUrl": "http://127.0.0.1:3003",
   "previewUrl": "http://127.0.0.1:3003",
   "previewGatewayPort": 3100,
-  "startupTimeoutMs": 60000
+  "startupTimeoutMs": 60000,
+  "validationCommands": [
+    {
+      "id": "front-typecheck",
+      "label": "Front TypeScript",
+      "command": "pnpm",
+      "args": ["-F", "front", "typecheck"],
+      "timeoutMs": 120000
+    }
+  ]
 }

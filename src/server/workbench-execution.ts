@@ -4,6 +4,7 @@ import { cancelCodexTurn, event, runCodexTurn } from './codex-adapter'
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from './git-workspace'
 import { requirementStore } from './requirement-store'
+import { verifyCurrentRequirement } from './verification'
 
 const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecution?: Promise<void> | null
@@ -28,10 +29,12 @@ async function prepareExecution() {
   if (!requirement.branch?.requirementBranch) {
     const branch = await createRequirementBranch(requirement, target)
     if (branch.blockedReason) {
+      const blocked = event('failed', `未能创建需求分支：${branch.blockedReason}`)
       await requirementStore.update((current) => {
         if (!current) throw new Error('产品需求已不存在')
-        return { ...current, branch, codex: { ...current.codex, status: 'failed', error: branch.blockedReason }, updatedAt: new Date().toISOString() }
+        return { ...current, branch, codex: { ...current.codex, status: 'failed', error: branch.blockedReason, events: [...current.codex.events, blocked].slice(-200) }, updatedAt: new Date().toISOString() }
       })
+      publishAgentEvent(blocked)
       return
     }
     requirement = await requirementStore.update((current) => {
@@ -124,7 +127,10 @@ async function executeQueue(signal: AbortSignal) {
       }
     })
     publishAgentEvent(completed)
-    if (next.codex.status === 'completed') return
+    if (next.codex.status === 'completed') {
+      await verifyCurrentRequirement()
+      return
+    }
   }
 }
 

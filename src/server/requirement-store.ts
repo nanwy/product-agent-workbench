@@ -66,6 +66,8 @@ function migrateRequirement(requirement: Requirement): Requirement {
     grilling: requirement.grilling ?? { status: 'confirmed', questions: [], confirmedAt: requirement.createdAt },
     branch: requirement.branch ?? null,
     codex: requirement.codex ?? { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null },
+    validation: requirement.validation ?? [],
+    delivery: requirement.delivery ?? null,
   }
 }
 
