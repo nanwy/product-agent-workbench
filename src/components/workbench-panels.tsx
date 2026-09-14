@@ -143,6 +143,8 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: 
   onRerun: () => void
   onAccept: () => void
 }) {
+  // UI 只根据持久化的矩阵渲染，不通过日志文案推断验证结果。
+  // disabled 是交互反馈；真正的验收门禁在 acceptCurrentRequirement 服务端函数中。
   if (!requirement.validation.length && !['verification', 'awaiting-product-acceptance', 'accepted'].includes(requirement.stage)) return null
   const hasFailure = requirement.validation.some((item) => item.result === 'failed')
   return (

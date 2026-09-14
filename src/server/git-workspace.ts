@@ -59,6 +59,8 @@ export function filesOutsideScope(files: string[], target: TargetProjectConfig) 
 }
 
 export async function commitAcceptedCandidate(requirement: Pick<Requirement, 'specId' | 'title' | 'branch'>, target: TargetProjectConfig) {
+  // 创建分支后用户仍可能手动切换分支或引入越界改动，
+  // 因此验收时不复用启动时的结论，而是重新检查当前 Git 事实。
   if (!requirement.branch?.requirementBranch) throw new Error('需求分支尚未创建')
   const current = await inspectGitWorkspace(target)
   if (current.baseBranch !== requirement.branch.requirementBranch) throw new Error(`目标仓库已切换到其他分支：${current.baseBranch}`)
@@ -67,6 +69,7 @@ export async function commitAcceptedCandidate(requirement: Pick<Requirement, 'sp
   if (outside.length) throw new Error(`不能验收范围外改动：${outside.join(', ')}`)
   if (!changedFiles.length) throw new Error('候选实现没有可提交的改动')
 
+  // `--` 结束 Git 选项解析；只暂存产品已确认的修改范围。
   await git(target.repositoryRoot, ['add', '--', target.modificationScope])
   const staged = (await git(target.repositoryRoot, ['diff', '--cached', '--name-only'])).split('\n').map((entry) => entry.trim()).filter(Boolean)
   const stagedOutside = filesOutsideScope(staged, target)

@@ -151,6 +151,7 @@ export type TargetProjectConfig = {
 }
 
 export type ValidationCommand = {
+  // 验证命令来自受信任的目标项目配置，不接受产品输入或 Agent 输出拼接。
   id: string
   label: string
   command: string
@@ -158,6 +159,12 @@ export type ValidationCommand = {
   timeoutMs: number
 }
 
+/**
+ * 验证矩阵的一行。它不只保存“通过/失败”，还保存证据来源和可追溯的执行事实。
+ *
+ * verified：已有正向证据；failed：已有反向证据并阻止验收；
+ * not-run：尚无证据，必须附原因，不能冒充 verified。
+ */
 export type ValidationRecord = {
   id: string
   criterion: string
@@ -171,6 +178,7 @@ export type ValidationRecord = {
   notRunReason: string | null
 }
 
+/** 产品验收后冻结的交付快照，指向一个不再变动的 Git revision。 */
 export type DeliveryCard = {
   branch: string
   revision: string

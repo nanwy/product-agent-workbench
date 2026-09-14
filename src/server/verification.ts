@@ -6,6 +6,13 @@ import { changedFilesSince, filesOutsideScope } from './git-workspace'
 import { requirementStore } from './requirement-store'
 import { getTargetProcessSnapshot } from './target-runtime'
 
+/**
+ * 第五票的验证编排入口。
+ *
+ * “验证命令”是一次真实的宿主子进程（例如 typecheck）；
+ * “验证矩阵”是把命令、Git 边界、运行时和人工判断统一成 ValidationRecord[]。
+ * 这样 UI 和验收门禁只消费一种结构，不需要猜测日志文本。
+ */
 export async function verifyCurrentRequirement() {
   const requirement = await requirementStore.load()
   if (!requirement?.branch) throw new Error('验证前必须完成需求分支上的候选实现')
@@ -20,6 +27,8 @@ export async function verifyCurrentRequirement() {
 
   const target = await loadTargetProjectConfig()
   const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
+  // 三类机器证据串行生成：配置命令、改动范围、真实路由。
+  // 串行使页面展示顺序稳定，也避免多个重型构建命令抢占同一仓库。
   const records: ValidationRecord[] = []
   for (const command of target.validationCommands ?? []) records.push(await runValidationCommand(command, target))
   records.push(await validateScope(requirement.branch.baseRevision, scopedTarget))
@@ -33,6 +42,7 @@ export async function verifyCurrentRequirement() {
     notRunReason: '尚未点击产品验收',
   }))
 
+  // failed 是硬门禁；not-run 保留为未验证风险，最终由产品显式验收补齐。
   const blocking = records.some((item) => item.result === 'failed')
   return requirementStore.update((current) => {
     if (!current) throw new Error('产品需求已不存在')
@@ -110,8 +120,11 @@ function record(input: Pick<ValidationRecord, 'id' | 'criterion' | 'result' | 's
 
 function run(command: ValidationCommand, cwd: string): Promise<{ exitCode: number; output: string }> {
   return new Promise((resolve) => {
+    // 不使用 shell，避免把参数再次解析成管道、重定向或命令替换。
+    // detached 让超时时可以终止整个验证进程组，不留下 pnpm/tsc 子进程。
     const child = spawn(command.command, command.args, { cwd, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
+    // 只保留末尾 4000 字符：通常包含最可操作的错误，同时防止 Requirement JSON 无限增长。
     const append = (chunk: Buffer) => { output = `${output}${chunk.toString()}`.slice(-4000) }
     child.stdout?.on('data', append)
     child.stderr?.on('data', append)

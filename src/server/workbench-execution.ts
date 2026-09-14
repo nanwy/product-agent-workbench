@@ -128,6 +128,8 @@ async function executeQueue(signal: AbortSignal) {
     })
     publishAgentEvent(completed)
     if (next.codex.status === 'completed') {
+      // Agent 退出码为 0 只证明 turn 结束，不证明代码可交付。
+      // 最后一张票完成后才进入独立验证阶段，避免 Agent 自我声明“已验证”。
       await verifyCurrentRequirement()
       return
     }

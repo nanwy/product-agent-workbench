@@ -223,10 +223,14 @@ export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
 
 export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   const requirement = await requireCurrentRequirement()
+  // 第一层门禁：只有验证编排已结束并转入待验收阶段，按钮才能生效。
+  // 第二层门禁：服务端再次检查 failed，不信任前端的 disabled 状态。
   if (requirement.stage !== 'awaiting-product-acceptance') throw new Error('只有自动验证完成的候选实现可以验收')
   if (requirement.validation.some((item) => item.result === 'failed')) throw new Error('存在失败的验证项，不能验收')
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
+  // 验收的副作用是“冻结候选实现”：先重查当前分支/范围，再创建稳定 commit。
+  // 只有 commit 成功后才会把 Requirement 写成 accepted，中途失败不会产生假验收。
   const committed = await commitAcceptedCandidate(requirement, target)
   const acceptedAt = new Date().toISOString()
   const validation = requirement.validation.map((item) => item.id === 'product-acceptance' ? {
@@ -236,6 +240,7 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
     notRunReason: null,
     completedAt: acceptedAt,
   } : item)
+  // Handoff 是前端审查的摘要，不是 PR 或发布单；所以只记录可审查事实，不执行 push/merge。
   const handoff = [
     `# Frontend Delivery Handoff · ${requirement.specId}`,
     '',
