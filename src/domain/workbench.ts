@@ -59,6 +59,11 @@ export type RequirementSpec = {
   targetPage: string
   acceptanceCriteria: string[]
   proposedScope: string
+  exploration: {
+    inspectedFileCount: number
+    candidateCodeLocations: string[]
+    existingBehaviorEvidence: string[]
+  }
 }
 
 export type Requirement = {
@@ -76,6 +81,8 @@ export type Requirement = {
   skills: DiscoveredSkill[]
   boundaryItems: BoundaryItem[]
   evidence: EvidenceRecord[]
+  targetSnapshot: TargetProjectConfig
+  processFacts: TargetProcessSnapshot
 }
 
 export type TargetProjectConfig = {

@@ -35,6 +35,7 @@ export async function createRequirement(
   const input = assertCreateRequirementInput(rawInput)
   const target = await loadTargetProjectConfig()
   const now = new Date().toISOString()
+  const processFacts = getTargetProcessSnapshot(target)
   const requirement: Requirement = {
     id: `REQ-${now.slice(0, 10).replaceAll('-', '')}-${randomUUID().slice(0, 8)}`,
     title: input.title,
@@ -49,6 +50,8 @@ export async function createRequirement(
     rules: [],
     skills: [],
     boundaryItems: [],
+    targetSnapshot: target,
+    processFacts,
     evidence: [
       evidence(
         'project-adaptation',
@@ -79,14 +82,7 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
     stage: 'awaiting-spec-confirmation',
     updatedAt: now,
     spec: result.spec,
-    tickets: [
-      {
-        id: 'TICKET-01',
-        title: `实现：${requirement.title}`,
-        status: 'queued',
-        acceptanceCriteria: result.spec.acceptanceCriteria,
-      },
-    ],
+    tickets: result.tickets,
     rules: result.rules,
     skills: result.skills,
     boundaryItems: result.boundaryItems,
@@ -95,10 +91,10 @@ export async function analyzeCurrentRequirement(): Promise<WorkbenchSnapshot> {
       evidence(
         'awaiting-spec-confirmation',
         `目标页面 ${requirement.targetPage}，拟修改范围 ${target.modificationScope}`,
-        `只读解析 ${result.rules.length} 条仓库规则和 ${result.skills.length} 个 Skill，并形成 Spec 与执行票`,
+        `只读检查 ${result.spec.exploration.inspectedFileCount} 个代码文件、${result.rules.length} 条生效规则和 ${result.skills.length} 个 Skill，并形成 Spec 与执行票`,
         result.boundaryItems.length
           ? `发现 ${result.boundaryItems.length} 个需要边界确认的工程影响`
-          : 'Spec 与一张执行票已准备确认',
+          : `Spec 与 ${result.tickets.length} 张执行票已准备确认`,
       ),
     ],
   }
@@ -119,16 +115,10 @@ export async function confirmCurrentPlan(): Promise<WorkbenchSnapshot> {
     ...requirement,
     stage,
     updatedAt: new Date().toISOString(),
-    skills: requirement.skills.map((skill) =>
-      skill.name === 'implement'
-        ? {
-            ...skill,
-            active: !requiresBoundary,
-            activationReason: requiresBoundary
-              ? '等待边界确认'
-              : 'Spec 与执行票已确认',
-          }
-        : skill,
+    skills: activateImplementationSkill(
+      requirement.skills,
+      !requiresBoundary,
+      requiresBoundary ? '等待边界确认' : 'Spec 与执行票已确认',
     ),
     evidence: [
       ...requirement.evidence,
@@ -156,14 +146,10 @@ export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
       ...item,
       confirmed: true,
     })),
-    skills: requirement.skills.map((skill) =>
-      skill.name === 'implement'
-        ? {
-            ...skill,
-            active: true,
-            activationReason: 'Spec、执行票与工程边界均已确认',
-          }
-        : skill,
+    skills: activateImplementationSkill(
+      requirement.skills,
+      true,
+      'Spec、执行票与工程边界均已确认',
     ),
     evidence: [
       ...requirement.evidence,
@@ -180,13 +166,15 @@ export async function confirmCurrentBoundary(): Promise<WorkbenchSnapshot> {
 
 export async function startConfiguredTarget(): Promise<WorkbenchSnapshot> {
   const config = await loadTargetProjectConfig()
-  await startTargetProject(config)
+  const processFacts = await startTargetProject(config)
+  await saveProcessFacts(processFacts, '启动目标项目', `运行状态：${processFacts.status}，PID：${processFacts.pid ?? '—'}`)
   return getWorkbenchSnapshot()
 }
 
 export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
   const config = await loadTargetProjectConfig()
-  await stopTargetProject(config)
+  const processFacts = await stopTargetProject(config)
+  await saveProcessFacts(processFacts, '停止目标项目', '已回收工作台拥有的目标进程与预览网关')
   return getWorkbenchSnapshot()
 }
 
@@ -203,4 +191,34 @@ function evidence(
   output: string,
 ): EvidenceRecord {
   return { stage, input, action, output, recordedAt: new Date().toISOString() }
+}
+
+function activateImplementationSkill(
+  skills: Requirement['skills'],
+  active: boolean,
+  activationReason: string,
+) {
+  return skills.map((skill) =>
+    skill.name === 'implement'
+      ? { ...skill, active, activationReason }
+      : skill,
+  )
+}
+
+async function saveProcessFacts(
+  processFacts: Requirement['processFacts'],
+  action: string,
+  output: string,
+) {
+  const requirement = await requirementStore.load()
+  if (!requirement) return
+  await requirementStore.save({
+    ...requirement,
+    processFacts,
+    updatedAt: new Date().toISOString(),
+    evidence: [
+      ...requirement.evidence,
+      evidence('project-adaptation', processFacts.command, action, output),
+    ],
+  })
 }

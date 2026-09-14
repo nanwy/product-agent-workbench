@@ -25,12 +25,20 @@ const emptySnapshot: TargetProcessSnapshot = {
 
 const globalRuntime = globalThis as typeof globalThis & {
   __productAgentTargetRuntime?: RuntimeState
+  __productAgentRuntimeCleanupInstalled?: boolean
 }
 
 const runtime = (globalRuntime.__productAgentTargetRuntime ??= {
   child: null,
   snapshot: { ...emptySnapshot },
 })
+
+if (!globalRuntime.__productAgentRuntimeCleanupInstalled) {
+  globalRuntime.__productAgentRuntimeCleanupInstalled = true
+  process.once('exit', terminateOwnedProcess)
+  process.once('SIGINT', () => shutdownFromSignal(130))
+  process.once('SIGTERM', () => shutdownFromSignal(143))
+}
 
 export function getTargetProcessSnapshot(config?: TargetProjectConfig) {
   if (!config) {
@@ -195,4 +203,21 @@ function formatCommand(config: TargetProjectConfig) {
 
 function isMissingProcess(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ESRCH'
+}
+
+function terminateOwnedProcess() {
+  const child = runtime.child
+  runtime.child = null
+  if (!child?.pid || child.exitCode !== null) return
+  try {
+    if (process.platform === 'win32') child.kill('SIGTERM')
+    else process.kill(-child.pid, 'SIGTERM')
+  } catch (error) {
+    if (!isMissingProcess(error)) throw error
+  }
+}
+
+function shutdownFromSignal(exitCode: number) {
+  terminateOwnedProcess()
+  void stopPreviewGateway().finally(() => process.exit(exitCode))
 }

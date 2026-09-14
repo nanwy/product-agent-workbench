@@ -91,7 +91,13 @@ function proxyHttpRequest(request: IncomingMessage, response: ServerResponse) {
     return
   }
 
-  const target = new URL(request.url ?? '/', upstream.origin)
+  let target: URL
+  try {
+    target = resolvePreviewTarget(request.url ?? '/', upstream)
+  } catch {
+    response.writeHead(400).end('Invalid preview path')
+    return
+  }
   const transport = target.protocol === 'https:' ? https : http
   const headers = { ...request.headers, host: target.host }
   delete headers.connection
@@ -125,6 +131,16 @@ function proxyWebSocketUpgrade(
     return
   }
 
+  let requestPath: string
+  try {
+    requestPath = resolvePreviewTarget(request.url ?? '/', upstream).pathname
+    const search = resolvePreviewTarget(request.url ?? '/', upstream).search
+    requestPath += search
+  } catch {
+    browserSocket.destroy()
+    return
+  }
+
   const port = Number(upstream.port || (upstream.protocol === 'https:' ? 443 : 80))
   const upstreamSocket = net.connect(port, upstream.hostname, () => {
     const headers = request.rawHeaders
@@ -138,7 +154,7 @@ function proxyWebSocketUpgrade(
       }, [])
       .join('\r\n')
     upstreamSocket.write(
-      `${request.method} ${request.url} HTTP/${request.httpVersion}\r\n${headers}\r\n\r\n`,
+      `${request.method} ${requestPath} HTTP/${request.httpVersion}\r\n${headers}\r\n\r\n`,
     )
     if (head.length) upstreamSocket.write(head)
     browserSocket.pipe(upstreamSocket).pipe(browserSocket)
@@ -150,6 +166,17 @@ function assertLoopback(url: URL) {
   if (!['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
     throw new Error('预览网关只允许代理本机目标')
   }
+}
+
+export function resolvePreviewTarget(rawPath: string, upstream: URL) {
+  if (!rawPath.startsWith('/') || rawPath.startsWith('//')) {
+    throw new Error('预览请求必须使用站内路径')
+  }
+  const parsed = new URL(rawPath, 'http://preview.invalid')
+  const target = new URL(upstream.origin)
+  target.pathname = parsed.pathname
+  target.search = parsed.search
+  return target
 }
 
 function gatewayOrigin(port: number) {

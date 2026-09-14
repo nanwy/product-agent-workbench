@@ -9,7 +9,7 @@
 - localhost-only 预览网关、iframe 刷新和外部打开；
 - 根与最近目录 `AGENTS.md` 解析；
 - 可用/生效 Skill 区分及激活原因；
-- 候选 Spec、单张执行票和高风险边界确认。
+- 真实代码位置探索、候选 Spec、按结果切分的执行票和高风险边界确认。
 
 ## 本地运行
 
@@ -36,7 +36,8 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 
 - `src/domain/`：Requirement 聚合、阶段和公共数据契约；
 - `src/server/`：配置、持久化、规则探索、进程和预览网关；
-- `src/routes/`：产品可见的工作台界面及 Server Function 调用；
+- `src/routes/`：页面编排和 Server Function 调用；
+- `src/components/`：需求、证据与预览三个可讲解的界面模块；
 - `tests/fixtures/`：确定性目标项目和仓库规则；
 - `tests/e2e/`：浏览器级主验收流程。
 
