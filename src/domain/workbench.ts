@@ -134,6 +134,10 @@ export type Requirement = {
   createdAt: string
   updatedAt: string
   modificationRounds: number
+  // 协作指标只保存真实采集到的时间点；null 在 UI 中统一显示为 uncollected。
+  metrics: CollaborationMetrics
+  // 每次返修保存提交时的验证快照，失败/取消后仍能查看上一版候选证据。
+  refinements: RefinementRound[]
   grilling: GrillingSession
   spec: RequirementSpec | null
   tickets: ExecutionTicket[]
@@ -148,6 +152,20 @@ export type Requirement = {
   codex: CodexSession
   validation: ValidationRecord[]
   delivery: DeliveryCard | null
+}
+
+export type CollaborationMetrics = {
+  firstPreviewAt: string | null
+  acceptedAt: string | null
+}
+
+export type RefinementRound = {
+  id: string
+  ticketId: string
+  requestedOutcome: string
+  requestedAt: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  baselineValidation: ValidationRecord[]
 }
 
 export type TargetProjectConfig = {
@@ -255,6 +273,18 @@ export type CreateRequirementInput = {
   title: string
   targetPage: string
   requestedOutcome: string
+}
+
+export type ContinueRefinementInput = {
+  requestedOutcome: string
+}
+
+/** 清理返修文本；它只能成为领域数据和 Codex prompt，不能成为命令或参数。 */
+export function assertContinueRefinementInput(input: ContinueRefinementInput): ContinueRefinementInput {
+  const requestedOutcome = input.requestedOutcome.trim()
+  if (!requestedOutcome) throw new Error('请填写具体的返修结果')
+  if (requestedOutcome.length > 2000) throw new Error('返修结果不能超过 2000 个字符')
+  return { requestedOutcome }
 }
 
 /**

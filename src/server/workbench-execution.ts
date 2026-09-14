@@ -50,9 +50,11 @@ export async function reconcileInterruptedExecution() {
 
 /** 纯状态转换，便于验证重启恢复不会丢失分支、session 或已完成票。 */
 export function recoverInterruptedRequirement(requirement: Requirement, reason: string, interrupted = event('failed', reason)): Requirement {
+  const activeTicketId = requirement.codex.activeTicketId
   return {
     ...requirement,
-    tickets: requirement.tickets.map((ticket) => ticket.id === requirement.codex.activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
+    tickets: requirement.tickets.map((ticket) => ticket.id === activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
+    refinements: setRefinementStatus(requirement.refinements, activeTicketId, 'failed'),
     codex: { ...requirement.codex, status: 'failed', error: reason, events: [...requirement.codex.events, interrupted].slice(-200) },
     updatedAt: new Date().toISOString(),
   }
@@ -99,8 +101,17 @@ async function prepareExecution() {
   if (nextIndex < 0) return
   await requirementStore.update((current) => {
     if (!current) throw new Error('产品需求已不存在')
-    const tickets = current.tickets.map((ticket, index) => index === nextIndex ? { ...ticket, status: 'active' as const } : ticket)
-    return { ...current, tickets, codex: { ...current.codex, status: 'running', activeTicketId: tickets[nextIndex].id, error: null }, updatedAt: new Date().toISOString() }
+    // 即使旧快照异常留下多张 active，也在启动前收敛为唯一 active Ticket。
+    const tickets = current.tickets.map((ticket, index) => index === nextIndex
+      ? { ...ticket, status: 'active' as const }
+      : ticket.status === 'active' ? { ...ticket, status: 'queued' as const } : ticket)
+    return {
+      ...current,
+      tickets,
+      refinements: setRefinementStatus(current.refinements, tickets[nextIndex].id, 'running'),
+      codex: { ...current.codex, status: 'running', activeTicketId: tickets[nextIndex].id, error: null },
+      updatedAt: new Date().toISOString(),
+    }
   })
   const abortController = new AbortController()
   globalExecution.__workbenchExecutionAbort = abortController
@@ -125,14 +136,21 @@ async function prepareExecution() {
 export async function cancelRequirementExecution() {
   const requirement = await requireRequirement()
   if (requirement.codex.status !== 'running') return
+  const cancelled = event('cancelled', `已停止 ${requirement.codex.activeTicketId ?? '当前执行票'} 的 Codex turn`)
+  // 先持久化 cancelled，再终止进程。否则 CLI 退出可能先触发后台 catch，把用户取消
+  // 竞态覆盖成 failed；session、分支和当前票都继续保留用于恢复。
+  await requirementStore.update((current) => {
+    if (!current) throw new Error('产品需求已不存在')
+    return {
+      ...current,
+      refinements: setRefinementStatus(current.refinements, current.codex.activeTicketId, 'cancelled'),
+      codex: { ...current.codex, status: 'cancelled', error: null, events: [...current.codex.events, cancelled].slice(-200) },
+      updatedAt: new Date().toISOString(),
+    }
+  })
   // AbortSignal 停止 adapter 消费，cancelCodexTurn 终止实际进程；两者都不删除 session ID。
   globalExecution.__workbenchExecutionAbort?.abort()
   cancelCodexTurn()
-  const cancelled = event('cancelled', `已停止 ${requirement.codex.activeTicketId ?? '当前执行票'} 的 Codex turn`)
-  await requirementStore.update((current) => {
-    if (!current) throw new Error('产品需求已不存在')
-    return { ...current, codex: { ...current.codex, status: 'cancelled', error: null, events: [...current.codex.events, cancelled].slice(-200) }, updatedAt: new Date().toISOString() }
-  })
   publishAgentEvent(cancelled)
   await globalExecution.__workbenchExecution?.catch(() => undefined)
 }
@@ -177,6 +195,7 @@ async function executeQueue(signal: AbortSignal) {
         ...current,
         tickets,
         modificationRounds: current.modificationRounds + 1,
+        refinements: setRefinementStatus(current.refinements, ticket.id, 'completed'),
         codex: { ...current.codex, status: nextIndex >= 0 ? 'running' as const : 'completed' as const, sessionId: result.sessionId, activeTicketId: nextIndex >= 0 ? tickets[nextIndex].id : null, changedFiles, error: null, events: [...current.codex.events, completed].slice(-200) },
         updatedAt: new Date().toISOString(),
       }
@@ -207,11 +226,18 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
     return {
       ...current,
       tickets: current.tickets.map((ticket) => ticket.id === activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
+      refinements: setRefinementStatus(current.refinements, activeTicketId, 'failed'),
       codex: { ...current.codex, status: 'failed', sessionId: sessionId ?? current.codex.sessionId, changedFiles: changedFiles ?? current.codex.changedFiles, error: reason, events: [...current.codex.events, failed].slice(-200) },
       updatedAt: new Date().toISOString(),
     }
   })
   publishAgentEvent(failed)
+}
+
+/** 返修状态挂在对应 Ticket 上；普通初始 Ticket 不会命中，因此保持原数组不变。 */
+function setRefinementStatus(refinements: Requirement['refinements'], ticketId: string | null, status: Requirement['refinements'][number]['status']) {
+  if (!ticketId) return refinements
+  return refinements.map((round) => round.ticketId === ticketId ? { ...round, status } : round)
 }
 
 export function buildExecutionPrompt(requirement: Requirement, ticket: Requirement['tickets'][number]) {

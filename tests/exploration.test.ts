@@ -130,7 +130,7 @@ function requirementFixture(requestedOutcome: string): Requirement {
     stage: 'intent-drafting',
     createdAt: '2026-09-14T00:00:00.000Z',
     updatedAt: '2026-09-14T00:00:00.000Z',
-    modificationRounds: 0,
+    modificationRounds: 0, metrics: { firstPreviewAt: null, acceptedAt: null }, refinements: [],
     grilling: { status: 'confirmed', questions: [], confirmedAt: '2026-09-14T00:00:00.000Z' },
     spec: null,
     tickets: [],

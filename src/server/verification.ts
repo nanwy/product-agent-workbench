@@ -37,6 +37,7 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
   records.push(scopeRecord)
   // 候选实现完成后由宿主确保运行时就绪；执行 Agent 无需在沙箱中监听端口或操作浏览器。
   if (!signal?.aborted && getTargetProcessSnapshot(target).status !== 'ready') await startTargetProject(target)
+  await captureFirstPreviewMetric(target)
   records.push(await validateHealth(target))
   records.push(await validateRuntime(requirement.targetPage, target))
   const browserRecord = await runAgentBrowserValidation(requirement.targetPage, target, signal)
@@ -77,6 +78,17 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
         recordedAt: now,
       }],
     }
+  })
+}
+
+/** 自动验证启动目标项目时也记录首次可用预览，避免指标依赖用户是否手动点过“启动”。 */
+async function captureFirstPreviewMetric(target: TargetProjectConfig) {
+  const processFacts = getTargetProcessSnapshot(target)
+  if (processFacts.status !== 'ready') return
+  await requirementStore.update((current) => {
+    if (!current) throw new Error('产品需求已不存在')
+    if (current.metrics.firstPreviewAt) return current
+    return { ...current, processFacts, metrics: { ...current.metrics, firstPreviewAt: new Date().toISOString() } }
   })
 }
 

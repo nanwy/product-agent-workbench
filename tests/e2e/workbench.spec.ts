@@ -22,6 +22,7 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await page.getByLabel('期望结果').fill('把空状态文案改得更明确，同时保留现有页面结构')
   await page.getByRole('button', { name: '建立产品需求' }).click()
   await expect(page.getByRole('heading', { name: '优化首页空状态文案' })).toBeVisible()
+  await expect(page.getByLabel('协作指标')).toContainText('uncollected')
 
   await expect(page.getByText('Grilling · 共同理解门禁')).toBeVisible()
   await page.getByRole('button', { name: '共同理解已达成' }).click()
@@ -33,6 +34,7 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await page.getByRole('button', { name: '启动项目' }).click()
   await expect(page.getByTestId('process-status')).toHaveText('ready')
   await expect(page.getByTestId('process-ownership')).toHaveText('workbench')
+  await expect(page.getByLabel('协作指标')).toContainText('lead')
   await expect(page.frameLocator('iframe').getByRole('heading', { name: 'Fixture target' })).toBeVisible()
 
   const gatewayResponse = await request.get('http://127.0.0.1:4174/competition')
@@ -52,6 +54,7 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByText('规格边界已确认，可以创建安全需求分支并执行。')).toBeVisible()
 
   const targetRoot = path.join(os.tmpdir(), 'product-agent-workbench-e2e-target')
+  const requirementPath = path.join(os.tmpdir(), 'product-agent-workbench-e2e-data', 'current-requirement.json')
   const unrelatedFile = path.join(targetRoot, 'unrelated.txt')
   await writeFile(unrelatedFile, 'existing user work\n')
   await page.getByRole('button', { name: '创建分支并执行' }).click()
@@ -75,15 +78,54 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByText('Verification Matrix')).toBeVisible()
   await expect(page.locator('.validation-list article[data-result="failed"]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '通过产品验收' })).toBeVisible()
+
+  // 在验收前追加返修：同一 Requirement/分支/session 经历失败、刷新、取消和最终成功。
+  const beforeRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  const roundsBeforeRefinement = beforeRefinement.modificationRounds
+  await page.getByPlaceholder(/按钮文案改为/).fill('把按钮文案调整得更明确，但保持原点击行为')
+  await page.getByRole('button', { name: '继续返修' }).click()
+  await expect(page.locator('.ticket-row[data-status="queued"]')).toHaveCount(1)
+  const queuedRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(queuedRefinement.id).toBe(beforeRefinement.id)
+  expect(queuedRefinement.specId).toBe(beforeRefinement.specId)
+  expect(queuedRefinement.branch.requirementBranch).toBe(beforeRefinement.branch.requirementBranch)
+  expect(queuedRefinement.codex.sessionId).toBe(beforeRefinement.codex.sessionId)
+  expect(queuedRefinement.modificationRounds).toBe(roundsBeforeRefinement)
+  expect(queuedRefinement.refinements.at(-1).baselineValidation.length).toBeGreaterThan(0)
+
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-fail-turn'), 'fail\n')
+  await page.getByRole('button', { name: '继续当前 Session' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('failed')
+  const failedRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(failedRefinement.modificationRounds).toBe(roundsBeforeRefinement)
+  expect(failedRefinement.refinements.at(-1).status).toBe('failed')
+  await page.reload()
+  await expect(page.locator('.ticket-row').filter({ hasText: '把按钮文案调整得更明确' })).toBeVisible()
+
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), 'slow\n')
+  await page.getByRole('button', { name: '重新检查并执行' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('running')
+  await page.getByRole('button', { name: '停止当前 Turn' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('cancelled')
+  const cancelledRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(cancelledRefinement.modificationRounds).toBe(roundsBeforeRefinement)
+  expect(cancelledRefinement.refinements.at(-1).status).toBe('cancelled')
+  await page.reload()
+  await page.getByRole('button', { name: '继续当前 Session' }).click()
+  await expect(page.getByTestId('codex-status')).toContainText('completed')
+  await expect(page.getByRole('button', { name: '通过产品验收' })).toBeVisible()
+  await expect(page.getByTestId('modification-rounds')).toHaveText(String(roundsBeforeRefinement + 1))
+  expect(JSON.parse(await readFile(requirementPath, 'utf8')).refinements.at(-1).status).toBe('completed')
+
   await page.getByRole('button', { name: '通过产品验收' }).click()
   await expect(page.getByTestId('delivery-card')).toContainText('Frontend Delivery Handoff')
   await expect(page.getByTestId('delivery-card')).toContainText('apps/front/app/competition/page.tsx')
+  await expect(page.getByLabel('协作指标')).not.toContainText('uncollected')
   const { stdout: commitSubject } = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: targetRoot })
   expect(commitSubject).toContain('SPEC-')
 
   // Simulate a turn that started before the verification transition existed:
   // its persisted state says implementation is complete, but has no matrix yet.
-  const requirementPath = path.join(os.tmpdir(), 'product-agent-workbench-e2e-data', 'current-requirement.json')
   const legacyRequirement = JSON.parse(await readFile(requirementPath, 'utf8'))
   legacyRequirement.stage = 'implementation'
   legacyRequirement.validation = []

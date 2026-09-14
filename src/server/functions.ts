@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 
-import { assertCreateRequirementInput, type CreateRequirementInput } from '../domain/workbench'
+import { assertContinueRefinementInput, assertCreateRequirementInput, type ContinueRefinementInput, type CreateRequirementInput } from '../domain/workbench'
 import { runIdempotentMutation } from './idempotency'
 import {
   analyzeCurrentRequirement,
@@ -8,6 +8,7 @@ import {
   confirmCurrentBoundary,
   confirmCurrentGrilling,
   confirmCurrentPlan,
+  continueCurrentRefinement,
   createRequirement,
   getWorkbenchSnapshot,
   startConfiguredTarget,
@@ -19,6 +20,7 @@ import { verifyCurrentRequirement } from './verification'
 type MutationInput = { idempotencyKey: string }
 type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
 type GrillingMutationInput = MutationInput & { answers: Record<string, string> }
+type RefinementMutationInput = MutationInput & { refinement: ContinueRefinementInput }
 
 /**
  * 校验所有写请求共有的输入。
@@ -193,3 +195,16 @@ export const rerunVerification = createServerFn({ method: 'POST' }).validator(mu
 export const acceptRequirement = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
   runIdempotentMutation('accept-requirement', data.idempotencyKey, getWorkbenchSnapshot, acceptCurrentRequirement),
 )
+
+/**
+ * 把产品提出的具体返修结果追加到当前 Requirement。
+ *
+ * validator 只接收文本并做长度校验；仓库、分支、命令和写入范围全部沿用服务端已经
+ * 确认的状态。服务层会保存上一版验证证据并生成一张 queued Ticket，但不会在本请求
+ * 中拼接或执行任何 Shell 命令。
+ *
+ * @returns 同一需求恢复到 implementation、并包含新返修票的工作台快照。
+ */
+export const continueRefinement = createServerFn({ method: 'POST' })
+  .validator((input: RefinementMutationInput) => ({ ...mutationInput(input), refinement: assertContinueRefinementInput(input.refinement) }))
+  .handler(({ data }) => runIdempotentMutation('continue-refinement', data.idempotencyKey, getWorkbenchSnapshot, () => continueCurrentRefinement(data.refinement)))

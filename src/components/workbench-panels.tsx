@@ -77,6 +77,7 @@ export function RequirementSummary({ requirement, busyAction, onAnalyze, onConfi
       {requirement.stage === 'awaiting-spec-confirmation' ? <button className="primary-button" disabled={busyAction !== null} onClick={onConfirm} type="button">确认 Spec 与执行票</button> : null}
       {requirement.stage === 'awaiting-boundary-confirmation' ? <button className="risk-button" disabled={busyAction !== null} onClick={onConfirmBoundary} type="button">确认工程边界</button> : null}
       {requirement.stage === 'implementation' ? <div className="ready-callout">规格边界已确认，可以创建安全需求分支并执行。</div> : null}
+      <CollaborationMetrics requirement={requirement} />
       {requirement.rules.length ? <RuleManifest requirement={requirement} /> : null}
     </div>
   )
@@ -120,6 +121,7 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
     <div className="agent-console">
       <div className="agent-placeholder"><span className="agent-mark">A</span><div><strong>连续 Codex Session</strong><p data-testid="codex-status">{requirement.codex.status} · {requirement.codex.sessionId ?? '尚未建立 session'}</p></div></div>
       <div className="ticket-stack">{requirement.tickets.map((ticket) => <div className="ticket-row" data-status={ticket.status} key={ticket.id}><code>{ticket.id}</code><span>{ticket.title}</span><strong>{ticket.status}</strong></div>)}</div>
+      {requirement.refinements.length ? <div className="refinement-history" aria-label="返修记录">{requirement.refinements.map((round) => <article key={round.id}><header><strong>{round.id}</strong><span>{round.status}</span></header><p>{round.requestedOutcome}</p><small>{round.ticketId} · 上一版证据 {round.baselineValidation.length} 项</small></article>)}</div> : null}
       {requirement.branch ? (
         <div className={requirement.branch.blockedReason ? 'git-facts blocked' : 'git-facts'}>
           <div><span>Base</span><code>{requirement.branch.baseBranch} · {requirement.branch.baseRevision.slice(0, 8)}</code></div>
@@ -129,7 +131,7 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
         </div>
       ) : null}
       <div className="agent-actions">
-        {canExecute ? <button className="primary-button" disabled={busyAction !== null} onClick={onExecute} type="button">{busyAction === 'execute' ? '正在检查 Git 并启动…' : requirement.codex.status === 'cancelled' ? '继续当前 Session' : requirement.codex.status === 'failed' ? '重新检查并执行' : '创建分支并执行'}</button> : null}
+        {canExecute ? <button className="primary-button" disabled={busyAction !== null} onClick={onExecute} type="button">{busyAction === 'execute' ? '正在检查 Git 并启动…' : requirement.codex.status === 'failed' ? '重新检查并执行' : requirement.branch?.requirementBranch || requirement.codex.status === 'cancelled' ? '继续当前 Session' : '创建分支并执行'}</button> : null}
         {requirement.codex.status === 'running' ? <button className="risk-button" disabled={busyAction !== null} onClick={onCancel} type="button">停止当前 Turn</button> : null}
       </div>
       {requirement.codex.error ? <div className="agent-error" role="alert"><strong>未能开始执行</strong><span>{requirement.codex.error}</span></div> : null}
@@ -141,11 +143,12 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
   )
 }
 
-export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: {
+export function ValidationPanel({ requirement, busyAction, onRerun, onAccept, onRefine }: {
   requirement: Requirement
   busyAction: string | null
   onRerun: () => void
   onAccept: () => void
+  onRefine: (requestedOutcome: string) => Promise<void> | void
 }) {
   // UI 只根据持久化的矩阵渲染，不通过日志文案推断验证结果。
   // disabled 是交互反馈；真正的验收门禁在 acceptCurrentRequirement 服务端函数中。
@@ -173,10 +176,59 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept }: 
         </article>)}
       </div>
       {canStartVerification || requirement.stage === 'verification' ? <button className="primary-button" disabled={busyAction !== null} onClick={onRerun} type="button">{busyAction === 'verify' ? '正在验证…' : canStartVerification ? '开始验证' : '重跑验证'}</button> : null}
-      {requirement.stage === 'awaiting-product-acceptance' ? <><p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p><button className="primary-button" disabled={busyAction !== null || hasBlockingRecord} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button></> : null}
+      {requirement.stage === 'awaiting-product-acceptance' ? <>
+        <p className="acceptance-note">验收代表候选实现符合产品意图，不代表生产合并或发布批准。</p>
+        <button className="primary-button" disabled={busyAction !== null || hasBlockingRecord} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button>
+        <RefinementForm busy={busyAction !== null} onSubmit={onRefine} />
+      </> : null}
       {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
     </section>
   )
+}
+
+function RefinementForm({ busy, onSubmit }: { busy: boolean; onSubmit: (requestedOutcome: string) => Promise<void> | void }) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const requestedOutcome = String(new FormData(form).get('requestedOutcome') ?? '')
+    await onSubmit(requestedOutcome)
+    form.reset()
+  }
+  // textarea 的内容只作为返修领域数据提交；执行命令仍来自受信任的项目配置。
+  return <form className="refinement-form" onSubmit={handleSubmit}>
+    <label><span>候选实现不符合预期？填写具体返修结果</span><textarea name="requestedOutcome" placeholder="例如：按钮文案改为“立即创建”，并保持原来的点击行为。" maxLength={2000} rows={3} required /></label>
+    <button className="risk-button" disabled={busy} type="submit">{busy ? '正在提交…' : '继续返修'}</button>
+  </form>
+}
+
+/** 只展示已采集事实；缺失值明确显示 uncollected，不推算虚构的效率百分比。 */
+function CollaborationMetrics({ requirement }: { requirement: Requirement }) {
+  const firstPreviewLead = durationBetween(requirement.createdAt, requirement.metrics.firstPreviewAt)
+  const acceptanceLead = durationBetween(requirement.createdAt, requirement.metrics.acceptedAt)
+  return <section className="metrics-card" aria-label="协作指标">
+    <div className="section-label">Collaboration Metrics</div>
+    <dl>
+      <div><dt>需求建立</dt><dd>{formatMetricTime(requirement.createdAt)}</dd></div>
+      <div><dt>首次预览</dt><dd>{formatMetricTime(requirement.metrics.firstPreviewAt)}{firstPreviewLead ? ` · lead ${firstPreviewLead}` : ''}</dd></div>
+      <div><dt>产品验收</dt><dd>{formatMetricTime(requirement.metrics.acceptedAt)}{acceptanceLead ? ` · lead ${acceptanceLead}` : ''}</dd></div>
+      <div><dt>完成修改轮次</dt><dd data-testid="modification-rounds">{requirement.modificationRounds}</dd></div>
+    </dl>
+  </section>
+}
+
+function formatMetricTime(value: string | null) {
+  return value ? new Date(value).toLocaleString('zh-CN') : 'uncollected'
+}
+
+function durationBetween(start: string, end: string | null) {
+  if (!end) return null
+  const milliseconds = new Date(end).getTime() - new Date(start).getTime()
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return null
+  const seconds = Math.round(milliseconds / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.round(minutes / 60)}h`
 }
 
 function PlanReview({ requirement }: { requirement: Requirement }) {

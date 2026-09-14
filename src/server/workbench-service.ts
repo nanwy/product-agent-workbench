@@ -3,7 +3,9 @@ import path from 'node:path'
 
 import {
   assertCreateRequirementInput,
+  assertContinueRefinementInput,
   type CreateRequirementInput,
+  type ContinueRefinementInput,
   type EvidenceRecord,
   type GrillingQuestion,
   type Requirement,
@@ -66,6 +68,8 @@ export async function createRequirement(
     createdAt: now,
     updatedAt: now,
     modificationRounds: 0,
+    metrics: { firstPreviewAt: null, acceptedAt: null },
+    refinements: [],
     grilling: {
       status: 'pending',
       confirmedAt: null,
@@ -273,6 +277,49 @@ export async function stopConfiguredTarget(): Promise<WorkbenchSnapshot> {
 }
 
 /**
+ * 在同一 Requirement、Git 分支和 Codex session 中追加一轮产品返修。
+ *
+ * 产品文本只进入 Ticket 和后续 Codex prompt，不参与 Shell 命令构造。提交时保存当前
+ * 验证矩阵作为上一版候选证据，然后恢复 implementation；真正执行仍由原执行队列负责。
+ */
+export async function continueCurrentRefinement(rawInput: ContinueRefinementInput): Promise<WorkbenchSnapshot> {
+  const input = assertContinueRefinementInput(rawInput)
+  const requirement = await requireCurrentRequirement()
+  if (requirement.stage !== 'awaiting-product-acceptance') throw new Error('只有待产品验收的候选实现可以继续返修')
+  if (!requirement.branch?.requirementBranch || !requirement.codex.sessionId) throw new Error('返修必须复用已建立的需求分支和 Codex session')
+  const now = new Date().toISOString()
+  const nextNumber = requirement.tickets.reduce((largest, ticket) => {
+    const value = Number(ticket.id.match(/(\d+)$/)?.[1] ?? 0)
+    return Math.max(largest, value)
+  }, 0) + 1
+  const ticketId = `TICKET-${String(nextNumber).padStart(2, '0')}`
+  await requirementStore.save({
+    ...requirement,
+    stage: 'implementation',
+    updatedAt: now,
+    delivery: null,
+    tickets: [...requirement.tickets, {
+      id: ticketId,
+      title: input.requestedOutcome.length > 32 ? `${input.requestedOutcome.slice(0, 31)}…` : input.requestedOutcome,
+      status: 'queued',
+      acceptanceCriteria: [`在 ${requirement.targetPage} 验证返修结果：${input.requestedOutcome}`, '继续遵守原 Spec、修改范围、生效规则和生效 Skill'],
+    }],
+    // sessionId、branch、Requirement ID、Spec ID、Spec 与规则均通过展开原聚合保持不变。
+    codex: { ...requirement.codex, status: 'idle', activeTicketId: null, error: null },
+    refinements: [...requirement.refinements, {
+      id: `REFINEMENT-${String(requirement.refinements.length + 1).padStart(2, '0')}`,
+      ticketId,
+      requestedOutcome: input.requestedOutcome,
+      requestedAt: now,
+      status: 'queued',
+      baselineValidation: requirement.validation,
+    }],
+    evidence: [...requirement.evidence, evidence('implementation', input.requestedOutcome, `追加返修执行票 ${ticketId}`, '保留原分支、Session、范围、规则和上一版验证证据')],
+  })
+  return getWorkbenchSnapshot()
+}
+
+/**
  * 对通过自动验证的候选实现执行产品验收。
  *
  * 服务端重新执行阶段、失败项、分支和修改范围门禁；全部通过后创建稳定 commit，
@@ -316,6 +363,7 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
     validation,
     delivery: { ...committed, acceptedAt, handoff },
     updatedAt: acceptedAt,
+    metrics: { ...requirement.metrics, acceptedAt },
     evidence: [...requirement.evidence, evidence('accepted', '产品显式验收候选实现', '创建稳定提交并生成前端交付 Handoff', `${committed.branch} @ ${committed.revision.slice(0, 8)}`)],
   })
   return getWorkbenchSnapshot()
@@ -365,6 +413,10 @@ async function saveProcessFacts(
     return {
       ...current,
       processFacts,
+      metrics: {
+        ...current.metrics,
+        firstPreviewAt: processFacts.status === 'ready' ? current.metrics.firstPreviewAt ?? new Date().toISOString() : current.metrics.firstPreviewAt,
+      },
       updatedAt: new Date().toISOString(),
       evidence: [
         ...current.evidence,

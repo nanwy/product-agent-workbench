@@ -84,6 +84,8 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
   return {
     ...requirement,
     specId: requirement.specId ?? requirement.id.replace(/^REQ-/, 'SPEC-'),
+    metrics: requirement.metrics ?? { firstPreviewAt: null, acceptedAt: requirement.delivery?.acceptedAt ?? null },
+    refinements: requirement.refinements ?? [],
     grilling: requirement.grilling ?? { status: 'confirmed', questions: [], confirmedAt: requirement.createdAt },
     workflow,
     skills,

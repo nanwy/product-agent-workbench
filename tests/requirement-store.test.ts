@@ -29,7 +29,7 @@ describe('requirement persistence', () => {
   it('migrates legacy mixed Skills into separate workflow and target capabilities', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'workbench-store-'))
     temporaryDirectories.push(directory)
-    const { workflow: _newWorkflowField, ...legacy } = fixtureRequirement()
+    const { workflow: _newWorkflowField, metrics: _newMetrics, refinements: _newRefinements, ...legacy } = fixtureRequirement()
     const legacyDocument = { ...legacy, skills: [
       { name: 'to-spec', description: 'workflow', source: 'workflow', active: true, activationReason: 'legacy', content: null, kind: 'workflow' },
       { name: 'product-copy-change', description: 'target', source: 'tests/fixtures/target-project/.agents/skills/product-copy-change/SKILL.md', active: true, activationReason: 'legacy', content: null, kind: 'target-project' },
@@ -47,6 +47,8 @@ describe('requirement persistence', () => {
       active: true,
       activationReason: 'legacy',
     })
+    expect(restored?.metrics).toEqual({ firstPreviewAt: null, acceptedAt: null })
+    expect(restored?.refinements).toEqual([])
   })
 })
 
@@ -59,7 +61,7 @@ function fixtureRequirement(): Requirement {
   }
   return {
     id: 'REQ-STORE', specId: 'SPEC-STORE', title: '持久化需求', targetPage: '/', requestedOutcome: '刷新后仍存在',
-    stage: 'intent-drafting', createdAt: now, updatedAt: now, modificationRounds: 0,
+    stage: 'intent-drafting', createdAt: now, updatedAt: now, modificationRounds: 0, metrics: { firstPreviewAt: null, acceptedAt: null }, refinements: [],
     grilling: { status: 'pending', questions: [], confirmedAt: null }, spec: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
     targetSnapshot: target,
     processFacts: { status: 'stopped', ownership: 'none', pid: null, command: '', healthUrl: target.healthUrl, previewUrl: target.previewUrl, gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },

@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile)
 export default async function globalSetup() {
   await stopPreviousFixture()
   await rm(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), { force: true })
+  await rm(path.join(os.tmpdir(), 'product-agent-workbench-fail-turn'), { force: true })
   const source = path.resolve('tests/fixtures/target-project')
   const target = path.join(os.tmpdir(), 'product-agent-workbench-e2e-target')
   await rm(path.join(os.tmpdir(), 'product-agent-workbench-e2e-data'), { force: true, recursive: true })

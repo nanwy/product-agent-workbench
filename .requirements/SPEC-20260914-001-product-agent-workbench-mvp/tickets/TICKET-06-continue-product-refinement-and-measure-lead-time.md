@@ -1,7 +1,7 @@
 # TICKET-06 在同一需求中继续产品返修并记录协作时间
 
 **Type:** AFK  
-**Status:** Ready
+**Status:** Complete
 
 ## Parent
 
@@ -25,15 +25,19 @@
 
 ## Acceptance criteria
 
-- [ ] 待产品验收页面提供“继续返修”输入，产品文本只作为数据，不能被拼接成 Shell 命令。
-- [ ] 提交返修后生成一张新的 queued Ticket，并恢复到 implementation 阶段。
-- [ ] 返修继续使用原 Requirement ID、Spec ID、需求分支和 Codex session ID。
-- [ ] 每轮仍只有一张 active Ticket，且只能修改原确认范围。
-- [ ] 返修 turn 成功后增加修改轮次并自动重跑验证；取消或失败不增加完成轮次。
-- [ ] Requirement 持久化需求建立、首次可用预览和产品验收时间；页面显示修改轮次和可计算的 lead time。
-- [ ] 未采集时显示 `uncollected`，没有对照基线时不显示任何提升百分比。
-- [ ] 新增的领域状态、服务端副作用、会话续接与恢复边界必须有简体中文注释；修改旧调用链时同步补齐相关边界注释。
-- [ ] 自动化测试覆盖返修续接、刷新恢复、取消/失败和指标缺失四类路径。
+- [x] 待产品验收页面提供“继续返修”输入，产品文本只作为数据，不能被拼接成 Shell 命令。
+- [x] 提交返修后生成一张新的 queued Ticket，并恢复到 implementation 阶段。
+- [x] 返修继续使用原 Requirement ID、Spec ID、需求分支和 Codex session ID。
+- [x] 每轮仍只有一张 active Ticket，且只能修改原确认范围。
+- [x] 返修 turn 成功后增加修改轮次并自动重跑验证；取消或失败不增加完成轮次。
+- [x] Requirement 持久化需求建立、首次可用预览和产品验收时间；页面显示修改轮次和可计算的 lead time。
+- [x] 未采集时显示 `uncollected`，没有对照基线时不显示任何提升百分比。
+- [x] 新增的领域状态、服务端副作用、会话续接与恢复边界必须有简体中文注释；修改旧调用链时同步补齐相关边界注释。
+- [x] 自动化测试覆盖返修续接、刷新恢复、取消/失败和指标缺失四类路径。
+
+## Completion note · 2026-09-15
+
+返修作为同一 Requirement 下的新串行 Ticket 追加，并保留原分支、Codex session、确认范围、规则及上一版验证矩阵。执行失败或取消只更新返修状态，不增加完成轮次；成功后由既有执行队列自动重跑第五票验证。协作指标只根据真实时间点计算 lead time，缺失值保持 `uncollected`。
 
 ## Blocked by
 

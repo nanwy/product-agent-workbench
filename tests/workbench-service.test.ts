@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { assertCreateRequirementInput } from '../src/domain/workbench'
+import { assertContinueRefinementInput, assertCreateRequirementInput } from '../src/domain/workbench'
 import { assertCanCreateRequirement, assertConfirmedScope, confirmGrillingAnswers } from '../src/server/workbench-service'
 
 const target = {
@@ -23,6 +23,12 @@ describe('product requirement boundaries', () => {
     expect(() => confirmGrillingAnswers(questions, {})).toThrow('请回答：修改边界')
   })
 
+  it('treats refinement text as bounded product data', () => {
+    expect(assertContinueRefinementInput({ requestedOutcome: ' 调整按钮文案 ' })).toEqual({ requestedOutcome: '调整按钮文案' })
+    expect(() => assertContinueRefinementInput({ requestedOutcome: ' ' })).toThrow('具体的返修结果')
+    expect(() => assertContinueRefinementInput({ requestedOutcome: 'x'.repeat(2001) })).toThrow('2000')
+  })
+
   it('allows only the configured scope or a child directory', () => {
     expect(() => assertConfirmedScope('apps/front', target)).not.toThrow()
     expect(() => assertConfirmedScope('apps/front/app', target)).not.toThrow()
@@ -37,4 +43,3 @@ describe('product requirement boundaries', () => {
     expect(() => assertCanCreateRequirement({ stage: 'failed' })).toThrow('不能建立第二条活动需求')
   })
 })
-

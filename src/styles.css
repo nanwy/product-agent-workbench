@@ -134,6 +134,16 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .validation-list details summary { cursor: pointer; font-size: 9px; font-weight: 800; }
 .validation-list details pre { max-height: 180px; margin: 6px 0 0; overflow: auto; white-space: pre-wrap; font-size: 8px; }
 .acceptance-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.refinement-form { display: grid; gap: 8px; margin-top: 5px; padding: 10px; border: 1px dashed var(--line); }
+.refinement-form label { display: grid; gap: 6px; font-size: 10px; font-weight: 800; }
+.refinement-history { display: grid; gap: 6px; margin-top: 9px; }
+.refinement-history article { padding: 8px; border-left: 3px solid var(--blueprint); background: rgba(35,71,217,.06); }
+.refinement-history header { display: flex; justify-content: space-between; font-size: 9px; }
+.refinement-history p, .refinement-history small { display: block; margin: 4px 0 0; font-size: 9px; }
+.metrics-card { display: grid; gap: 7px; margin-top: 14px; padding: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.42); }
+.metrics-card dl { display: grid; gap: 5px; margin: 0; }
+.metrics-card dl div { display: grid; grid-template-columns: 92px 1fr; gap: 7px; font-size: 10px; }
+.metrics-card dd { margin: 0; overflow-wrap: anywhere; }
 .delivery-card { padding: 12px; border: 1px solid var(--ink); background: rgba(200,255,54,.12); box-shadow: 4px 4px 0 var(--ink); }
 .delivery-card dl { display: grid; gap: 5px; margin: 10px 0; }
 .delivery-card dl div { display: grid; grid-template-columns: 60px 1fr; gap: 7px; font-size: 10px; }

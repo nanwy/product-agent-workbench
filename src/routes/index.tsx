@@ -21,6 +21,7 @@ import {
   confirmBoundary,
   confirmGrilling,
   confirmPlan,
+  continueRefinement,
   getWorkbench,
   rerunVerification,
   executeRequirement,
@@ -55,6 +56,7 @@ function WorkbenchPage() {
   const cancel = useServerFn(cancelExecution)
   const rerun = useServerFn(rerunVerification)
   const accept = useServerFn(acceptRequirement)
+  const refine = useServerFn(continueRefinement)
 
   useEffect(() => setHydrated(true), [])
   // 轮询是最终收敛通道：即使 SSE 短暂断线，页面最多三秒后仍能恢复一致。
@@ -141,6 +143,7 @@ function WorkbenchPage() {
             busyAction={busyAction}
             onRerun={() => runAction('verify', (idempotencyKey) => rerun({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             onAccept={() => runAction('accept', (idempotencyKey) => accept({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+            onRefine={(requestedOutcome) => runAction('refine', (idempotencyKey) => refine({ data: { idempotencyKey, refinement: { requestedOutcome } } }) as Promise<WorkbenchSnapshot>)}
           /> : null}
           <EvidenceTimeline requirement={requirement} />
         </section>

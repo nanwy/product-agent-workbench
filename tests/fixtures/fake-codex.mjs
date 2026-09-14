@@ -25,6 +25,12 @@ const sessionId = process.argv.includes('resume')
   : '00000000-0000-4000-8000-000000000001'
 
 console.log(JSON.stringify({ type: 'thread.started', thread_id: sessionId }))
+const failMarker = path.join(os.tmpdir(), 'product-agent-workbench-fail-turn')
+if (await stat(failMarker).then(() => true).catch(() => false)) {
+  await rm(failMarker, { force: true })
+  console.error(JSON.stringify({ type: 'turn.failed', error: { message: 'fixture refinement failure' } }))
+  process.exit(2)
+}
 const slowMarker = path.join(os.tmpdir(), 'product-agent-workbench-slow-turn')
 if (prompt.includes('SLOW_TURN') || await stat(slowMarker).then(() => true).catch(() => false)) {
   await rm(slowMarker, { force: true })
