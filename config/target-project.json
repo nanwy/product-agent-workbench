@@ -16,7 +16,9 @@
       "label": "Front TypeScript",
       "command": "pnpm",
       "args": ["-F", "front", "typecheck"],
-      "timeoutMs": 120000
+      "timeoutMs": 120000,
+      "environment": "production",
+      "proxyPolicy": "auto"
     }
   ]
 }

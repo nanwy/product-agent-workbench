@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createConnection } from 'node:net'
 
 import type { TargetProjectConfig, ValidationCommand, ValidationRecord } from '../domain/workbench'
 import { loadTargetProjectConfig } from './config'
@@ -13,7 +14,7 @@ import { getTargetProcessSnapshot } from './target-runtime'
  * “验证矩阵”是把命令、Git 边界、运行时和人工判断统一成 ValidationRecord[]。
  * 这样 UI 和验收门禁只消费一种结构，不需要猜测日志文本。
  */
-export async function verifyCurrentRequirement() {
+export async function verifyCurrentRequirement(signal?: AbortSignal) {
   const requirement = await requirementStore.load()
   if (!requirement?.branch) throw new Error('验证前必须完成需求分支上的候选实现')
   if (!requirement.tickets.length || requirement.tickets.some((ticket) => ticket.status !== 'completed')) {
@@ -30,7 +31,7 @@ export async function verifyCurrentRequirement() {
   // 三类机器证据串行生成：配置命令、改动范围、真实路由。
   // 串行使页面展示顺序稳定，也避免多个重型构建命令抢占同一仓库。
   const records: ValidationRecord[] = []
-  for (const command of target.validationCommands ?? []) records.push(await runValidationCommand(command, target))
+  for (const command of target.validationCommands ?? []) records.push(await runValidationCommand(command, target, signal))
   records.push(await validateScope(requirement.branch.baseRevision, scopedTarget))
   records.push(await validateRuntime(requirement.targetPage, target))
   records.push(record({
@@ -63,10 +64,10 @@ export async function verifyCurrentRequirement() {
   })
 }
 
-export async function runValidationCommand(command: ValidationCommand, target: TargetProjectConfig): Promise<ValidationRecord> {
+export async function runValidationCommand(command: ValidationCommand, target: TargetProjectConfig, signal?: AbortSignal): Promise<ValidationRecord> {
   const startedAt = new Date().toISOString()
   const displayedCommand = [command.command, ...command.args].join(' ')
-  const result = await run(command, target.repositoryRoot)
+  const result = await run(command, target.repositoryRoot, signal)
   return {
     id: command.id,
     criterion: command.label,
@@ -118,33 +119,123 @@ function record(input: Pick<ValidationRecord, 'id' | 'criterion' | 'result' | 's
   return { command: null, exitCode: null, startedAt: now, completedAt: now, notRunReason: null, ...input }
 }
 
-function run(command: ValidationCommand, cwd: string): Promise<{ exitCode: number; output: string }> {
+async function run(command: ValidationCommand, cwd: string, signal?: AbortSignal): Promise<{ exitCode: number; output: string }> {
+  const env = await buildValidationEnvironment(command)
+  if (signal?.aborted) return { exitCode: 130, output: '验证已取消' }
   return new Promise((resolve) => {
     // 不使用 shell，避免把参数再次解析成管道、重定向或命令替换。
     // detached 让超时时可以终止整个验证进程组，不留下 pnpm/tsc 子进程。
-    const child = spawn(command.command, command.args, { cwd, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(command.command, command.args, { cwd, detached: process.platform !== 'win32', env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
+    let firstActionableError = ''
+    let scanRemainder = ''
     // 只保留末尾 4000 字符：通常包含最可操作的错误，同时防止 Requirement JSON 无限增长。
-    const append = (chunk: Buffer) => { output = `${output}${chunk.toString()}`.slice(-4000) }
+    const append = (chunk: Buffer) => {
+      const text = chunk.toString()
+      output = `${output}${text}`.slice(-4000)
+      const lines = `${scanRemainder}${text}`.split(/\r?\n/)
+      scanRemainder = lines.pop() ?? ''
+      firstActionableError ||= lines.find(isActionableError)?.trim().slice(0, 1200) ?? ''
+    }
     child.stdout?.on('data', append)
     child.stderr?.on('data', append)
-    let timedOut = false
+    let termination: 'exit' | 'timeout' | 'cancelled' = 'exit'
+    let forceTimer: NodeJS.Timeout | null = null
+    const terminate = (reason: 'timeout' | 'cancelled') => {
+      if (termination !== 'exit' || !child.pid) return
+      termination = reason
+      stopProcessGroup(child.pid, 'SIGTERM')
+      forceTimer = setTimeout(() => stopProcessGroup(child.pid!, 'SIGKILL'), 1000)
+      forceTimer.unref()
+    }
     const timer = setTimeout(() => {
-      timedOut = true
-      if (!child.pid) return
-      try {
-        if (process.platform === 'win32') child.kill('SIGTERM')
-        else process.kill(-child.pid, 'SIGTERM')
-      } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
-      }
+      terminate('timeout')
     }, command.timeoutMs)
-    child.once('error', (error) => { clearTimeout(timer); resolve({ exitCode: 1, output: redact(error.message) }) })
+    const abort = () => terminate('cancelled')
+    signal?.addEventListener('abort', abort, { once: true })
+    child.once('error', (error) => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
+      resolve({ exitCode: 1, output: redact(error.message) })
+    })
     child.once('close', (code) => {
       clearTimeout(timer)
-      resolve({ exitCode: timedOut ? 124 : code ?? 1, output: redact(timedOut ? `验证超时（${command.timeoutMs}ms）\n${output}` : output.trim()) })
+      if (forceTimer) clearTimeout(forceTimer)
+      signal?.removeEventListener('abort', abort)
+      firstActionableError ||= isActionableError(scanRemainder) ? scanRemainder.trim().slice(0, 1200) : ''
+      const evidence = preserveFirstError(firstActionableError, output.trim())
+      if (termination === 'timeout') resolve({ exitCode: 124, output: redact(`验证超时（${command.timeoutMs}ms）\n${evidence}`.trim()) })
+      else if (termination === 'cancelled') resolve({ exitCode: 130, output: redact(`验证已取消\n${evidence}`.trim()) })
+      else resolve({ exitCode: code ?? 1, output: redact(evidence) })
     })
   })
+}
+
+/** 构造可复现的验证环境，并在 auto 模式下移除宿主无法连接的本机代理。 */
+export async function buildValidationEnvironment(command: ValidationCommand): Promise<NodeJS.ProcessEnv> {
+  const env = { ...process.env }
+  env.NODE_ENV = command.environment
+  if (command.proxyPolicy === 'omit') removeProxyVariables(env)
+  if (command.proxyPolicy === 'auto') {
+    const availability = new Map<string, boolean>()
+    for (const key of proxyKeys) {
+      const value = env[key]
+      if (!value) continue
+      let url: URL
+      try { url = new URL(value) } catch { delete env[key]; continue }
+      if (!isLoopback(url.hostname)) continue
+      const proxyHost = url.hostname.replace(/^\[|\]$/g, '')
+      const endpoint = `${proxyHost}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`
+      if (!availability.has(endpoint)) availability.set(endpoint, await canConnect(proxyHost, Number(url.port || (url.protocol === 'https:' ? 443 : 80))))
+      if (!availability.get(endpoint)) delete env[key]
+    }
+  }
+  return env
+}
+
+const proxyKeys = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'] as const
+
+function removeProxyVariables(env: NodeJS.ProcessEnv) {
+  for (const key of proxyKeys) delete env[key]
+}
+
+function isLoopback(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
+}
+
+function canConnect(host: string, port: number) {
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host, port })
+    let settled = false
+    const finish = (available: boolean) => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(available)
+    }
+    socket.setTimeout(300)
+    socket.once('connect', () => finish(true))
+    socket.once('timeout', () => finish(false))
+    socket.once('error', () => finish(false))
+  })
+}
+
+function stopProcessGroup(pid: number, signal: NodeJS.Signals) {
+  try {
+    if (process.platform === 'win32') process.kill(pid, signal)
+    else process.kill(-pid, signal)
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
+  }
+}
+
+function isActionableError(line: string) {
+  return /(^|\s)(error|exception|failed|failure|err!)(\s|:|$)/i.test(line)
+}
+
+function preserveFirstError(firstError: string, tail: string) {
+  if (!firstError || tail.includes(firstError)) return tail
+  return `首个错误：${firstError}\n…\n${tail}`
 }
 
 function redact(value: string) {

@@ -173,6 +173,8 @@ export type ValidationCommand = {
   command: string
   args: string[]
   timeoutMs: number
+  environment: 'production' | 'test' | 'development'
+  proxyPolicy: 'auto' | 'inherit' | 'omit'
 }
 
 /**

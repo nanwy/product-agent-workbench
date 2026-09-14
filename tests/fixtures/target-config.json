@@ -16,7 +16,9 @@
       "label": "Fixture validation",
       "command": "node",
       "args": ["-e", "process.exit(0)"],
-      "timeoutMs": 5000
+      "timeoutMs": 5000,
+      "environment": "test",
+      "proxyPolicy": "omit"
     }
   ]
 }

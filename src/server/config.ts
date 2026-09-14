@@ -49,6 +49,12 @@ function validateConfig(config: TargetProjectConfigFile) {
     if (!Number.isInteger(validation.timeoutMs) || validation.timeoutMs < 1000) {
       throw new Error(`验证命令 ${validation.id} 的 timeoutMs 无效`)
     }
+    if (!['production', 'test', 'development'].includes(validation.environment)) {
+      throw new Error(`验证命令 ${validation.id} 的 environment 无效`)
+    }
+    if (!['auto', 'inherit', 'omit'].includes(validation.proxyPolicy)) {
+      throw new Error(`验证命令 ${validation.id} 的 proxyPolicy 无效`)
+    }
   }
 
   // 首版明确是本地工作台，禁止把预览网关变成任意远程代理。
