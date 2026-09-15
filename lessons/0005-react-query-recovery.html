@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>浏览器代码：React Query 实时投影与恢复</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0005 · 浏览器实现</p>
+  <h1>页面可以猜，不能死扛</h1>
+  <p class="lede">SSE 到达时，浏览器先把 delta 投影进 React Query，让用户马上看到。只要序号或 revision 说不清，它就停止拼接，回服务端拿完整快照。</p>
+
+  <h2>为什么服务端状态统一放 React Query</h2>
+  <p>以前页面同时有服务端快照和 Zustand 会话副本。一次 mutation、一次 SSE 刷新和一次轮询可能分别更新不同 Store，很难回答“现在谁是最新的”。当前实现把 HTTP、SSE、轮询和按钮 mutation 都收口到同一个 Query Cache。</p>
+  <p>Zustand 没有被禁用，依赖也保留着。以后弹窗开关、筛选条件、未提交草稿这类纯客户端状态仍然适合放 Zustand。服务端 Requirement 不再复制进去。</p>
+
+  <h2>Query Cache 里有两种视图</h2>
+  <section class="grid two">
+    <article class="card good"><h3>WorkbenchSnapshot</h3><pre>["workbench", "snapshot"]</pre><p>完整服务端快照，包含当前 Requirement、历史记录、目标项目运行状态和执行事件。</p></article>
+    <article class="card"><h3>ConversationProjection</h3><pre>["workbench", "conversation", requirementId]</pre><p>为渲染整理出的 <code>messageIds + messagesById</code>，另外保存每个 Turn 的最后序号和 revision。</p></article>
+  </section>
+  <p>单独的 conversation query 不是第二份真值。它是可重建的读模型：任何时候都能用 WorkbenchSnapshot 重新生成。</p>
+
+  <h2>一个 SSE batch 到达后怎么处理</h2>
+  <p class="code-path">src/store/workbench-query.ts · applyAgentStreamBatch()</p>
+  <pre>last = lastSequenceByTurn[turnId] ?? 0
+
+if batch.sequenceEnd &lt;= last:
+  return true              // 重复批次，已经处理过
+
+if batch.sequenceStart &gt; last + 1:
+  return false             // 中间有缺口，不能继续猜
+
+找到 target message 和 item segment
+不可变地追加 batch.delta
+记录新的 lastSequence 和 revision</pre>
+
+  <h2>用数据推演三个网络情况</h2>
+  <div class="failure-grid">
+    <div class="head">输入</div><div class="head">判断</div><div class="head">结果</div>
+    <div><code>last=2, batch=[3..4]</code></div><div>从 3 开始，正好连续</div><div>追加正文，<code>last=4</code></div>
+    <div><code>last=4, batch=[3..4]</code></div><div>结尾没有超过 4</div><div>这是重发，直接忽略</div>
+    <div><code>last=2, batch=[4..5]</code></div><div>缺少 seq 3</div><div>返回 false，invalidate 快照</div>
+  </div>
+  <p>发现缺口时不能只追加 batch 4–5。你不知道 seq 3 是一个字、一段工具说明，还是改变业务门禁的内容。停止猜测反而是最便宜的正确方案。</p>
+
+  <h2>revision 防什么</h2>
+  <p>假设浏览器已经通过 SSE 显示 revision 10 的内容，同时一个更早发出的 HTTP 请求慢慢返回 revision 8。如果直接接收，页面会倒退。</p>
+  <pre>当前投影：revision 10，正文="建议只修改登录页"
+迟到快照：revision 8， 正文="建议"
+
+projectConversation():
+  previous.revision &gt; requirement.updatedAt
+  → 保留 previous</pre>
+  <p><code>applyWorkbenchSnapshot()</code> 对完整 Requirement 也做同类判断。这样 mutation 返回值、轮询结果和 SSE 投影可以共享一个 Cache，而不是互相覆盖。</p>
+
+  <h2>EventSource 连接状态怎么影响轮询</h2>
+  <p class="code-path">src/routes/index.tsx · WorkbenchPage()</p>
+  <table class="state-table">
+    <thead><tr><th>状态</th><th>动作</th><th>轮询间隔</th></tr></thead>
+    <tbody>
+      <tr><td>首次进入</td><td>loader 提供 SSR 快照，浏览器建立 EventSource</td><td>连接确认前按断线策略</td></tr>
+      <tr><td>SSE onopen</td><td>先 refetch 权威快照，再标记 connected</td><td>30 秒低频校准</td></tr>
+      <tr><td>stream-batch</td><td>直接投影；缺序号才 invalidate</td><td>不额外轮询</td></tr>
+      <tr><td>invalidate</td><td>将 snapshot 标旧并后台重取</td><td>保持当前策略</td></tr>
+      <tr><td>SSE onerror</td><td>标记 disconnected</td><td>3 秒降级轮询</td></tr>
+      <tr><td>重新连接</td><td>先校准断线期间状态，再恢复实时投影</td><td>回到 30 秒</td></tr>
+    </tbody>
+  </table>
+  <p>SSE 心跳只能帮助连接保持活跃，不能补回漏掉的业务事件。真正的恢复动作是 refetch 快照。</p>
+
+  <h2>为什么历史消息不会全跟着重画</h2>
+  <p class="code-path">src/components/workbench-panels.tsx · ConversationTimeline / ConversationMessageRow</p>
+  <ol>
+    <li>时间线只取 <code>messageIds</code>。</li>
+    <li>每个 MessageRow 用 <code>select</code> 只取 <code>messagesById[id]</code>。</li>
+    <li>流式 batch 只复制目标 message、segments 和对应 text segment。</li>
+    <li>其他消息继续复用旧对象引用，selector 结果没变。</li>
+  </ol>
+  <p>这里减少的是受影响的 React 组件，不是让 DOM 只渲染新来的几个字。当前消息仍然拿完整累计正文渲染。</p>
+
+  <h2>最终全文如何覆盖临时拼接</h2>
+  <p>delta 使用的 item ID 和 <code>item.completed</code> 的 item ID 相同。完成事件落盘时，<code>applyPlanningEvent()</code> 找到同 ID text segment，直接替换。随后 invalidate 触发快照同步。</p>
+  <pre>临时投影：item-7 = "建议只修改登陆页"
+完成全文：item-7 = "建议只修改登录页"
+
+同 ID 替换后："建议只修改登录页"</pre>
+
+  <h2>失败推演</h2>
+  <div class="failure-grid">
+    <div class="head">故障</div><div class="head">如果没有保护</div><div class="head">当前处理</div>
+    <div>SSE 重复发送</div><div>同一段文字追加两次</div><div><code>sequenceEnd &lt;= last</code>，忽略</div>
+    <div>SSE 中间丢包</div><div>正文永久缺一段</div><div>发现序号缺口，重取快照</div>
+    <div>HTTP 慢响应</div><div>新页面被旧快照覆盖</div><div>revision 较旧，拒绝</div>
+    <div>浏览器刷新</div><div>内存 delta 全部消失</div><div>Requirement 已定期保存累计全文</div>
+    <div>完成全文与 delta 竞态</div><div>终态后又追加旧片段</div><div>服务端先 flush，再发终态 invalidate</div>
+  </div>
+
+  <div class="checkpoint"><strong>检索练习：</strong><p>面试官说：“EventSource 会自动重连，所以不需要轮询。”请解释为什么重连能力和状态恢复不是一回事，再用 seq 3 丢失的例子证明。</p></div>
+
+  <p class="tiny">首选资料：<a href="https://tanstack.com/query/latest/docs/framework/react/reference/classes/QueryClient">TanStack QueryClient 官方文档</a>明确要求 <code>setQueryData</code> 做不可变更新；<a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">MDN SSE</a>说明 EventSource 的单向连接和重连行为。项目实现见 <a href="../src/store/workbench-query.ts">workbench-query.ts</a> 与 <a href="../src/routes/index.tsx">index.tsx</a>。不清楚哪种故障时，把上表那一行发给 Agent。</p>
+
+  <footer class="footer-nav"><a href="./0004-server-streaming-implementation.html">上一课：后端代码</a> · <a href="./0006-streaming-interview-talk.html">下一课：面试表达</a></footer>
+</main>
+</body>
+</html>

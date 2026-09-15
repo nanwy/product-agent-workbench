@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>面试表达：讲清可恢复的流式链路</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0006 · 面试表达</p>
+  <h1>别从 SSE 开始讲</h1>
+  <p class="lede">先讲你遇到的矛盾：页面要快，但 delta 会丢；完整快照可靠，但每个片段都落盘和重取太重。技术方案是这个矛盾的结果。</p>
+
+  <h2>三分钟版本</h2>
+  <div class="talk-track">
+    <p>这个项目里有一条比较难的链路，是把 Codex 的回复实时显示出来，同时保证刷新、断线和事件乱序以后，页面还能回到正确状态。</p>
+    <p>我先确认了上游语义。旧的 TypeScript SDK 虽然返回事件流，但正文通常在 <code>item.completed</code> 一次给全，不能做真实的文字流。后来我把默认后端换成 Codex app-server。它会给 <code>item/agentMessage/delta</code>，同一个 item 的 delta 可以按顺序拼接，最后再给一份 <code>item.completed</code> 完整正文。</p>
+    <p>这里不能简单把每个 delta 直接扔给 React。模型可能给很多很小的片段，浏览器会频繁更新；SSE 断线还会漏内容。我在后端做了两套节奏。面向页面，按 50ms 或 4KB 把同一个 item 的 delta 合成批次，每个批次带 Requirement、Turn、Item、连续序号和 revision。面向恢复，按 500ms 或 32KB 把累计全文写进 Requirement。页面走快路，刷新和断线走持久化快照。</p>
+    <p>前端把服务端状态统一放进 React Query。SSE 批次到达后，先检查 Turn 序号。重复批次直接忽略；如果发现序号缺口，就不再猜缺了什么，而是重新拉完整快照。慢 HTTP 请求也可能覆盖新数据，所以快照和流式批次都带 revision，旧 revision 不允许回写。正常连接时只保留 30 秒低频校准，断线后切到 3 秒轮询，重连时先 refetch，再恢复实时投影。</p>
+    <p>完成事件到达前还有一个顺序问题。500ms 定时落盘可能仍在进行，如果这时直接保存最终全文，较慢的部分写入可能反过来覆盖终态。我把持久化串行化，并规定所有工具事件和终态都要先 flush 正文缓冲。最后用同 item ID 的 <code>item.completed</code> 全文替换临时拼接内容，再通知页面同步快照。</p>
+    <p>最后的结果是，页面能按 app-server 实际粒度显示正文，重复事件不会重复文字，缺事件和断线能靠快照恢复，历史消息也不会因为当前回复增长而全部重新渲染。浏览器测试验证了先出现正文片段、再出现最终全文，也覆盖了取消和刷新恢复。真实 app-server 冒烟里，“通过”两个字只返回一个 delta，所以我不会把它包装成逐字打字机效果。系统只忠实显示上游实际提供的粒度。</p>
+  </div>
+
+  <h2>三十秒版本</h2>
+  <div class="interview"><p>“我把 Codex app-server 的文字 delta 分成快路和稳路。快路在后端按 50ms 或 4KB 合批，通过 SSE 投影到 React Query；稳路按 500ms 或 32KB 保存累计全文。SSE 批次带连续序号和 revision，前端去重、发现缺口就重取快照，断线时切到三秒轮询。所有非正文事件和终态前先 flush，最终再用 <code>item.completed</code> 全文按同 item ID 覆盖临时内容。这样页面显示快，但正确性仍由服务端快照保证。”</p></div>
+
+  <h2>追问怎么接</h2>
+  <div class="failure-grid">
+    <div class="head">追问</div><div class="head">别这样答</div><div class="head">可以这样答</div>
+    <div>为什么不用 WebSocket？</div><div>“SSE 更简单。”</div><div>当前是服务端单向推送，用户操作仍走普通 mutation。SSE 自带 EventSource 重连，已经够用；真正的恢复来自快照，不依赖传输层补放。双向实时协议在这个 MVP 没增加价值。</div>
+    <div>为什么不每个 delta 直接落盘？</div><div>“性能不好。”</div><div>一个长回复可能有大量小片段。每片写 JSON 会放大磁盘写入和锁竞争；500ms/32KB 把恢复窗口限制住，同时避免按 token 写文件。</div>
+    <div>为什么 completed 还要全文？</div><div>“保险一点。”</div><div>delta 是传输片段，可能漏、重或被临时投影错误处理。completed 是同 item 的最终状态，用同 ID 替换可以校准，而不是再追加一次。</div>
+    <div>React Query 为什么能做实时状态？</div><div>“它比较流行。”</div><div><code>setQueryData</code> 可以同步、不可变地投影批次；invalidate/refetch 又能回到服务端快照。HTTP、SSE、轮询和 mutation 因此共享一份服务端状态缓存。</div>
+    <div>那 Zustand 还有什么用？</div><div>“已经不用了。”</div><div>服务端状态不再放 Zustand，避免双数据源。依赖保留，弹窗、筛选、草稿等纯客户端状态以后仍可使用。</div>
+    <div>这算逐字流式吗？</div><div>“算，页面会逐字出现。”</div><div>算真实文字 delta 流，但粒度由 app-server 和模型决定。可能是一个字，也可能整段只有一个 delta。项目不伪造打字机动画。</div>
+  </div>
+
+  <h2>如果面试官让你打开代码</h2>
+  <ol class="sequence">
+    <li><h3>先开 Adapter</h3><p class="code-path">src/server/codex-adapter.ts</p><p>指出 <code>onTextDelta</code> 和 <code>onEvent</code> 两个出口，解释快路与权威事件从这里分开。</p></li>
+    <li><h3>再开批处理器</h3><p class="code-path">src/server/agent-events.ts</p><p>讲 50ms/4KB、序号范围、item 切换 flush，以及终态前 flush。</p></li>
+    <li><h3>接着开持久化 sink</h3><p class="code-path">src/server/workbench-service.ts</p><p>讲 500ms/32KB、累计全文和串行 Promise。这里是最值得展开的竞态。</p></li>
+    <li><h3>最后开 Query 投影</h3><p class="code-path">src/store/workbench-query.ts</p><p>用三行判断讲重复、连续和缺口，再解释 revision 为什么防止慢响应倒退。</p></li>
+    <li><h3>用测试收尾</h3><p class="code-path">tests/codex-adapter.test.ts / tests/workbench-query.test.ts / tests/e2e/workbench.spec.ts</p><p>分别证明协议、缓存规则和用户可观察结果，不要只说“测试都过了”。</p></li>
+  </ol>
+
+  <h2>你要主动承认的边界</h2>
+  <p>这是本地单用户 MVP。SSE 发布订阅和序号都在单进程内存里，重启后靠快照恢复，不支持多实例事件补放。revision 目前使用时间戳，不是数据库版本号。控制协议在流式输出到一半时也还有短暂暴露的可能。这些不影响当前目标，但如果继续做成多人、多实例产品，我会把顺序号和 revision 放进持久化事件模型，并单独隔离控制通道。</p>
+
+  <div class="checkpoint"><strong>最后练一次：</strong><p>合上前三课，只看“三分钟版本”的第一句，然后自己讲。讲完检查是否回答了五件事：原问题、上游事实、双通道、恢复规则、验证结果。不要背阈值清单；阈值是实现细节，因果关系才是你的项目判断。</p></div>
+
+  <p class="tiny">这份话术按当前提交 <code>8b6f175</code> 编写。它刻意保留了真实限制，没有把“事件流”说成“逐 token”，也没有把一次真实 delta 说成逐字动画。任何追问答不顺，可以把追问原句发给 Agent 做模拟面试。</p>
+
+  <footer class="footer-nav"><a href="./0005-react-query-recovery.html">上一课：浏览器与恢复</a> · <a href="../reference/recoverable-streaming-cheatsheet.html">一页速查表</a></footer>
+</main>
+</body>
+</html>

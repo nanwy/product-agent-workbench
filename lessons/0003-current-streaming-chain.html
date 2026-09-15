@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>当前流式链路：一条回复的完整数据推演</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0003 · 当前实现总览</p>
+  <h1>一条回复有三种形态</h1>
+  <p class="lede">这次先不看函数名。只追踪“建议只修改登录页”怎么从 app-server 到达页面，再怎么变成刷新后仍然存在的服务端真值。</p>
+  <p class="thesis">页面追求快，服务端负责不丢，完成全文负责纠错。三个职责由三种数据承担，不能混成一个状态。</p>
+
+  <h2>先认清三种数据</h2>
+  <section class="grid">
+    <article class="card">
+      <h3>原始 delta</h3>
+      <pre>"建" → "议" → "只修改" → "登录页"</pre>
+      <p>app-server 的 <code>item/agentMessage/delta</code> 是可以直接按顺序追加的片段。它不是累计全文。</p>
+    </article>
+    <article class="card why">
+      <h3>SSE 批次</h3>
+      <pre>batch[1..2] = "建议"<br>batch[3..4] = "只修改登录页"</pre>
+      <p>后端把短时间内同一个 item 的多个 delta 合起来，减少浏览器更新次数。</p>
+    </article>
+    <article class="card good">
+      <h3>权威全文</h3>
+      <pre>item.completed.text =<br>"建议只修改登录页"</pre>
+      <p>完成事件里的全文用于持久化和校准。页面临时拼错、漏包或刷新，都回到它。</p>
+    </article>
+  </section>
+
+  <div class="code-note"><strong>和旧实现的区别：</strong>以前的 <code>codex exec</code> 通常只在 <code>item.completed</code> 给完整正文。现在默认走 app-server，能接到真正的 <code>item/agentMessage/delta</code>。真实上游不保证逐字；本项目冒烟中，“通过”两个字就是一个 delta。</div>
+
+  <h2>为什么有 50ms、500ms 和 completed 三个时钟</h2>
+  <div class="layer-grid">
+    <article class="card"><h3>立即：接收</h3><p>每个原始 delta 一到，就分配连续序号，并累计当前 item 的全文。</p><p>目标是先把数据接住。</p></article>
+    <article class="card"><h3>50ms / 4KB：显示</h3><p>同 item 的碎片合成一个 SSE 批次。文字少时最多等 50ms，文字多时达到 4KB 立即发。</p><p>目标是页面顺滑。</p></article>
+    <article class="card"><h3>500ms / 32KB：保存</h3><p>累计全文定期写进 Requirement。就算进程中断或用户刷新，最多损失很短的一段临时显示。</p><p>目标是可恢复。</p></article>
+    <article class="card"><h3>item.completed：校准</h3><p>先处理完所有 pending delta，再用同 item ID 的完整正文替换临时内容。</p><p>目标是最终正确。</p></article>
+  </div>
+
+  <h2>逐步推演：每按一次，系统往前走一步</h2>
+  <section class="simulator" aria-labelledby="trace-title">
+    <h3 id="trace-title">“建议只修改登录页”全链路</h3>
+    <p class="trace-caption" id="trace-caption"></p>
+    <div class="trace-controls">
+      <button class="secondary" id="trace-prev">上一步</button>
+      <button id="trace-next">下一步</button>
+      <button class="secondary" id="trace-reset">重新开始</button>
+      <span id="trace-position"></span>
+    </div>
+    <div class="trace-grid">
+      <div class="trace-cell"><strong>app-server</strong><div class="trace-value" id="trace-upstream"></div></div>
+      <div class="trace-cell"><strong>后端缓冲 / Requirement</strong><div class="trace-value" id="trace-server"></div></div>
+      <div class="trace-cell"><strong>SSE</strong><div class="trace-value" id="trace-sse"></div></div>
+      <div class="trace-cell"><strong>React Query</strong><div class="trace-value" id="trace-browser"></div></div>
+    </div>
+  </section>
+
+  <h2>同一份数据为什么要走两条路</h2>
+  <section class="grid two">
+    <article class="card why"><h3>快路：delta → SSE → Query Cache</h3><p>不等待磁盘，不重新 GET 全量快照。页面很快看到增长中的正文。</p><p>这条路允许失败。重复批次可以忽略，缺批次就放弃本地拼接。</p></article>
+    <article class="card good"><h3>稳路：累计全文 → Requirement → HTTP 快照</h3><p>写入慢一点，但内容完整。断线、刷新、漏事件、最终完成都从这里恢复。</p><p>这条路决定事实。</p></article>
+  </section>
+  <p>如果只走快路，断线漏掉“只修改”，页面可能变成“建议登录页”。如果只走稳路，每个碎片都落盘并重新拉快照，能做对，但会频繁写文件和刷新大对象。现在的设计把两件事分开。</p>
+
+  <h2>你应该能自己说出的因果链</h2>
+  <ol>
+    <li>app-server 给的是可追加 delta，<code>item.completed</code> 给的是权威全文。</li>
+    <li>后端先接住每个 delta，再按 50ms 或 4KB 合批给页面。</li>
+    <li>同一份累计正文按 500ms 或 32KB 写入 Requirement。</li>
+    <li>终态前先 flush，保证 delta、工具事件、完整正文的顺序不乱。</li>
+    <li>浏览器发现重复序号就忽略，发现缺口就重取快照。</li>
+  </ol>
+
+  <div class="checkpoint"><strong>离开页面回答：</strong><p>为什么已经有 SSE delta，还要保存累计全文？为什么已经保存累计全文，还要再处理 <code>item.completed</code>？不要用“更稳定”这种空话，分别说出断线和上游修订时会发生什么。</p></div>
+
+  <p class="tiny">首选资料：<a href="https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md">OpenAI Codex app-server 协议</a>。官方定义同一 item 的 delta 应按顺序拼接，并把 <code>item/completed</code> 当作最终 item 状态。项目入口见 <a href="../src/server/codex-app-server.ts">codex-app-server.ts</a> 和 <a href="../src/server/codex-adapter.ts">codex-adapter.ts</a>。卡住时直接把推演时刻 T0–T8 发给 Agent。</p>
+
+  <footer class="footer-nav"><a href="./0002-one-reply-end-to-end.html">上一课：旧实现记录</a> · <a href="./0004-server-streaming-implementation.html">下一课：后端代码</a> · <a href="../reference/recoverable-streaming-cheatsheet.html">当前速查表</a></footer>
+</main>
+<script src="../assets/current-stream-simulator.js"></script>
+</body>
+</html>

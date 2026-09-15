@@ -4,22 +4,26 @@
 
 ## Terms
 
-**累计快照（cumulative snapshot）**:
-同一消息截至当前时刻的完整正文；后一次内容包含前一次内容时，服务端按稳定 ID 替换原消息。
-_Avoid_: 字符流、单次增量
+**累计全文（cumulative text）**:
+Adapter 将同一个 item 已收到的原始 delta 按顺序拼接后的正文。它会定期持久化，但仍要由 `item.completed` 全文做最终校准。
+_Avoid_: 单次 delta、最终全文
 
-**Delta**:
-在确认新快照以客户端有效内容开头后，从快照尾部截取出的新增文本；它是可丢弃的显示优化，不是业务真值。
-_Avoid_: 新快照、唯一真值
+**原始 delta（text delta）**:
+app-server 的 `item/agentMessage/delta` 携带的可追加文字片段。同一 item 的 delta 必须按到达顺序拼接，粒度可能是一个字，也可能是一整段。
+_Avoid_: 累计快照、逐 token 保证
 
-**Pending delta**:
-客户端已经接收、但尚未在下一动画帧 flush 到 Store 的 delta。计算后续 delta 时，它也属于客户端已有内容。
-_Avoid_: 未接收内容、丢失内容
+**SSE 批次（stream batch）**:
+后端在 50ms 或 4KB 窗口内合并的同 item delta。批次带 `sequenceStart` 和 `sequenceEnd`，供浏览器去重和发现缺口。
+_Avoid_: 权威快照、持久事件日志
 
-**Effective content**:
-页面已提交正文与 pending delta 的拼接结果，即客户端实际已经拥有的完整内容。新快照必须以它开头，才能继续安全截取 delta。
-_Avoid_: 仅页面可见正文
+**Revision**:
+一次批次或 Requirement 更新的新旧标记。浏览器拒绝比当前缓存更旧的快照，避免慢请求让页面倒退。
+_Avoid_: SSE sequence；两者解决的问题不同
 
 **权威快照（authoritative snapshot）**:
 Requirement 中持久化的完整领域状态，是刷新、断线或客户端投影失效时的恢复来源。
 _Avoid_: SSE 事件、浏览器缓存
+
+**最终全文（completed text）**:
+`item/completed` 中同一个 Agent message item 的完整正文。它按稳定 item ID 替换临时累计内容，负责最终校准。
+_Avoid_: 再追加一次、普通 delta

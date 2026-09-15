@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>后端代码：从 app-server 到 SSE</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0004 · 后端实现</p>
+  <h1>后端不是转发器</h1>
+  <p class="lede">它要同时处理进程协议、事件顺序、页面批处理和持久化。真正难的地方是：快路和稳路并行，但最终不能互相覆盖。</p>
+
+  <h2>模块怎么分</h2>
+  <div class="module-map">
+    <div class="module-name">codex-app-server.ts</div><div>管理一个 Turn 对应的子进程；做 JSON-RPC 请求关联、初始化、Thread 恢复、Turn 启动、取消和清理。</div>
+    <div class="module-name">codex-adapter.ts</div><div>把 app-server 方言收口成工作台接口。正文 delta 走 <code>onTextDelta</code>，完整 item 和终态走 <code>onEvent</code>。</div>
+    <div class="module-name">workbench-service.ts</div><div>Grilling 和 Spec 的业务编排。创建占位消息，保存累计正文，解析控制协议，推进门禁。</div>
+    <div class="module-name">workbench-execution.ts</div><div>实现阶段的同类链路。delta 投影到执行日志，完整事件写入 <code>requirement.codex.events</code>。</div>
+    <div class="module-name">agent-events.ts</div><div>把原始 delta 合成有序 SSE 批次；非正文事件到来前强制 flush。</div>
+    <div class="module-name">api.events.ts</div><div>把进程内事件编码成 SSE，发送连接注释和 15 秒心跳，断开时清理订阅。</div>
+  </div>
+
+  <h2>第一层：app-server 进程和 JSON-RPC</h2>
+  <p class="code-path">src/server/codex-app-server.ts · CodexAppServerTurn</p>
+  <pre>launch app-server
+→ request("initialize")
+→ notify("initialized")
+→ request("thread/start" 或 "thread/resume")
+→ request("turn/start")
+→ 持续读取通知
+→ 等 turn/completed
+→ shutdown</pre>
+  <p><code>#pending</code> 用请求 ID 找回对应 Promise。<code>#lineQueue</code> 把 stdout 每一行串行处理。这里不能并发消费：如果 delta 2 比 delta 1 先进入业务层，后面所有序号和正文都会错。</p>
+  <p>取消不是简单 <code>kill</code>。有 Thread 和 Turn ID 时先发 <code>turn/interrupt</code>，两秒内不退出才杀进程组。这样 app-server 有机会返回明确的 interrupted 状态，卡死时又不会永远挂着。</p>
+
+  <h2>第二层：Adapter 把两类正文拆开</h2>
+  <p class="code-path">src/server/codex-adapter.ts · runAppServerCodexTurn()</p>
+  <pre>onNotification(notification) {
+  const textDelta = appServerTextDelta(notification)
+  if (textDelta) {
+    onTextDelta(textDelta) // 快路
+    return
+  }
+
+  const event = normalizeAppServerNotification(notification)
+  if (event) onEvent(event) // 完整 item、工具、终态
+}</pre>
+  <p><code>appServerTextDelta()</code> 做两件事。第一，用 <code>turnEventScope:itemId</code> 生成本地稳定 ID，防止不同 Turn 恰好复用 item ID。第二，在 <code>textByItem</code> 里把 delta 累计成全文。</p>
+  <pre>收到 "建"       → delta="建"       text="建"
+收到 "议"       → delta="议"       text="建议"
+收到 "只修改"   → delta="只修改"   text="建议只修改"</pre>
+  <p>为什么回调里同时给 <code>delta</code> 和 <code>text</code>？SSE 合批需要 delta；持久化需要累计全文。让两个下游各自再猜一次，很容易一个重复追加、另一个保存半截。</p>
+
+  <h2>第三层：50ms / 4KB 页面批处理</h2>
+  <p class="code-path">src/server/agent-events.ts · publishAgentTextDelta()</p>
+  <pre>sequenceKey = requirementId + turnId
+sequence += 1
+batchKey = sequenceKey + itemId
+
+同 item：拼到当前 batch
+换 item：先 flush，不能跨 item 合并
+达到 4KB：立即 flush
+否则：50ms 后 flush</pre>
+  <p>序号在原始 delta 到达时分配，不是在批次发送时分配。因此一个批次可能是 <code>[1..7]</code>，它明确表示自己覆盖了七个连续片段。</p>
+  <p>换 item 时必须先 flush。假设 item A 的 seq 1、item B 的 seq 2、item A 的 seq 3 被各自攒在两个 Map 项里，最后按 item 一起发，很容易把真实交错顺序改成 A1+A3、B2。MVP 直接在 item 切换时冲刷，逻辑更容易证明。</p>
+
+  <h2>第四层：500ms / 32KB 持久化</h2>
+  <p class="code-path">src/server/workbench-service.ts · createPlanningDeltaSink()</p>
+  <pre>push(delta):
+  pending = { itemId, turnId, text: 累计全文, sessionId }
+  pendingBytes += byteLength(delta)
+  publishAgentTextDelta(delta)
+
+  if pendingBytes &gt;= 32KB:
+    await flush()
+  else if 没有 timer:
+    500ms 后 flush()</pre>
+  <p><code>flush()</code> 把累计全文伪装成一条普通 message event，再交给现有 <code>applyPlanningEvent()</code>。这样持久层仍然只认识“同 ID 的完整消息”，流式协议没有渗进领域模型。</p>
+  <p><code>persistence = persistence.then(...)</code> 很关键。500ms 定时器可能正在写文件，恰好 <code>item.completed</code> 又到了。如果完成事件不等待旧写入，执行顺序可能变成：</p>
+  <pre>1. 开始保存部分正文 "建议"
+2. 保存完成全文 "建议只修改登录页"
+3. 较慢的步骤 1 最后落盘，把全文覆盖回 "建议"  ❌</pre>
+  <p>串行 Promise 让后一个保存一定排在前一个后面。这个坑不显眼，页面当时甚至可能是对的，刷新后才会发现正文倒退。</p>
+
+  <h2>第五层：为什么所有普通事件前都要 flush</h2>
+  <p class="code-path">runSpecConversationTurn() / runGrillingConversationTurn()</p>
+  <pre>onEvent(fullEvent) {
+  await deltaSink.flush()
+  await requirementStore.update(fullEvent)
+  publishAgentEvent(fullEvent)
+}</pre>
+  <p>这段顺序同时约束两条通道：</p>
+  <ol>
+    <li>持久化通道：部分正文先保存，完成全文后保存。</li>
+    <li>SSE 通道：<code>publishAgentEvent()</code> 先冲刷正文 batch，再发送 invalidate。</li>
+  </ol>
+  <p>所以浏览器不可能先看到“Turn 已完成”，过一会儿又收到属于这个 Turn 的旧正文片段。</p>
+
+  <h2>规划流和执行流哪里不同</h2>
+  <table class="state-table">
+    <thead><tr><th>位置</th><th>规划 / Spec</th><th>执行</th></tr></thead>
+    <tbody>
+      <tr><td>页面目标</td><td>当前 streaming assistant 消息</td><td>Agent Console 的 Codex events</td></tr>
+      <tr><td>持久位置</td><td><code>conversation.messages[].segments</code></td><td><code>requirement.codex.events</code></td></tr>
+      <tr><td>领域更新</td><td><code>applyPlanningEvent()</code></td><td><code>persistAgentEvent()</code></td></tr>
+      <tr><td>共同约束</td><td colspan="2">同一个 Adapter、批处理器、序号和 flush-before-terminal 规则</td></tr>
+    </tbody>
+  </table>
+
+  <h2>当前 MVP 的边界</h2>
+  <ul>
+    <li>发布订阅在单进程内存里，多实例部署需要换成共享事件设施。</li>
+    <li>序号只在当前进程内存在，重启后不补放旧 SSE；恢复依靠 Requirement 快照。</li>
+    <li>上游可能只给一个很大的 delta。系统忠实显示，不人为切成打字机效果。</li>
+    <li>规划回复尾部含内部控制块时，流式阶段仍有短暂暴露半截标记的可能；最终全文会被解析并清理。这是后续可以单独处理的 UI 边界。</li>
+  </ul>
+
+  <div class="checkpoint"><strong>代码复述练习：</strong><p>不用看页面，按顺序说出 <code>CodexAppServerTurn → runAppServerCodexTurn → createPlanningDeltaSink → publishAgentTextDelta → api.events</code>。每个模块只说“输入、输出、它保住的约束”。</p></div>
+
+  <p class="tiny">协议依据：<a href="https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md">Codex app-server README</a>。其中明确规定 agent message 的 item 生命周期是 started、若干 delta、completed。完整实现可从 <a href="../src/server/codex-app-server.ts">codex-app-server.ts</a> 开始顺着回调阅读。任何一段看不懂，把函数名发给 Agent。</p>
+
+  <footer class="footer-nav"><a href="./0003-current-streaming-chain.html">上一课：完整数据推演</a> · <a href="./0005-react-query-recovery.html">下一课：浏览器与恢复</a> · <a href="../reference/current-streaming-code-map.html">源码地图</a></footer>
+</main>
+</body>
+</html>

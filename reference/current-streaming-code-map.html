@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>当前流式链路代码地图</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Source map · commit 8b6f175</p>
+  <h1>从进程到消息行</h1>
+  <p class="lede">按运行顺序读，不按目录顺序读。每个模块只承担一层协议；箭头跨层时，数据形状会明确变化。</p>
+
+  <h2>1. <a href="../src/server/codex-app-server.ts">codex-app-server.ts</a></h2>
+  <p><strong>角色：</strong>把一个 app-server 子进程包装成一次可等待、可取消的 Turn。</p>
+  <table class="state-table">
+    <thead><tr><th>成员</th><th>含义</th><th>没有它会怎样</th></tr></thead>
+    <tbody>
+      <tr><td><code>#pending</code></td><td>JSON-RPC request ID → Promise resolve/reject/timer</td><td>并发请求回来后不知道该唤醒谁</td></tr>
+      <tr><td><code>#lineQueue</code></td><td>串行消费 stdout JSONL</td><td>delta 和终态可能乱序进入业务层</td></tr>
+      <tr><td><code>#threadId / #turnId</code></td><td>恢复上下文和精确中断当前 Turn</td><td>只能粗暴杀进程，无法续接 Thread</td></tr>
+      <tr><td><code>#turnDone</code></td><td>把异步 <code>turn/completed</code> 变成 <code>run()</code> 可 await 的结果</td><td>启动请求返回后调用方会误以为 Turn 已结束</td></tr>
+      <tr><td><code>#settled / #closing</code></td><td>防止终态、退出和清理重复结算</td><td>同一次失败可能 resolve/reject 多次</td></tr>
+    </tbody>
+  </table>
+  <p><strong>主函数：</strong><code>run()</code> 做 initialize → thread start/resume → turn start → wait completion → shutdown；<code>#handleLine()</code> 区分 response、server request 和 notification；<code>cancel()</code> 先 interrupt，超时再杀进程组。</p>
+
+  <h2>2. <a href="../src/server/codex-adapter.ts">codex-adapter.ts</a></h2>
+  <p><strong>角色：</strong>隔离 Codex 协议，向业务层只暴露稳定的 Turn 接口。</p>
+  <pre>CodexTurnInput {
+  workspaceRoot, prompt, sessionId, signal, sandboxMode,
+  onTextDelta(delta),
+  onEvent(event)
+}</pre>
+  <table class="state-table">
+    <thead><tr><th>函数</th><th>输入 → 输出</th><th>约束</th></tr></thead>
+    <tbody>
+      <tr><td><code>runCodexTurn()</code></td><td>统一 Turn 输入 → exitCode + sessionId</td><td>默认 app-server；SDK 只能显式回退；全局最多一个活动 Turn</td></tr>
+      <tr><td><code>appServerTextDelta()</code></td><td>原始通知 → delta + 累计 text</td><td>只接受 agent message delta；item ID 加 Turn scope；进入下游前脱敏</td></tr>
+      <tr><td><code>normalizeAppServerNotification()</code></td><td>完整 item / turn 通知 → AgentEvent</td><td>delta 不重复走完整事件路径</td></tr>
+      <tr><td><code>normalizeCodexEvent()</code></td><td>不同后端事件 → message/tool/file/completed/failed</td><td>页面和持久层不依赖 app-server 字段名</td></tr>
+    </tbody>
+  </table>
+
+  <h2>3. <a href="../src/server/workbench-service.ts">workbench-service.ts</a></h2>
+  <p><strong>角色：</strong>Grilling 和 Spec 的领域编排。它决定回复属于哪条 assistant 消息、什么时候落盘、什么时候允许业务状态前进。</p>
+  <pre>claimGrillingTurn / claimSpecTurn
+  → beginAssistantTurn() 创建 streaming 占位消息
+  → runCodexTurn()
+      onTextDelta: deltaSink.push
+      onEvent: flush → applyPlanningEvent → publish invalidate
+  → turn 完成后再 flush
+  → getWorkbenchSnapshot()</pre>
+  <p><code>createPlanningDeltaSink()</code> 内有四份局部状态：</p>
+  <ul>
+    <li><code>pending</code>：最后一次收到的累计全文和 item/turn/session 身份。</li>
+    <li><code>pendingBytes</code>：自上次落盘后新增了多少 UTF-8 字节。</li>
+    <li><code>timer</code>：500ms 持久化上限。</li>
+    <li><code>persistence</code>：串行 Promise，防止旧写入晚于最终全文落盘。</li>
+  </ul>
+  <p><code>push()</code> 做两件并行的事：把原始 delta 交给 SSE 快路；把累计 text 留给持久化稳路。<code>flush()</code> 用累计全文构造 message event，再复用 <code>applyPlanningEvent()</code> 的同 ID 替换规则。</p>
+
+  <h2>4. <a href="../src/server/workbench-conversation.ts">workbench-conversation.ts</a></h2>
+  <p><strong>角色：</strong>纯领域状态更新，不关心 SSE 和 React。</p>
+  <table class="state-table">
+    <thead><tr><th>函数</th><th>行为</th></tr></thead>
+    <tbody>
+      <tr><td><code>beginAssistantTurn()</code></td><td>追加空 assistant 消息，状态设为 streaming</td></tr>
+      <tr><td><code>findStreamingAssistant()</code></td><td>从尾部找到当前 Turn 容器，避免改到历史消息</td></tr>
+      <tr><td><code>applyPlanningEvent(message)</code></td><td>按 item ID 替换或新增 text segment；累计全文不会重复追加</td></tr>
+      <tr><td><code>applyPlanningEvent(tool/file)</code></td><td>同 ID activity 从 running 替换成 completed/failed</td></tr>
+      <tr><td><code>applyPlanningEvent(completed)</code></td><td>消息转 completed；根据结构化协议是否完整决定 awaiting-user 或 awaiting-confirmation</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. <a href="../src/server/agent-events.ts">agent-events.ts</a></h2>
+  <p><strong>角色：</strong>把大量原始 delta 变成浏览器能稳定消费的有序批次。</p>
+  <pre>AgentStreamBatch {
+  requirementId, target, targetId,
+  turnId, itemId,
+  sequenceStart, sequenceEnd,
+  revision, delta
+}</pre>
+  <table class="state-table">
+    <thead><tr><th>状态</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>subscribers</code></td><td>当前进程内所有 SSE 连接</td></tr>
+      <tr><td><code>pending</code></td><td>尚未达到 50ms/4KB 的 batch</td></tr>
+      <tr><td><code>sequences</code></td><td>每个 Requirement + Turn 的下一个连续序号</td></tr>
+      <tr><td><code>flushTimer</code></td><td>稀疏输出最多等待 50ms</td></tr>
+    </tbody>
+  </table>
+  <p><code>publishAgentTextDelta()</code> 分配序号并合批；item 改变时立即 flush。<code>publishAgentEvent()</code> 先 flush 所有正文，再发布 invalidate，保证终态不会越过正文。</p>
+
+  <h2>6. <a href="../src/routes/api.events.ts">api.events.ts</a></h2>
+  <p><strong>角色：</strong>把进程内事件编码成标准 SSE。</p>
+  <pre>: connected
+
+data: {"type":"stream-batch", ...}
+
+: heartbeat</pre>
+  <p>注释行不会触发浏览器 <code>onmessage</code>。15 秒心跳主要防止空闲连接被中间层回收。ReadableStream cancel 时同时清 timer 和 subscriber。</p>
+
+  <h2>7. <a href="../src/store/workbench-query.ts">workbench-query.ts</a></h2>
+  <p><strong>角色：</strong>唯一的浏览器服务端状态入口。</p>
+  <table class="state-table">
+    <thead><tr><th>函数</th><th>做什么</th><th>失败策略</th></tr></thead>
+    <tbody>
+      <tr><td><code>applyWorkbenchSnapshot()</code></td><td>接收 HTTP/mutation 快照，更新 snapshot 和 conversation queries</td><td>Requirement updatedAt 较旧则保留当前值</td></tr>
+      <tr><td><code>projectConversation()</code></td><td>构造 IDs/byId 读模型，复用未变化对象引用</td><td>snapshot revision 较旧则不覆盖流式投影</td></tr>
+      <tr><td><code>applyAgentStreamBatch()</code></td><td>检查序号，不可变追加目标 segment</td><td>重复忽略；缺口返回 false 让调用方 refetch</td></tr>
+    </tbody>
+  </table>
+
+  <h2>8. <a href="../src/routes/index.tsx">index.tsx</a></h2>
+  <p><strong>角色：</strong>协调 SSR 首屏、Query、EventSource、轮询和用户 mutation。</p>
+  <pre>loader snapshot → useQuery initialData
+
+EventSource.onopen:
+  refetch snapshot → connected=true
+
+EventSource.onmessage:
+  stream-batch → applyAgentStreamBatch()
+  gap / invalidate → invalidate snapshot
+
+EventSource.onerror:
+  connected=false → 3s polling</pre>
+  <p>连接健康时仍有 30 秒校准。它不是实时机制，而是低频保险。</p>
+
+  <h2>9. <a href="../src/components/workbench-panels.tsx">workbench-panels.tsx</a></h2>
+  <p><strong>角色：</strong>把 Query Cache 的规范化读模型缩小到组件级订阅。</p>
+  <p><code>ConversationTimeline</code> 读取 message IDs；每个 <code>ConversationMessageRow</code> 再用 selector 读取自己的 message。当前 assistant 更新时，历史消息对象引用不变。滚动跟随用 ref 保存，不让每个 delta 触发整棵树的滚动状态更新。</p>
+
+  <h2>10. 测试分别证明什么</h2>
+  <div class="module-map">
+    <div class="module-name">codex-adapter.test.ts</div><div>app-server 启动、Thread 恢复、delta 顺序、完成全文、失败与取消。</div>
+    <div class="module-name">workbench-query.test.ts</div><div>对象引用复用、Requirement 隔离、重复 batch 去重、序号缺口拒绝。</div>
+    <div class="module-name">workbench.spec.ts</div><div>用户先看到“共同理解：”片段，再看到完整句子；取消、重试和刷新后状态正确。</div>
+    <div class="module-name">真实冒烟</div><div>固定 app-server 对“通过”返回 1 个 delta、2 个字符并正常完成，证明实现没有伪造粒度。</div>
+  </div>
+
+  <footer class="footer-nav"><a href="../lessons/0003-current-streaming-chain.html">完整数据推演</a> · <a href="./recoverable-streaming-cheatsheet.html">一页速查</a></footer>
+</main>
+</body>
+</html>

@@ -104,8 +104,27 @@ button.secondary { color: #dce9ff; background: #34445e; }
 .verdict.correct { color: var(--green); background: var(--green-soft); }
 .verdict.experience { color: var(--orange); background: var(--orange-soft); }
 
+.layer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.layer-grid article { min-height: 170px; }
+.code-note { margin: 14px 0; padding: 14px 16px; border-left: 4px solid var(--orange); background: var(--orange-soft); }
+.trace-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.trace-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.trace-cell { min-height: 132px; padding: 14px; border: 1px solid #33425a; border-radius: 12px; background: #172438; }
+.trace-cell strong { display: block; margin-bottom: 8px; color: #fff; }
+.trace-value { color: #cfe0fa; font-family: var(--mono); font-size: .88rem; white-space: pre-wrap; }
+.trace-caption { min-height: 2.8em; color: #9fb4d3; }
+.module-map { display: grid; grid-template-columns: minmax(190px, .75fr) 1.5fr; gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--line); }
+.module-map > div { padding: 14px 16px; background: var(--card); }
+.module-map .module-name { color: var(--blue); font-family: var(--mono); font-weight: 800; }
+.failure-grid { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--line); }
+.failure-grid > div { padding: 13px 15px; background: var(--card); }
+.failure-grid .head { background: #eaf1fb; font-weight: 850; }
+.talk-track { padding: 22px 26px; border-radius: 16px; background: #fff; border: 1px solid var(--line); }
+.talk-track p { max-width: none; }
+.checkpoint { margin: 28px 0; padding: 18px 20px; border: 2px dashed #8eadd8; border-radius: 14px; background: #f7fbff; }
+
 @media (max-width: 800px) {
-  .grid, .two, .sim-grid, .flow, .mental-model { grid-template-columns: 1fr; }
+  .grid, .two, .sim-grid, .flow, .mental-model, .layer-grid, .trace-grid, .module-map, .failure-grid { grid-template-columns: 1fr; }
   .mental-model .arrow { transform: rotate(90deg); text-align: center; }
   .flow > div:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -21px; }
 }

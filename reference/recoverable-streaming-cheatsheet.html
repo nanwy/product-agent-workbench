@@ -3,41 +3,81 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>可恢复流式对话速查</title>
+  <title>当前可恢复流式链路速查</title>
   <link rel="stylesheet" href="../assets/lesson.css">
 </head>
 <body>
 <main>
-  <p class="eyebrow">Interview cheatsheet</p>
-  <h1>可恢复流式对话</h1>
-  <p class="thesis">一句话：当前是“结构化事件流”，不是“token 文字流”；服务端完整快照是真值，SSE 只催浏览器取新快照。</p>
+  <p class="eyebrow">Interview cheatsheet · commit 8b6f175</p>
+  <h1>app-server → SSE → React Query</h1>
+  <p class="thesis">快路负责立即显示：delta → 50ms/4KB 批次 → Query Cache。稳路负责恢复：累计全文 → 500ms/32KB 持久化 → 完整快照。<code>item.completed</code> 最后校准。</p>
 
+  <h2>九步链路</h2>
+  <ol>
+    <li>服务端创建 streaming assistant 占位消息。</li>
+    <li>每 Turn 启动一个 <code>codex app-server</code> 子进程。</li>
+    <li>Adapter 将 <code>item/agentMessage/delta</code> 分到 <code>onTextDelta</code>。</li>
+    <li>同 item delta 累计成全文，同时分配 Turn 连续序号。</li>
+    <li>50ms 或 4KB 后合成 <code>AgentStreamBatch</code>。</li>
+    <li>SSE 把 batch 投影进 React Query。</li>
+    <li>500ms 或 32KB 后，累计全文写入 Requirement。</li>
+    <li>非正文或终态前 flush 所有缓冲。</li>
+    <li><code>item.completed</code> 全文按同 item ID 替换，invalidate 后重取快照。</li>
+  </ol>
+
+  <h2>一个 batch 里有什么</h2>
+  <pre>{
+  requirementId,
+  target: "conversation" | "execution",
+  targetId,
+  turnId,
+  itemId,
+  sequenceStart,
+  sequenceEnd,
+  revision,
+  delta
+}</pre>
+
+  <h2>浏览器判断</h2>
+  <table class="state-table">
+    <thead><tr><th>条件</th><th>动作</th><th>原因</th></tr></thead>
+    <tbody>
+      <tr><td><code>end &lt;= last</code></td><td>忽略</td><td>重复批次</td></tr>
+      <tr><td><code>start === last + 1</code></td><td>不可变追加</td><td>连续批次</td></tr>
+      <tr><td><code>start &gt; last + 1</code></td><td>invalidate 快照</td><td>中间缺包，停止猜测</td></tr>
+      <tr><td><code>incoming revision &lt; current</code></td><td>拒绝</td><td>迟到 HTTP 不能让页面倒退</td></tr>
+    </tbody>
+  </table>
+
+  <h2>连接策略</h2>
   <section class="grid">
-    <article class="card"><h3>当前真实协议</h3><p><code>codex exec --experimental-json</code> 中，assistant 正文通常由 <code>item.completed</code> 一次给全；<code>item.updated</code> 不等于文字 delta。</p></article>
-    <article class="card"><h3>安全 delta</h3><p>仅当 <code>incoming.startsWith(current + pending)</code> 时截取尾部；否则直接采用完整快照。</p></article>
-    <article class="card"><h3>恢复原则</h3><p>SSE 可以丢，Requirement 快照不能丢。通知到达或轮询触发后都重新读取真值。</p></article>
+    <article class="card"><h3>SSE 健康</h3><p>batch 实时投影；30 秒低频快照校准。</p></article>
+    <article class="card why"><h3>SSE 断线</h3><p>切换为 3 秒轮询。EventSource 重连不等于事件补放。</p></article>
+    <article class="card good"><h3>SSE 重连</h3><p>先 refetch 权威快照，再恢复实时投影。</p></article>
   </section>
 
-  <h2>五段链路</h2>
+  <h2>最值得讲的竞态</h2>
+  <pre>错误：部分正文写入慢 → 最终全文先落盘 → 部分正文最后覆盖全文
+
+处理：所有持久化串进同一个 Promise 链；
+     onEvent 先 await deltaSink.flush()，再保存完成事件。</pre>
+
+  <h2>模块顺序</h2>
   <div class="flow">
-    <div>Codex SDK<small>结构化 item 事件</small></div>
-    <div>Adapter<small>类型 + 稳定 ID</small></div>
-    <div>Requirement<small>完整持久快照</small></div>
-    <div>SSE / 轮询<small>通知重新读取</small></div>
-    <div>Zustand<small>delta + 合帧投影</small></div>
+    <div>codex-app-server<small>进程与 JSON-RPC</small></div>
+    <div>codex-adapter<small>delta / 完整事件分流</small></div>
+    <div>agent-events<small>批次、序号、flush</small></div>
+    <div>api.events<small>SSE + heartbeat</small></div>
+    <div>workbench-query<small>投影、去重、恢复</small></div>
   </div>
 
-  <h2>面试官追问</h2>
-  <section class="grid two">
-    <article class="card bad"><h3>SDK 现在逐字吗？</h3><p>不逐字。当前 exec 的 assistant 正文通常完成后一次到达；逐 token 需要 app-server 的 delta 事件。</p></article>
-    <article class="card bad"><h3>为什么不只传 delta？</h3><p>浏览器断线漏掉中间片段后，后续 delta 无法补全；完整快照可以立即恢复。</p></article>
-    <article class="card why"><h3>为什么还要前缀校验？</h3><p>上游可能修订之前的文本。不是前缀时硬切 delta 会产生错误内容，必须回退到快照。</p></article>
-    <article class="card why"><h3>为什么用 rAF？</h3><p>数据到达频率可能高于屏幕绘制频率。每帧提交一次，减少当前消息的状态更新；不是只渲染尾部字符。</p></article>
-    <article class="card good"><h3>为什么稳定 ID？</h3><p>同一消息或工具从 running 到 completed 应更新原项；按 ID 订阅也让历史消息不受当前回复波及。</p></article>
-    <article class="card good"><h3>为什么等 turn completed？</h3><p>文本里看到 READY 不代表本轮已经稳定结束；双条件防止半截协议提前打开业务门禁。</p></article>
-  </section>
+  <h2>一句话回答常见追问</h2>
+  <p><strong>为什么不是 WebSocket？</strong> 当前只需要服务端单向推送，用户命令继续走 mutation；正确性来自快照，不来自双向连接。</p>
+  <p><strong>为什么保留 Zustand？</strong> 可用于纯客户端状态，但服务端 Requirement 只放 React Query，避免双数据源。</p>
+  <p><strong>是不是逐字？</strong> 是真实文字 delta，不保证逐字。实际粒度由 app-server 和模型决定。</p>
+  <p><strong>最终成果？</strong> 正文渐进出现；重复不重放、缺包能恢复、刷新有内容、终态全文可校准。</p>
 
-  <footer class="footer-nav"><a href="../lessons/0001-recoverable-streaming-conversation.html">返回完整交互课程</a></footer>
+  <footer class="footer-nav"><a href="../lessons/0003-current-streaming-chain.html">从数据推演开始</a> · <a href="./current-streaming-code-map.html">源码地图</a> · <a href="../lessons/0006-streaming-interview-talk.html">面试表达</a></footer>
 </main>
 </body>
 </html>
