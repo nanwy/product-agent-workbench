@@ -8,6 +8,7 @@ import {
   GrillingPanel,
   PanelHeader,
   RequirementForm,
+  RequirementHistory,
   RequirementSummary,
   RuntimeFacts,
   RuntimeToolbar,
@@ -131,6 +132,7 @@ function WorkbenchPage() {
               onSubmit={(requirement) => runAction('create', (idempotencyKey) => create({ data: { idempotencyKey, requirement } }) as Promise<WorkbenchSnapshot>)}
             />
           )}
+          <RequirementHistory history={snapshot.history} />
         </section>
 
         <section className="panel evidence-panel" aria-label="执行 Agent 与证据">

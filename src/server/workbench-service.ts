@@ -16,7 +16,7 @@ import { loadTargetProjectConfig } from './config'
 import { exploreRequirement, workflowSteps } from './exploration'
 import { requirementStore } from './requirement-store'
 import { reconcileInterruptedExecution } from './workbench-execution'
-import { commitAcceptedCandidate } from './git-workspace'
+import { commitAcceptedCandidate, listDeliveredRequirements } from './git-workspace'
 import { unstageDeliveryArtifacts, writeDeliveryArtifacts } from './delivery-artifacts'
 import {
   getTargetProcessSnapshot,
@@ -40,6 +40,7 @@ export async function getWorkbenchSnapshot(): Promise<WorkbenchSnapshot> {
 
   return {
     requirement,
+    history: target ? await listDeliveredRequirements(target) : [],
     target,
     // 进程是易失的运行时事实，每次读取快照时都以进程管理器为准。
     process: getTargetProcessSnapshot(target ?? undefined),

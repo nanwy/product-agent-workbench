@@ -6,6 +6,7 @@ import { cancelCodexTurn, event, hasActiveCodexTurn, runCodexTurn } from './code
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from './git-workspace'
 import { requirementStore } from './requirement-store'
+import { getTargetProcessSnapshot, startTargetProject, stopTargetProject } from './target-runtime'
 import { verifyCurrentRequirement } from './verification'
 import { assertWorkbenchSkillBundle, resolveWorkbenchSkillPath } from './workbench-skills'
 
@@ -78,6 +79,11 @@ async function prepareExecution() {
   await assertWorkbenchSkillBundle()
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
+  // Session 可能执行目标项目自己的 build。先暂停工作台拥有的 dev server，避免两个
+  // Next.js 进程同时写 `.next`；外部进程没有所有权，工作台不会擅自终止。
+  const processBeforeExecution = getTargetProcessSnapshot(configuredTarget)
+  const restoreOwnedRuntime = processBeforeExecution.status === 'ready' && processBeforeExecution.ownership === 'workbench'
+  if (restoreOwnedRuntime) await stopTargetProject(configuredTarget)
 
   // 首次执行创建需求分支；重试/续接不再建分支，而是校验记录的 Git 起点仍然成立。
   if (!requirement.branch?.requirementBranch) {
@@ -132,10 +138,16 @@ async function prepareExecution() {
       const current = await requireRequirement()
       if (current.codex.status !== 'cancelled') await recordExecutionFailure(error instanceof Error ? error.message : String(error))
     })
-    .finally(() => {
+    .finally(async () => {
       stopExecutionHeartbeat()
-      globalExecution.__workbenchExecution = null
       globalExecution.__workbenchExecutionAbort = null
+      // 成功路径的验证编排通常已经重启运行时；失败/取消路径则在这里恢复用户原先
+      // 打开的预览。先看当前状态，避免重复启动同一个目标进程。
+      if (restoreOwnedRuntime && getTargetProcessSnapshot(configuredTarget).status !== 'ready') {
+        await startTargetProject(configuredTarget)
+      }
+      // 恢复动作结束后才开放下一次执行，避免新 Session 与旧预览重启发生竞态。
+      globalExecution.__workbenchExecution = null
     })
 }
 

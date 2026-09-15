@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import {
   requirementStages,
   type Requirement,
+  type RequirementHistoryItem,
   type RequirementStage,
   type WorkbenchSnapshot,
 } from '../domain/workbench'
@@ -51,6 +52,19 @@ export function RequirementForm({ busy, ready, onSubmit }: {
       <p className="form-note">输入只作为数据保存，不会拼接为 Shell 命令。</p>
     </form>
   )
+}
+
+/** 展示目标仓库中已经形成稳定提交的需求；新建需求不会移除这些 Git 事实。 */
+export function RequirementHistory({ history }: { history: RequirementHistoryItem[] }) {
+  if (!history.length) return null
+  return <section className="requirement-history" aria-label="已交付需求">
+    <div className="section-label">Delivered Requirements</div>
+    {history.map((item) => <article key={item.specId}>
+      <header><strong>{item.specId}</strong><time>{new Date(item.acceptedAt).toLocaleString('zh-CN')}</time></header>
+      <p>{item.title}</p>
+      <code>{item.revision.slice(0, 8)}</code>
+    </article>)}
+  </section>
 }
 
 export function RequirementSummary({ requirement, busyAction, onAnalyze, onConfirm, onConfirmBoundary }: {

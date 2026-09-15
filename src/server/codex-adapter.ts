@@ -32,7 +32,7 @@ export async function runCodexTurn(input: {
   const args = input.sessionId
     ? ['exec', 'resume', '--json', input.sessionId, input.prompt]
     : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', ...transientArgs, input.prompt]
-  const child = spawn(command, args, { cwd: input.workspaceRoot, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn(command, args, { cwd: input.workspaceRoot, detached: process.platform !== 'win32', env: codexProcessEnvironment(), stdio: ['ignore', 'pipe', 'pipe'] })
   globalCodex.__workbenchCodexChild = child
   const abort = () => terminateCodexChild(child)
   input.signal?.addEventListener('abort', abort, { once: true })
@@ -66,6 +66,20 @@ export async function runCodexTurn(input: {
     await input.onEvent(event('failed', redact(stderr.trim())), sessionId)
   }
   return { exitCode, sessionId }
+}
+
+/**
+ * 为 Codex CLI 构造独立于工作台框架模式的进程环境。
+ *
+ * TanStack Start 开发服务会把自己的 `NODE_ENV=development` 留在宿主进程中；如果
+ * 原样传给执行 Session，Session 内的 `next build` 也会误以开发模式运行。删除该
+ * 单一变量后，目标项目的构建工具可以按自己的命令选择 production/test 模式。
+ * 其他变量继续保留，避免破坏 PATH、代理和用户已有的工具配置。
+ */
+export function codexProcessEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const environment = { ...source }
+  delete environment.NODE_ENV
+  return environment
 }
 
 export function cancelCodexTurn() {

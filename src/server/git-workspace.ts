@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import type { BranchFacts, Requirement, TargetProjectConfig, WorkingTreeEntry } from '../domain/workbench'
+import type { BranchFacts, Requirement, RequirementHistoryItem, TargetProjectConfig, WorkingTreeEntry } from '../domain/workbench'
 
 const execFileAsync = promisify(execFile)
 
@@ -49,6 +49,27 @@ export async function changedFilesSince(baseRevision: string, target: TargetProj
   const output = await git(target.repositoryRoot, ['diff', '--name-only', baseRevision])
   const untracked = await git(target.repositoryRoot, ['ls-files', '--others', '--exclude-standard'])
   return [...new Set([...output.split('\n'), ...untracked.split('\n')].map((value) => value.trim()).filter(Boolean))].sort()
+}
+
+/**
+ * 从所有本地分支读取工作台创建的稳定交付提交，形成跨需求历史。
+ *
+ * 当前 Requirement JSON 是可变的流程快照，新需求会替换它；真正完成的需求已经用
+ * `feat: SPEC-...` 提交固化在目标仓库，因此 Git 才是不会随页面表单覆盖的历史来源。
+ * 同一个 Spec 即使被多个分支引用也只展示最新一次提交。
+ */
+export async function listDeliveredRequirements(target: TargetProjectConfig): Promise<RequirementHistoryItem[]> {
+  const output = await git(target.repositoryRoot, ['log', '--all', '-n', '100', '--format=%H%x1f%cI%x1f%s'])
+  const seen = new Set<string>()
+  const history: RequirementHistoryItem[] = []
+  for (const line of output.split('\n')) {
+    const [revision, acceptedAt, subject] = line.split('\x1f')
+    const match = subject?.match(/^feat: (SPEC-\S+) (.+)$/)
+    if (!revision || !acceptedAt || !match || seen.has(match[1])) continue
+    seen.add(match[1])
+    history.push({ specId: match[1], title: match[2], revision, acceptedAt })
+  }
+  return history
 }
 
 export function filesOutsideScope(files: string[], target: TargetProjectConfig) {

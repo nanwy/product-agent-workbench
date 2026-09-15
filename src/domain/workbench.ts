@@ -289,8 +289,17 @@ export type TargetProcessSnapshot = {
 export type WorkbenchSnapshot = {
   // 前端唯一读取模型：持久化需求 + 固定目标配置 + 当前易失运行态。
   requirement: Requirement | null
+  // 已验收需求从目标仓库的稳定提交恢复，不会被下一条 current requirement 覆盖。
+  history: RequirementHistoryItem[]
   target: TargetProjectConfig | null
   process: TargetProcessSnapshot
+}
+
+export type RequirementHistoryItem = {
+  specId: string
+  title: string
+  revision: string
+  acceptedAt: string
 }
 
 export type CreateRequirementInput = {
