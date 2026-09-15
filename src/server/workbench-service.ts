@@ -523,7 +523,7 @@ async function cancelCurrentPlanningPhase(
 }
 
 /**
- * 执行一个 Grilling SDK Turn，并把每个归一化事件原子折叠到 Requirement。
+ * 执行一个 Grilling Codex Turn，并把每个归一化事件原子折叠到 Requirement。
  * Promise 保存在 globalThis，取消可以立即反馈，而重试会等待旧 Turn 完成 finally 后再启动。
  */
 async function runGrillingConversationTurn(

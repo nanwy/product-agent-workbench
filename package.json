@@ -21,6 +21,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@openai/codex": "0.154.0",
     "@openai/codex-sdk": "^0.154.0",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",

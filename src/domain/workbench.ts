@@ -140,7 +140,7 @@ export type AgentEvent = {
 }
 
 export type CodexSession = {
-  // 工作台只保存对 UI 有意义的归一化状态，Codex SDK 原始事件不进入领域层。
+  // 工作台只保存对 UI 有意义的归一化状态，Codex 后端原始事件不进入领域层。
   status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
   sessionId: string | null
   activeTicketId: string | null

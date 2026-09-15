@@ -27,6 +27,8 @@ pnpm dev
 
 如需复用用户已经启动的目标服务，可配置 `runtimeReuse.healthBodyIncludes`。工作台只在健康响应正文包含该项目专属标记时复用；否则把端口视为身份不明的占用者，既不覆盖也不终止。
 
+Codex Turn 默认使用项目固定版本的 `codex app-server`。`WORKBENCH_CODEX_COMMAND` 只用于受控的可执行文件覆盖；临时回退旧 SDK 时必须显式设置 `WORKBENCH_CODEX_BACKEND=sdk`，app-server 失败不会静默切换后端。
+
 ## 验证
 
 ```bash
@@ -49,7 +51,8 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 - `src/domain/`：Requirement 聚合、阶段和公共数据契约；
 - `src/server/`：配置、持久化、规则探索、进程和预览网关；
 - `src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
-- `src/server/codex-adapter.ts`：Codex SDK Thread、流式事件归一化、续接与 AbortSignal 取消；
+- `src/server/codex-app-server.ts`：app-server 子进程、JSON-RPC、Thread 续接、Turn 中断与清理；
+- `src/server/codex-adapter.ts`：Codex 后端选择、应用事件归一化及显式 SDK 回退；
 - `src/server/workbench-conversation.ts`：四阶段逻辑对话、Grilling Skill 注入与门禁协议；
 - `src/store/conversation-store.ts`：Zustand 对话投影和逐帧 delta 合并；
 - `src/server/verification.ts`：声明式命令、修改范围和真实路由验证；

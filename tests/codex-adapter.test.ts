@@ -8,6 +8,7 @@ import { cancelCodexTurn, normalizeCodexEvent, runCodexTurn } from '../src/serve
 const originalCommand = process.env.WORKBENCH_CODEX_COMMAND
 const originalBackend = process.env.WORKBENCH_CODEX_BACKEND
 const originalFixtureMode = process.env.WORKBENCH_FAKE_APP_SERVER_MODE
+const originalHandshakeTimeout = process.env.WORKBENCH_CODEX_HANDSHAKE_TIMEOUT_MS
 
 afterEach(() => {
   if (originalCommand === undefined) delete process.env.WORKBENCH_CODEX_COMMAND
@@ -16,6 +17,8 @@ afterEach(() => {
   else process.env.WORKBENCH_CODEX_BACKEND = originalBackend
   if (originalFixtureMode === undefined) delete process.env.WORKBENCH_FAKE_APP_SERVER_MODE
   else process.env.WORKBENCH_FAKE_APP_SERVER_MODE = originalFixtureMode
+  if (originalHandshakeTimeout === undefined) delete process.env.WORKBENCH_CODEX_HANDSHAKE_TIMEOUT_MS
+  else process.env.WORKBENCH_CODEX_HANDSHAKE_TIMEOUT_MS = originalHandshakeTimeout
 })
 
 describe('Codex adapter', () => {
@@ -31,7 +34,7 @@ describe('Codex adapter', () => {
   })
 
   it('starts an app-server thread, forwards the sandbox, and keeps its thread id', async () => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     const events: string[] = []
     const result = await runCodexTurn({
       workspaceRoot: process.cwd(),
@@ -47,7 +50,7 @@ describe('Codex adapter', () => {
   })
 
   it('resumes the persisted app-server thread for the next turn', async () => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     const result = await runCodexTurn({
       workspaceRoot: process.cwd(),
       prompt: 'continue',
@@ -60,11 +63,14 @@ describe('Codex adapter', () => {
 
   it.each([
     ['initialize-failure', 'fixture initialize failure'],
+    ['no-response', 'initialize 超时'],
     ['invalid-json', '非法 JSON-RPC'],
     ['turn-failure', 'fixture turn failure'],
+    ['process-exit', '意外退出'],
   ])('settles failures instead of leaving a running turn: %s', async (mode, expected) => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     process.env.WORKBENCH_FAKE_APP_SERVER_MODE = mode
+    process.env.WORKBENCH_CODEX_HANDSHAKE_TIMEOUT_MS = '50'
     const events: string[] = []
     const result = await runCodexTurn({
       workspaceRoot: process.cwd(),
@@ -77,8 +83,28 @@ describe('Codex adapter', () => {
     expect(events.some((value) => value.includes(expected))).toBe(true)
   })
 
+  it('force-cleans an app-server that ignores turn/interrupt', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+    process.env.WORKBENCH_FAKE_APP_SERVER_MODE = 'ignore-interrupt'
+    let cancellationSent = false
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'SLOW_TURN',
+      sessionId: null,
+      onEvent: async (event) => {
+        if (!cancellationSent && event.message === 'partial before cancel') {
+          cancellationSent = true
+          cancelCodexTurn()
+        }
+      },
+    })
+
+    expect(result.exitCode).toBe(130)
+    expect(cancelCodexTurn()).toBe(false)
+  }, 4_000)
+
   it('cancels only the active turn process', async () => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
     let cancelled = false
     const events: string[] = []
     const result = await runCodexTurn({

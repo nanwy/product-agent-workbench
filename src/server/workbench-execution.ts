@@ -43,7 +43,7 @@ export function startRequirementExecution() {
 /**
  * 把服务重启遗留的 running 状态恢复为可重试失败态。
  *
- * Requirement 会持久化，而 Promise 与 SDK Turn 只属于旧 Node 进程。若内存中已无
+ * Requirement 会持久化，而 Promise 与 Codex Turn 只属于旧 Node 进程。若内存中已无
  * 执行事实，当前票改回 blocked；分支和 session 保留，用户可以继续而不必重建需求。
  */
 export async function reconcileInterruptedExecution() {
@@ -160,7 +160,7 @@ async function prepareExecution() {
  * 在 Codex 沉默执行长命令时刷新持久化时间戳。
  *
  * 心跳不写证据事件，避免污染用户可读时间线；它只更新 `updatedAt`，供其他服务端
- * 模块实例区分“正常运行但暂时没有 SDK 事件”与“Node 进程已经重启”。
+ * 模块实例区分“正常运行但暂时没有 Codex 事件”与“Node 进程已经重启”。
  */
 function startExecutionHeartbeat(signal: AbortSignal) {
   stopExecutionHeartbeat()
@@ -185,14 +185,14 @@ function stopExecutionHeartbeat() {
 /**
  * 取消当前 Codex turn 并等待后台队列退出。
  *
- * 同时发送 AbortSignal、取消 SDK Turn 并持久化 cancelled 事件；保留分支和 session，
+ * 同时发送 AbortSignal、取消 Codex Turn 并持久化 cancelled 事件；保留分支和 session，
  * 使用户之后可以继续当前需求。
  */
 export async function cancelRequirementExecution() {
   const requirement = await requireRequirement()
   if (requirement.codex.status !== 'running') return
   const cancelled = event('cancelled', `已停止 ${requirement.codex.activeTicketId ?? '当前执行票'} 的 Codex turn`)
-  // 先持久化 cancelled，再取消 SDK Turn。否则退出可能先触发后台 catch，把用户取消
+  // 先持久化 cancelled，再取消 Codex Turn。否则退出可能先触发后台 catch，把用户取消
   // 竞态覆盖成 failed；session、分支和当前票都继续保留用于恢复。
   await requirementStore.update((current) => {
     if (!current) throw new Error('产品需求已不存在')
@@ -203,7 +203,7 @@ export async function cancelRequirementExecution() {
       updatedAt: new Date().toISOString(),
     }
   })
-  // 两个 AbortSignal 共同收敛到 SDK 管理的 Turn；取消不会删除 session ID。
+  // 两个取消入口共同收敛到 Adapter 管理的 Turn；取消不会删除 session ID。
   globalExecution.__workbenchExecutionAbort?.abort()
   cancelCodexTurn()
   publishAgentEvent(cancelled)

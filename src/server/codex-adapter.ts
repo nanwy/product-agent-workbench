@@ -1,20 +1,23 @@
 import { Codex, type ThreadEvent } from "@openai/codex-sdk";
 
 import type { AgentEvent } from "../domain/workbench";
+import {
+  CodexAppServerLaunchError,
+  CodexAppServerTurn,
+  type AppServerNotification,
+} from "./codex-app-server";
 
-type ActiveCodexTurn = { controller: AbortController };
-// 单进程工作台同一时刻只允许一个 SDK Turn；globalThis 可跨开发期模块热更新保留取消句柄。
+type ActiveCodexTurn = {
+  cancel: () => boolean;
+  isCancelled: () => boolean;
+};
+// 单进程工作台同一时刻只允许一个 Turn；globalThis 可跨开发期模块热更新保留取消句柄。
 const globalCodex = globalThis as typeof globalThis & {
   __workbenchCodexTurn?: ActiveCodexTurn | null;
 };
 
 export type CodexTurnResult = { exitCode: number; sessionId: string | null };
-
-/**
- * 通过官方 SDK 创建或恢复受限 Thread，并把易变事件压缩为应用稳定事件。
- * 默认用于实现阶段；规划阶段必须显式传 read-only。审批始终由工作台门禁控制。
- */
-export async function runCodexTurn(input: {
+type CodexTurnInput = {
   workspaceRoot: string;
   prompt: string;
   sessionId: string | null;
@@ -23,16 +26,91 @@ export async function runCodexTurn(input: {
   skipGitRepositoryCheck?: boolean;
   ephemeral?: boolean;
   onEvent: (event: AgentEvent, sessionId: string | null) => Promise<void>;
-}): Promise<CodexTurnResult> {
+};
+
+/**
+ * 默认通过 app-server 创建或恢复受限 Thread；SDK 仅保留为显式回退。
+ * 两种后端都压缩为相同的应用事件，调用方不感知协议差异。
+ */
+export async function runCodexTurn(
+  input: CodexTurnInput,
+): Promise<CodexTurnResult> {
   if (globalCodex.__workbenchCodexTurn)
     throw new Error("已有 Codex turn 正在运行");
   if (input.signal?.aborted)
     return { exitCode: 130, sessionId: input.sessionId };
 
+  const backend = process.env.WORKBENCH_CODEX_BACKEND?.trim() || "app-server";
+  if (backend === "sdk") return runSdkCodexTurn(input);
+  if (backend !== "app-server")
+    throw new Error(`未知的 Codex 后端：${backend}`);
+
+  return runAppServerCodexTurn(input);
+}
+
+async function runAppServerCodexTurn(
+  input: CodexTurnInput,
+): Promise<CodexTurnResult> {
+  let sessionId = input.sessionId;
+  const turnEventScope = crypto.randomUUID();
+  const turn = new CodexAppServerTurn({
+    workspaceRoot: input.workspaceRoot,
+    prompt: input.prompt,
+    sessionId,
+    signal: input.signal,
+    sandboxMode: input.sandboxMode ?? "workspace-write",
+    ephemeral: input.ephemeral,
+    environment: codexProcessEnvironment(),
+    commandOverride: process.env.WORKBENCH_CODEX_COMMAND?.trim(),
+    onSession: async (nextSessionId) => {
+      sessionId = nextSessionId;
+      await input.onEvent(event("session", nextSessionId), sessionId);
+    },
+    onNotification: async (notification) => {
+      const normalized = normalizeAppServerNotification(
+        notification,
+        turnEventScope,
+      );
+      if (normalized) await input.onEvent(normalized, sessionId);
+    },
+  });
+  const active: ActiveCodexTurn = {
+    cancel: () => turn.cancel(),
+    isCancelled: () => turn.cancelled,
+  };
+  globalCodex.__workbenchCodexTurn = active;
+
+  try {
+    const result = await turn.run();
+    return { exitCode: result.exitCode, sessionId: result.sessionId || sessionId };
+  } catch (error) {
+    if (error instanceof CodexAppServerLaunchError) throw error;
+    const detail = error instanceof Error ? error.message : String(error);
+    if (turn.cancelled) return { exitCode: 130, sessionId };
+    await input.onEvent(event("failed", detail), sessionId);
+    return { exitCode: 1, sessionId };
+  } finally {
+    if (globalCodex.__workbenchCodexTurn === active)
+      globalCodex.__workbenchCodexTurn = null;
+  }
+}
+
+async function runSdkCodexTurn(
+  input: CodexTurnInput,
+): Promise<CodexTurnResult> {
+
   const controller = new AbortController();
   const abort = () => controller.abort();
   input.signal?.addEventListener("abort", abort, { once: true });
-  globalCodex.__workbenchCodexTurn = { controller };
+  const active: ActiveCodexTurn = {
+    cancel: () => {
+      if (controller.signal.aborted) return false;
+      controller.abort();
+      return true;
+    },
+    isCancelled: () => controller.signal.aborted,
+  };
+  globalCodex.__workbenchCodexTurn = active;
   let sessionId = input.sessionId;
   let failed = false;
   const turnEventScope = crypto.randomUUID();
@@ -61,7 +139,6 @@ export async function runCodexTurn(input: {
       signal: controller.signal,
     });
     for await (const sdkEvent of events) {
-      console.log("SDK Event:", sdkEvent);
       if (sdkEvent.type === "thread.started") sessionId = sdkEvent.thread_id;
       if (sdkEvent.type === "turn.failed" || sdkEvent.type === "error")
         failed = true;
@@ -80,7 +157,7 @@ export async function runCodexTurn(input: {
     return { exitCode: 1, sessionId };
   } finally {
     input.signal?.removeEventListener("abort", abort);
-    if (globalCodex.__workbenchCodexTurn?.controller === controller)
+    if (globalCodex.__workbenchCodexTurn === active)
       globalCodex.__workbenchCodexTurn = null;
   }
 }
@@ -94,20 +171,78 @@ export function codexProcessEnvironment(
   return environment;
 }
 
-/** 只中止工作台当前持有的 SDK Turn，不扫描或终止任何外部 Codex 进程。 */
+/** 只中止工作台当前持有的 Turn，不扫描或终止任何外部 Codex 进程。 */
 export function cancelCodexTurn() {
   const active = globalCodex.__workbenchCodexTurn;
-  if (!active || active.controller.signal.aborted) return false;
-  active.controller.abort();
-  return true;
+  if (!active || active.isCancelled()) return false;
+  return active.cancel();
 }
 
 /** 供重启恢复逻辑区分“仍在执行”与“只剩持久化 running 状态”。 */
 export function hasActiveCodexTurn() {
   return Boolean(
     globalCodex.__workbenchCodexTurn &&
-    !globalCodex.__workbenchCodexTurn.controller.signal.aborted,
+    !globalCodex.__workbenchCodexTurn.isCancelled(),
   );
+}
+
+function normalizeAppServerNotification(
+  notification: AppServerNotification,
+  eventScope: string,
+): AgentEvent | null {
+  const { method, params, raw } = notification;
+  if (method.startsWith("item/agentMessage/delta")) return null;
+
+  if (method.startsWith("item/")) {
+    const item =
+      params.item && typeof params.item === "object"
+        ? normalizeAppServerItem(params.item as Record<string, unknown>)
+        : null;
+    if (!item) return null;
+    return normalizeCodexEvent(
+      { type: method.replaceAll("/", "."), item },
+      raw,
+      eventScope,
+    );
+  }
+
+  if (method === "turn/completed") {
+    const turn =
+      params.turn && typeof params.turn === "object"
+        ? (params.turn as Record<string, unknown>)
+        : {};
+    const status = String(turn.status ?? "completed");
+    if (status === "failed") {
+      const error =
+        turn.error && typeof turn.error === "object"
+          ? turn.error
+          : { message: "Codex turn failed" };
+      return normalizeCodexEvent({ type: "turn.failed", error }, raw, eventScope);
+    }
+    if (["cancelled", "canceled", "aborted", "interrupted"].includes(status))
+      return event("cancelled", "Codex turn 已取消");
+    return normalizeCodexEvent({ type: "turn.completed" }, raw, eventScope);
+  }
+
+  return null;
+}
+
+function normalizeAppServerItem(item: Record<string, unknown>) {
+  const type = String(item.type ?? "");
+  const normalizedType =
+    type === "agentMessage"
+      ? "agent_message"
+      : type === "commandExecution"
+        ? "command_execution"
+        : type === "fileChange"
+          ? "file_change"
+          : type;
+  return {
+    ...item,
+    type: normalizedType,
+    aggregated_output: item.aggregatedOutput,
+    exit_code: item.exitCode,
+  };
 }
 
 /** 把 SDK ThreadEvent 压缩为页面和持久层共享的稳定事件类型。 */
