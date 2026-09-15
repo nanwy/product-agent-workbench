@@ -14,9 +14,17 @@ export const Route = createFileRoute('/api/events')({
           start(controller) {
             // 先发送 SSE 注释行，让客户立即确认连接已建立。
             controller.enqueue(encoder.encode(': connected\n\n'))
+            const heartbeat = setInterval(() => {
+              controller.enqueue(encoder.encode(': heartbeat\n\n'))
+            }, 15_000)
             unsubscribe = subscribeAgentEvents((event) => {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
             })
+            const previous = unsubscribe
+            unsubscribe = () => {
+              clearInterval(heartbeat)
+              previous()
+            }
           },
           cancel() {
             // 浏览器关闭 EventSource 时解除订阅，避免热更后累积失效回调。

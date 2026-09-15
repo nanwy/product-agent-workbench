@@ -12,7 +12,7 @@ import {
   type WorkbenchSnapshot,
 } from "../domain/workbench";
 import { createAgentSessionHandoff } from "./agent-handoff";
-import { publishAgentEvent } from "./agent-events";
+import { publishAgentEvent, publishAgentTextDelta } from "./agent-events";
 import { cancelCodexTurn, runCodexTurn } from "./codex-adapter";
 import { loadTargetProjectConfig } from "./config";
 import { workflowSteps } from "./exploration";
@@ -353,6 +353,7 @@ async function runSpecConversationTurn(
   requireUnderstandingRevision = false,
 ): Promise<WorkbenchSnapshot> {
   const requirementId = requirement.id;
+  const deltaSink = createPlanningDeltaSink(requirement);
   let pendingDocument: ReturnType<typeof parseSpecArtifact> = null;
   let pendingUnderstanding: ReturnType<typeof parseRevisedUnderstanding> = null;
   const turn = (async () => {
@@ -363,6 +364,7 @@ async function runSpecConversationTurn(
         sessionId: requirement.conversation.planningThreadId,
         sandboxMode: "read-only",
         onEvent: async (incomingEvent, sessionId) => {
+          await deltaSink.flush();
           console.log("Spec Turn Event:", incomingEvent);
           let agentEvent = incomingEvent;
           if (agentEvent.type === "message") {
@@ -438,6 +440,7 @@ async function runSpecConversationTurn(
           });
           publishAgentEvent(agentEvent);
         },
+        onTextDelta: deltaSink.push,
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -461,6 +464,7 @@ async function runSpecConversationTurn(
         };
       });
     }
+    await deltaSink.flush();
   })();
   globalPlanning.__workbenchPlanningTurn = turn;
   await turn.finally(() => {
@@ -531,6 +535,7 @@ async function runGrillingConversationTurn(
   prompt: string,
 ): Promise<WorkbenchSnapshot> {
   const requirementId = requirement.id;
+  const deltaSink = createPlanningDeltaSink(requirement);
   const turn = (async () => {
     let result: Awaited<ReturnType<typeof runCodexTurn>>;
     try {
@@ -540,6 +545,7 @@ async function runGrillingConversationTurn(
         sessionId: requirement.conversation.planningThreadId,
         sandboxMode: "read-only",
         onEvent: async (agentEvent, sessionId) => {
+          await deltaSink.flush();
           await requirementStore.update((current) => {
             if (!current || current.id !== requirementId)
               throw new Error("Grilling 期间活动需求已变化");
@@ -556,6 +562,7 @@ async function runGrillingConversationTurn(
           });
           publishAgentEvent(agentEvent);
         },
+        onTextDelta: deltaSink.push,
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -600,6 +607,7 @@ async function runGrillingConversationTurn(
         };
       });
     }
+    await deltaSink.flush();
   })();
   globalPlanning.__workbenchPlanningTurn = turn;
   await turn.finally(() => {
@@ -607,6 +615,61 @@ async function runGrillingConversationTurn(
       globalPlanning.__workbenchPlanningTurn = null;
   });
   return getWorkbenchSnapshot();
+}
+
+function createPlanningDeltaSink(requirement: Requirement) {
+  const targetId = [...requirement.conversation.messages].reverse().find(
+    (message) => message.role === "assistant" && message.status === "streaming",
+  )?.id ?? requirement.conversation.id;
+  let pending: { itemId: string; turnId: string; text: string; sessionId: string | null } | null = null;
+  let pendingBytes = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let persistence = Promise.resolve();
+  const flush = async () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    const current = pending;
+    pending = null;
+    pendingBytes = 0;
+    if (!current) {
+      await persistence;
+      return;
+    }
+    persistence = persistence.then(async () => {
+      await requirementStore.update((stored) => {
+        if (!stored || stored.id !== requirement.id || stored.conversation.status === "cancelled")
+          return stored ?? requirement;
+        return {
+          ...stored,
+          conversation: applyPlanningEvent(
+            stored.conversation,
+            { id: current.itemId, type: "message", message: current.text, recordedAt: new Date().toISOString() },
+            current.sessionId,
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    });
+    await persistence;
+  };
+  return {
+    push: async (delta: { itemId: string; turnId: string; delta: string; text: string }, sessionId: string | null) => {
+      pending = { ...delta, sessionId };
+      pendingBytes += Buffer.byteLength(delta.delta, "utf8");
+      publishAgentTextDelta({
+        requirementId: requirement.id,
+        target: "conversation",
+        targetId,
+        turnId: delta.turnId,
+        itemId: delta.itemId,
+        revision: new Date().toISOString(),
+        delta: delta.delta,
+      });
+      if (pendingBytes >= 32_768) await flush();
+      else if (!timer) timer = setTimeout(() => void flush().catch(console.error), 500);
+    },
+    flush,
+  };
 }
 
 /**

@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 
 import type { ConversationMessage, Requirement, WorkbenchSnapshot } from '../src/domain/workbench'
-import { applyWorkbenchSnapshot, projectConversation, workbenchQueryKeys } from '../src/store/workbench-query'
+import { applyAgentStreamBatch, applyWorkbenchSnapshot, projectConversation, workbenchQueryKeys } from '../src/store/workbench-query'
 import { partitionStreamingMarkdown } from '../src/store/streaming-markdown'
 
 const first: ConversationMessage = {
@@ -38,6 +38,26 @@ describe('workbench Query projection', () => {
 
     expect(queryClient.getQueryData(workbenchQueryKeys.conversation('REQ-1'))).toMatchObject({ messageIds: ['assistant-1'] })
     expect(queryClient.getQueryData(workbenchQueryKeys.conversation('REQ-2'))).toMatchObject({ messageIds: [] })
+  })
+
+  it('applies ordered batches once and rejects a sequence gap', () => {
+    const queryClient = new QueryClient()
+    const streaming = { ...first, status: 'streaming' as const, segments: [] }
+    const requirement = requirementWith('REQ-1', [streaming])
+    queryClient.setQueryData(workbenchQueryKeys.conversation('REQ-1'), projectConversation(requirement))
+    const batch = {
+      type: 'stream-batch' as const,
+      requirementId: 'REQ-1', target: 'conversation' as const, targetId: streaming.id,
+      turnId: 'turn-1', itemId: 'item-1', sequenceStart: 1, sequenceEnd: 1,
+      revision: '2026-09-15T00:01:00.000Z', delta: '你好',
+    }
+
+    expect(applyAgentStreamBatch(queryClient, batch)).toBe(true)
+    expect(applyAgentStreamBatch(queryClient, batch)).toBe(true)
+    expect(applyAgentStreamBatch(queryClient, { ...batch, sequenceStart: 3, sequenceEnd: 3 })).toBe(false)
+    expect(queryClient.getQueryData(workbenchQueryKeys.conversation('REQ-1'))).toMatchObject({
+      messagesById: { [streaming.id]: { segments: [{ content: '你好' }] } },
+    })
   })
 
   it('keeps an unfinished code fence out of the Markdown parser until completion', () => {

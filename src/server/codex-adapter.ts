@@ -17,6 +17,12 @@ const globalCodex = globalThis as typeof globalThis & {
 };
 
 export type CodexTurnResult = { exitCode: number; sessionId: string | null };
+export type CodexTextDelta = {
+  itemId: string;
+  turnId: string;
+  delta: string;
+  text: string;
+};
 type CodexTurnInput = {
   workspaceRoot: string;
   prompt: string;
@@ -26,6 +32,7 @@ type CodexTurnInput = {
   skipGitRepositoryCheck?: boolean;
   ephemeral?: boolean;
   onEvent: (event: AgentEvent, sessionId: string | null) => Promise<void>;
+  onTextDelta?: (delta: CodexTextDelta, sessionId: string | null) => Promise<void>;
 };
 
 /**
@@ -53,6 +60,7 @@ async function runAppServerCodexTurn(
 ): Promise<CodexTurnResult> {
   let sessionId = input.sessionId;
   const turnEventScope = crypto.randomUUID();
+  const textByItem = new Map<string, string>();
   const turn = new CodexAppServerTurn({
     workspaceRoot: input.workspaceRoot,
     prompt: input.prompt,
@@ -67,6 +75,11 @@ async function runAppServerCodexTurn(
       await input.onEvent(event("session", nextSessionId), sessionId);
     },
     onNotification: async (notification) => {
+      const textDelta = appServerTextDelta(notification, turnEventScope, textByItem);
+      if (textDelta) {
+        await input.onTextDelta?.(textDelta, sessionId);
+        return;
+      }
       const normalized = normalizeAppServerNotification(
         notification,
         turnEventScope,
@@ -93,6 +106,22 @@ async function runAppServerCodexTurn(
     if (globalCodex.__workbenchCodexTurn === active)
       globalCodex.__workbenchCodexTurn = null;
   }
+}
+
+function appServerTextDelta(
+  notification: AppServerNotification,
+  eventScope: string,
+  textByItem: Map<string, string>,
+): CodexTextDelta | null {
+  if (notification.method !== "item/agentMessage/delta") return null;
+  const itemId = String(notification.params.itemId ?? "");
+  const turnId = String(notification.params.turnId ?? eventScope);
+  const delta = String(notification.params.delta ?? "");
+  if (!itemId || !delta) return null;
+  const scopedItemId = [eventScope, itemId].filter(Boolean).join(":");
+  const text = `${textByItem.get(scopedItemId) ?? ""}${delta}`;
+  textByItem.set(scopedItemId, text);
+  return { itemId: scopedItemId, turnId, delta: redact(delta), text: redact(text) };
 }
 
 async function runSdkCodexTurn(

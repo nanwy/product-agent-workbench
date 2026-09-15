@@ -61,6 +61,25 @@ describe('Codex adapter', () => {
     expect(result).toEqual({ exitCode: 0, sessionId: 'persisted-thread-id' })
   })
 
+  it('exposes app-server agent text deltas and keeps the completed full message authoritative', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+    const deltas: string[] = []
+    const messages: string[] = []
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'STREAM_TEXT',
+      sessionId: null,
+      onTextDelta: async (delta) => { deltas.push(delta.delta) },
+      onEvent: async (event) => {
+        if (event.type === 'message') messages.push(event.message)
+      },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(deltas).toEqual(['你', '好'])
+    expect(messages).toEqual(['你好'])
+  })
+
   it.each([
     ['initialize-failure', 'fixture initialize failure'],
     ['no-response', 'initialize 超时'],

@@ -42,9 +42,11 @@ import {
   submitRequirement,
 } from "../server/functions";
 import {
+  applyAgentStreamBatch,
   applyWorkbenchSnapshot,
   workbenchQueryKeys,
 } from "../store/workbench-query";
+import type { AgentSseEvent } from "../server/agent-events";
 
 // loader 负责 SSR 首屏；页面挂载后再通过轮询和 SSE 追赶后台执行产生的新状态。
 export const Route = createFileRoute("/")({
@@ -102,12 +104,20 @@ function WorkbenchPage() {
   useEffect(() => {
     const events = new EventSource("/api/events");
     events.onopen = () => {
-      setSseConnected(true);
-      void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+      void queryClient.refetchQueries({ queryKey: workbenchQueryKeys.snapshot }).then(() => {
+        setSseConnected(true);
+      });
     };
     events.onerror = () => setSseConnected(false);
-    events.onmessage = () =>
+    events.onmessage = (message) => {
+      const incoming = JSON.parse(message.data) as AgentSseEvent;
+      if (incoming.type === "stream-batch") {
+        if (!applyAgentStreamBatch(queryClient, incoming))
+          void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+        return;
+      }
       void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+    };
     return () => {
       setSseConnected(false);
       events.close();

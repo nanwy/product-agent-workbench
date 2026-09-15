@@ -1,7 +1,7 @@
 import path from 'node:path'
 
 import type { AgentEvent, Requirement } from '../domain/workbench'
-import { publishAgentEvent } from './agent-events'
+import { publishAgentEvent, publishAgentTextDelta } from './agent-events'
 import { cancelCodexTurn, event, hasActiveCodexTurn, runCodexTurn } from './codex-adapter'
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, createRequirementBranch, filesOutsideScope, inspectGitWorkspace } from './git-workspace'
@@ -220,14 +220,20 @@ async function executeQueue(signal: AbortSignal) {
     if (!ticket) return
     const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
     const writableRoot = executionWritableRoot(scopedTarget)
+    const deltaSink = createExecutionDeltaSink(requirement)
     const result = await runCodexTurn({
       // -C 与 workspace-write 同时指向确认范围，越界写入会在发生前被 Codex 沙箱拒绝。
       workspaceRoot: writableRoot,
       prompt: buildExecutionPrompt(requirement, ticket),
       sessionId: requirement.codex.sessionId,
       signal,
-      onEvent: persistAgentEvent,
+      onEvent: async (agentEvent, sessionId) => {
+        await deltaSink.flush()
+        await persistAgentEvent(agentEvent, sessionId)
+      },
+      onTextDelta: deltaSink.push,
     })
+    await deltaSink.flush()
     const latest = await requireRequirement()
     if (latest.codex.status === 'cancelled') return
     // Codex 退出后不相信其文本声明，而是用 Git 真值检查改动文件、分支和 HEAD。
@@ -262,6 +268,44 @@ async function executeQueue(signal: AbortSignal) {
       await verifyCurrentRequirement()
       return
     }
+  }
+}
+
+function createExecutionDeltaSink(requirement: Requirement) {
+  let pending: { itemId: string; turnId: string; text: string; sessionId: string | null } | null = null
+  let pendingBytes = 0
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let persistence = Promise.resolve()
+  const flush = async () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    const current = pending
+    pending = null
+    pendingBytes = 0
+    if (!current) {
+      await persistence
+      return
+    }
+    persistence = persistence.then(() => persistAgentEvent(event('message', current.text, current.itemId), current.sessionId))
+    await persistence
+  }
+  return {
+    push: async (delta: { itemId: string; turnId: string; delta: string; text: string }, sessionId: string | null) => {
+      pending = { ...delta, sessionId }
+      pendingBytes += Buffer.byteLength(delta.delta, 'utf8')
+      publishAgentTextDelta({
+        requirementId: requirement.id,
+        target: 'execution',
+        targetId: delta.itemId,
+        turnId: delta.turnId,
+        itemId: delta.itemId,
+        revision: new Date().toISOString(),
+        delta: delta.delta,
+      })
+      if (pendingBytes >= 32_768) await flush()
+      else if (!timer) timer = setTimeout(() => void flush().catch(console.error), 500)
+    },
+    flush,
   }
 }
 

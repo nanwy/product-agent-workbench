@@ -23,6 +23,7 @@ test('reviews, revises, restores, and confirms a local conversational Spec', asy
   await page.getByRole('button', { name: '停止 Turn' }).click()
   await expect(page.getByRole('button', { name: '重试当前阶段' })).toBeVisible()
   await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('共同理解：', { exact: true })).toBeVisible()
   await expect(page.getByText('共同理解：按已确认结果')).toBeVisible()
   await page.getByRole('button', { name: '确认共同理解' }).click()
 

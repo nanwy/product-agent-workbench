@@ -180,6 +180,17 @@ async function runAppServer() {
         continue
       }
       const prompt = request.params.input?.[0]?.text ?? ''
+      if (prompt.includes('STREAM_TEXT')) {
+        notify('item/agentMessage/delta', { threadId, turnId, itemId: 'stream-message', delta: '你' })
+        notify('item/agentMessage/delta', { threadId, turnId, itemId: 'stream-message', delta: '好' })
+        notify('item/completed', {
+          threadId,
+          turnId,
+          item: { id: 'stream-message', type: 'agentMessage', text: '你好', phase: 'final_answer' },
+        })
+        notify('turn/completed', { threadId, turn: { id: turnId, status: 'completed' } })
+        continue
+      }
       if (prompt.includes('VALIDATE_APP_SERVER') || prompt.includes('SLOW_TURN') || prompt === 'continue') {
         const sandbox = request.params.sandboxPolicy?.type === 'readOnly' ? 'read-only' : 'workspace-write'
         notify('item/completed', {
@@ -234,6 +245,12 @@ function runExecFixture(params, threadId, turnId, resumed, notify) {
   args.push('-')
   const child = spawn(process.execPath, args, { cwd: params.cwd, env: process.env, stdio: ['pipe', 'pipe', 'pipe'] })
   let completed = false
+  let pendingAgentDeliveries = 0
+  let pendingTurnComplete = null
+  const finishTurn = (event) => {
+    completed = true
+    notify('turn/completed', { threadId, turn: { id: turnId, status: 'completed', usage: event.usage } })
+  }
   child.stdin.end(params.input?.[0]?.text ?? '')
   const output = readline.createInterface({ input: child.stdout, crlfDelay: Infinity })
   output.on('line', (line) => {
@@ -241,8 +258,8 @@ function runExecFixture(params, threadId, turnId, resumed, notify) {
     const event = JSON.parse(line)
     if (event.type === 'thread.started') return
     if (event.type === 'turn.completed') {
-      completed = true
-      notify('turn/completed', { threadId, turn: { id: turnId, status: 'completed', usage: event.usage } })
+      if (pendingAgentDeliveries) pendingTurnComplete = event
+      else finishTurn(event)
       return
     }
     if (event.type === 'turn.failed' || event.type === 'error') {
@@ -254,6 +271,18 @@ function runExecFixture(params, threadId, turnId, resumed, notify) {
       return
     }
     if (event.type.startsWith('item.')) {
+      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
+        const boundary = Math.min(5, event.item.text.length)
+        pendingAgentDeliveries += 1
+        notify('item/agentMessage/delta', { threadId, turnId, itemId: event.item.id, delta: event.item.text.slice(0, boundary) })
+        setTimeout(() => {
+          notify('item/agentMessage/delta', { threadId, turnId, itemId: event.item.id, delta: event.item.text.slice(boundary) })
+          notify('item/completed', { threadId, turnId, item: toAppServerItem(event.item) })
+          pendingAgentDeliveries -= 1
+          if (!pendingAgentDeliveries && pendingTurnComplete) finishTurn(pendingTurnComplete)
+        }, 200)
+        return
+      }
       notify(event.type.replace('.', '/'), { threadId, turnId, item: toAppServerItem(event.item) })
     }
   })
