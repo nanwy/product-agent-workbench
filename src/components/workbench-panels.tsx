@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState, type FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useStore } from "zustand";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   requirementStages,
@@ -11,9 +11,10 @@ import {
   type WorkbenchSnapshot,
 } from "../domain/workbench";
 import {
-  conversationSelectors,
-  conversationStore,
-} from "../store/conversation-store";
+  projectConversation,
+  workbenchQueryKeys,
+  type ConversationProjection,
+} from "../store/workbench-query";
 import { partitionStreamingMarkdown } from "../store/streaming-markdown";
 
 // 本文件只负责展示和收集输入；状态迁移与副作用统一留在服务端用例层。
@@ -302,7 +303,7 @@ export function ConversationPanel({
   return (
     <section className="conversation-panel" aria-label="产品 Agent 对话">
       <ConversationPhaseRail phase={conversation.phase} />
-      <ConversationTimeline />
+      <ConversationTimeline requirement={requirement} />
       {readOnly ? (
         <div className="conversation-readonly">历史对话只读</div>
       ) : null}
@@ -464,28 +465,31 @@ function ConversationPhaseRail({
  * 订阅规范化消息 ID；用户仍在底部时跟随新内容，主动上滚后尊重阅读位置。
  * stickToBottom 放在 ref 中，滚动事件不会为每个流式 delta 触发整棵组件树更新。
  */
-function ConversationTimeline() {
-  const messageIds = useStore(
-    conversationStore,
-    conversationSelectors.messageIds,
-  );
+function ConversationTimeline({ requirement }: { requirement: Requirement }) {
+  const queryClient = useQueryClient();
+  const conversationQuery = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirement.id),
+    queryFn: () => Promise.resolve(projectConversation(requirement)),
+    initialData: () => projectConversation(
+      requirement,
+      queryClient.getQueryData(workbenchQueryKeys.conversation(requirement.id)),
+    ),
+    enabled: false,
+  });
+  const messageIds = conversationQuery.data.messageIds;
   const viewport = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const [showReturn, setShowReturn] = useState(false);
 
-  useEffect(
-    () =>
-      conversationStore.subscribe(() => {
-        if (!stickToBottom.current) return;
-        requestAnimationFrame(() =>
-          viewport.current?.scrollTo({
-            top: viewport.current.scrollHeight,
-            behavior: "smooth",
-          }),
-        );
+  useEffect(() => {
+    if (!stickToBottom.current) return;
+    requestAnimationFrame(() =>
+      viewport.current?.scrollTo({
+        top: viewport.current.scrollHeight,
+        behavior: "smooth",
       }),
-    [],
-  );
+    );
+  }, [conversationQuery.data]);
 
   function handleScroll() {
     const node = viewport.current;
@@ -513,7 +517,7 @@ function ConversationTimeline() {
         ref={viewport}
       >
         {messageIds.map((id) => (
-          <ConversationMessageRow id={id} key={id} />
+          <ConversationMessageRow id={id} key={id} requirementId={requirement.id} />
         ))}
       </div>
       {showReturn ? (
@@ -532,13 +536,17 @@ function ConversationTimeline() {
 // 每行使用按 ID selector 并 memo；当前 assistant 更新时，已完成历史行保持引用不变。
 const ConversationMessageRow = memo(function ConversationMessageRow({
   id,
+  requirementId,
 }: {
   id: string;
+  requirementId: string;
 }) {
-  const message = useStore(
-    conversationStore,
-    conversationSelectors.messageById(id),
-  );
+  const { data: message } = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirementId),
+    queryFn: disabledConversationQuery,
+    enabled: false,
+    select: (conversation: ConversationProjection) => conversation.messagesById[id],
+  });
   if (!message) return null;
   return (
     <article
@@ -559,6 +567,7 @@ const ConversationMessageRow = memo(function ConversationMessageRow({
       {message.segments.map((segment) => (
         <ConversationSegmentView
           key={segment.id}
+          requirementId={requirementId}
           segment={segment}
           streaming={message.status === "streaming"}
         />
@@ -571,9 +580,11 @@ const ConversationMessageRow = memo(function ConversationMessageRow({
 });
 
 function ConversationSegmentView({
+  requirementId,
   segment,
   streaming,
 }: {
+  requirementId: string;
   segment: ConversationMessage["segments"][number];
   streaming: boolean;
 }) {
@@ -589,7 +600,7 @@ function ConversationSegmentView({
       </div>
     );
   if (segment.type === "spec")
-    return <SpecArtifactCard versionId={segment.versionId} />;
+    return <SpecArtifactCard requirementId={requirementId} versionId={segment.versionId} />;
   return (
     <details className="conversation-activity">
       <summary>
@@ -602,11 +613,19 @@ function ConversationSegmentView({
 }
 
 /** Spec artifact 只订阅自己的版本；确认状态变化不会重绘整条历史时间线。 */
-function SpecArtifactCard({ versionId }: { versionId: string }) {
-  const version = useStore(
-    conversationStore,
-    conversationSelectors.specVersionById(versionId),
-  );
+function SpecArtifactCard({
+  requirementId,
+  versionId,
+}: {
+  requirementId: string;
+  versionId: string;
+}) {
+  const { data: version } = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirementId),
+    queryFn: disabledConversationQuery,
+    enabled: false,
+    select: (conversation: ConversationProjection) => conversation.specVersionsById[versionId],
+  });
   if (!version)
     return <div className="spec-artifact missing">Spec artifact 不可用</div>;
   const sections: Array<[string, string | string[]]> = [
@@ -641,6 +660,10 @@ function SpecArtifactCard({ versionId }: { versionId: string }) {
       ))}
     </article>
   );
+}
+
+function disabledConversationQuery(): Promise<ConversationProjection> {
+  return Promise.reject(new Error('Conversation Query 尚未水合'));
 }
 
 function specStatusLabel(

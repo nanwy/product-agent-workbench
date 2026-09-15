@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -40,7 +41,10 @@ import {
   stopTarget,
   submitRequirement,
 } from "../server/functions";
-import { conversationStore } from "../store/conversation-store";
+import {
+  applyWorkbenchSnapshot,
+  workbenchQueryKeys,
+} from "../store/workbench-query";
 
 // loader 负责 SSR 首屏；页面挂载后再通过轮询和 SSE 追赶后台执行产生的新状态。
 export const Route = createFileRoute("/")({
@@ -49,10 +53,10 @@ export const Route = createFileRoute("/")({
 });
 
 function WorkbenchPage() {
-  // 该组件是前端组合根：绑定服务端动作并把同一份快照分发给三个面板。
+  // loader 只提供 Query Cache 的首屏种子；后续所有服务端状态都从同一 Query 读取。
   const initialSnapshot = Route.useLoaderData();
-  const [snapshot, setSnapshot] = useState<WorkbenchSnapshot>(initialSnapshot);
   const [hydrated, setHydrated] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewRevision, setPreviewRevision] = useState(0);
@@ -81,26 +85,34 @@ function WorkbenchPage() {
   const accept = useServerFn(acceptRequirement);
   const refine = useServerFn(continueRefinement);
   const handoff = useServerFn(generateAgentHandoff);
+  const queryClient = useQueryClient();
+  const snapshotQuery = useQuery({
+    queryKey: workbenchQueryKeys.snapshot,
+    queryFn: async () => applyWorkbenchSnapshot(
+      queryClient,
+      (await refresh()) as WorkbenchSnapshot,
+    ),
+    initialData: initialSnapshot,
+    refetchInterval: sseConnected ? 30_000 : 3_000,
+  });
+  const snapshot = snapshotQuery.data;
 
   useEffect(() => setHydrated(true), []);
-  // 轮询是最终收敛通道：即使 SSE 短暂断线，页面最多三秒后仍能恢复一致。
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void refresh()
-        .then(setSnapshot)
-        .catch(() => undefined);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-  // SSE 只发送“状态已变化”的通知，收到后仍从服务端拉取完整权威快照。
+  // SSE 健康时只做低频校准；断线自动退化为 Query 的三秒轮询。
   useEffect(() => {
     const events = new EventSource("/api/events");
+    events.onopen = () => {
+      setSseConnected(true);
+      void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+    };
+    events.onerror = () => setSseConnected(false);
     events.onmessage = () =>
-      void refresh()
-        .then(setSnapshot)
-        .catch(() => undefined);
-    return () => events.close();
-  }, [refresh]);
+      void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+    return () => {
+      setSseConnected(false);
+      events.close();
+    };
+  }, [queryClient]);
 
   async function runAction(
     name: string,
@@ -111,7 +123,7 @@ function WorkbenchPage() {
     setError(null);
     try {
       const nextSnapshot = await action(crypto.randomUUID());
-      setSnapshot(nextSnapshot);
+      applyWorkbenchSnapshot(queryClient, nextSnapshot);
       setSelectedRequirementId(null);
       if (
         name === "execute" &&
@@ -141,16 +153,6 @@ function WorkbenchPage() {
     currentRequirement &&
     requirement.id !== currentRequirement.id,
   );
-  useEffect(() => {
-    if (requirement)
-      conversationStore
-        .getState()
-        .hydrate({
-          requirementId: requirement.id,
-          messages: requirement.conversation.messages,
-          specVersions: requirement.specVersions,
-        });
-  }, [requirement]);
   const previewUrl = useMemo(() => {
     if (snapshot.process.status !== "ready") return null;
     // iframe 访问工作台自己的网关；外部打开才使用目标项目的原始地址。
