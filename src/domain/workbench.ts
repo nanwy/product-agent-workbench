@@ -1,8 +1,10 @@
-// 需求状态机是整个项目的主轴。failed/cancelled 是旁路终态，因此阶段轨道只展示前八步。
+// 需求状态机是整个项目的主轴。failed/cancelled 是旁路终态，不进入阶段轨道。
 export const requirementStages = [
   'project-adaptation',
   'intent-drafting',
+  'spec-drafting',
   'awaiting-spec-confirmation',
+  'ticket-drafting',
   'awaiting-boundary-confirmation',
   'implementation',
   'verification',
@@ -71,6 +73,49 @@ export type GrillingSession = {
   confirmedAt: string | null
 }
 
+export type ConversationPhase = 'grilling' | 'to-spec' | 'to-tickets' | 'implement'
+
+// segment 是统一时间线的最小展示单位：正文、可折叠活动和工作流门禁可以按原顺序混排。
+export type ConversationSegment =
+  | { id: string; type: 'text'; content: string }
+  | { id: string; type: 'activity'; label: string; detail: string; status: 'running' | 'completed' | 'failed' }
+  | { id: string; type: 'gate'; label: string; detail: string }
+  | { id: string; type: 'spec'; versionId: string }
+
+export type ConversationMessage = {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  phase: ConversationPhase
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled'
+  segments: ConversationSegment[]
+  recordedAt: string
+}
+
+export type GrillingUnderstanding = {
+  // Agent 的自然语言总结用于展示和审计，另外三项是下游 Spec 的稳定输入。
+  summary: string
+  desiredOutcome: string
+  changeBoundary: string
+  acceptanceSignal: string
+}
+
+export type WorkbenchConversation = {
+  // 一条逻辑对话跨越四阶段；规划与实现可使用不同 SDK Thread，但不会拆成两个 UI 会话。
+  id: string
+  phase: ConversationPhase
+  status: 'idle' | 'running' | 'awaiting-user' | 'awaiting-confirmation' | 'failed' | 'cancelled'
+  planningThreadId: string | null
+  implementationThreadId: string | null
+  activeSkill: ConversationPhase
+  understanding: GrillingUnderstanding | null
+  // 跨刷新保留“正在修改共同理解”的原始用户意图，使失败重试仍要求 Agent 返回新 understanding。
+  pendingUnderstandingRevision: string | null
+  // 阶段协议已产出可确认 artifact；仍须等 turn.completed 后才能开放对应门禁。
+  turnReadyForConfirmation: boolean
+  messages: ConversationMessage[]
+  error: string | null
+}
+
 export type WorkingTreeEntry = {
   status: string
   path: string
@@ -90,11 +135,12 @@ export type AgentEvent = {
   id: string
   type: 'session' | 'message' | 'tool' | 'file' | 'completed' | 'failed' | 'cancelled' | 'unknown'
   message: string
+  activityStatus?: 'running' | 'completed' | 'failed'
   recordedAt: string
 }
 
 export type CodexSession = {
-  // 工作台只保存对 UI 有意义的归一化状态，Codex CLI 原始 JSONL 不进入领域层。
+  // 工作台只保存对 UI 有意义的归一化状态，Codex SDK 原始事件不进入领域层。
   status: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled'
   sessionId: string | null
   activeTicketId: string | null
@@ -123,6 +169,27 @@ export type RequirementSpec = {
   }
 }
 
+/** 对话式 Spec 的结构化正文；版本状态和本地文件位置由 SpecVersion 承载。 */
+export type SpecDocument = {
+  problem: string
+  solution: string
+  userStories: string[]
+  implementationDecisions: string[]
+  testingDecisions: string[]
+  outOfScope: string[]
+  furtherNotes: string[]
+}
+
+export type SpecVersion = {
+  id: string
+  version: number
+  status: 'draft' | 'confirmed' | 'superseded'
+  path: string
+  createdAt: string
+  confirmedAt: string | null
+  document: SpecDocument
+}
+
 export type Requirement = {
   // 聚合根同时承载产品契约、执行进度和交付证据，避免多个文件各自维护一套状态机。
   id: string
@@ -139,7 +206,12 @@ export type Requirement = {
   // 每次返修保存提交时的验证快照，失败/取消后仍能查看上一版候选证据。
   refinements: RefinementRound[]
   grilling: GrillingSession
+  conversation: WorkbenchConversation
+  /** @deprecated 只用于读取旧快照；新流程以 specVersions + activeSpecVersionId 为唯一规格真值。 */
   spec: RequirementSpec | null
+  // 草稿永不覆盖：新版本产生后，旧草稿保留并标记 superseded。
+  specVersions: SpecVersion[]
+  activeSpecVersionId: string | null
   tickets: ExecutionTicket[]
   rules: ResolvedRule[]
   workflow: WorkflowStep[]
@@ -289,17 +361,10 @@ export type TargetProcessSnapshot = {
 export type WorkbenchSnapshot = {
   // 前端唯一读取模型：持久化需求 + 固定目标配置 + 当前易失运行态。
   requirement: Requirement | null
-  // 已验收需求从目标仓库的稳定提交恢复，不会被下一条 current requirement 覆盖。
-  history: RequirementHistoryItem[]
+  // 每项都是可切换查看的完整 Requirement 聚合，而不是 Git 提交摘要。
+  history: Requirement[]
   target: TargetProjectConfig | null
   process: TargetProcessSnapshot
-}
-
-export type RequirementHistoryItem = {
-  specId: string
-  title: string
-  revision: string
-  acceptedAt: string
 }
 
 export type CreateRequirementInput = {

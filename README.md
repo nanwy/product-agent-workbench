@@ -49,7 +49,9 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 - `src/domain/`：Requirement 聚合、阶段和公共数据契约；
 - `src/server/`：配置、持久化、规则探索、进程和预览网关；
 - `src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
-- `src/server/codex-adapter.ts`：CLI 探测、JSONL 归一化、续接与取消；
+- `src/server/codex-adapter.ts`：Codex SDK Thread、流式事件归一化、续接与 AbortSignal 取消；
+- `src/server/workbench-conversation.ts`：四阶段逻辑对话、Grilling Skill 注入与门禁协议；
+- `src/store/conversation-store.ts`：Zustand 对话投影和逐帧 delta 合并；
 - `src/server/verification.ts`：声明式命令、修改范围和真实路由验证；
 - `src/routes/`：页面编排和 Server Function 调用；
 - `src/components/`：需求、证据与预览三个可讲解的界面模块；

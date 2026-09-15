@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { assertContinueRefinementInput, assertCreateAgentHandoffInput, assertCreateRequirementInput } from '../src/domain/workbench'
-import { assertCanCreateRequirement, assertConfirmedScope, confirmGrillingAnswers } from '../src/server/workbench-service'
+import { assertCanCreateRequirement, assertConfirmedScope, assertLegacyPlanConfirmationAllowed, assertProductChangeBoundary, confirmGrillingAnswers } from '../src/server/workbench-service'
 
 const target = {
   name: 'Fixture', repositoryRoot: '/tmp/workbench-target', modificationScope: 'apps/front',
@@ -42,10 +42,20 @@ describe('product requirement boundaries', () => {
     expect(() => assertConfirmedScope('/tmp/workbench-target', target)).toThrow('修改边界必须是')
   })
 
+  it('accepts a route as the confirmed product change boundary', () => {
+    expect(() => assertProductChangeBoundary('/sign-in')).not.toThrow()
+    expect(() => assertProductChangeBoundary('只修改登录页文案，不修改注册页')).not.toThrow()
+    expect(() => assertProductChangeBoundary(' ')).toThrow('请确认产品修改边界')
+  })
+
   it('does not let an API request replace an unfinished active requirement', () => {
     expect(() => assertCanCreateRequirement(null)).not.toThrow()
     expect(() => assertCanCreateRequirement({ stage: 'accepted' })).not.toThrow()
     expect(() => assertCanCreateRequirement({ stage: 'implementation' })).toThrow('不能建立第二条活动需求')
     expect(() => assertCanCreateRequirement({ stage: 'failed' })).toThrow('不能建立第二条活动需求')
+  })
+
+  it('rejects legacy endpoints that could bypass the versioned Spec gate', () => {
+    expect(() => assertLegacyPlanConfirmationAllowed({ specVersions: [{ id: 'SPEC-v1' }] as never })).toThrow('必须通过当前版本门禁确认')
   })
 })

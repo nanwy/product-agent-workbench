@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>一条 Agent 回复到底怎么走到屏幕</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0002 · 完整链路</p>
+  <h1>只追踪一条回复</h1>
+  <p class="lede">先不背五层架构，也不做下一道题。我们只看一句“建议只修改登录页”从 Codex 产生，到服务端保存，再到浏览器显示的全过程。</p>
+
+  <h2>一、先分清三个东西</h2>
+  <div class="mental-model">
+    <article class="card good">
+      <h3 class="truth-label">服务端真值</h3>
+      <p>Requirement JSON 中的完整对话。刷新、断线和恢复都以它为准。</p>
+    </article>
+    <div class="arrow">→</div>
+    <article class="card why">
+      <h3 class="signal-label">变化通知</h3>
+      <p>SSE 只表达“真值变了，请重新读取”，自身不承担恢复。</p>
+    </article>
+    <div class="arrow">→</div>
+    <article class="card">
+      <h3 class="projection-label">浏览器投影</h3>
+      <p>Zustand 中为流畅显示维护的副本。必要时可以整个丢掉并从真值重建。</p>
+    </article>
+  </div>
+
+  <p class="thesis">整套设计只有一个总原则：服务端负责“内容绝不能错”，浏览器负责“显示尽量顺”。优化失败时牺牲动画，不能牺牲正确性。</p>
+
+  <h2>二、为什么不能只有一个状态？</h2>
+  <section class="grid two">
+    <article class="card bad">
+      <h3>只把状态放浏览器</h3>
+      <p>页面一刷新，内存里的回复、工具状态和确认门禁全部消失。断线时也不知道缺了哪些内容。</p>
+    </article>
+    <article class="card bad">
+      <h3>每次直接重画服务端全量状态</h3>
+      <p>正确性成立，但高频快照会反复提交状态、解析当前 Markdown；如果数据结构和订阅边界也很粗，历史消息还会被一起波及。</p>
+    </article>
+  </section>
+  <p>因此项目保存一份可靠的服务端快照，同时允许浏览器维护一份可随时重建的流畅投影。这不是重复造状态，而是把<strong>正确性职责</strong>和<strong>显示职责</strong>拆开。</p>
+
+  <h2>三、一次回复的真实运行顺序</h2>
+  <ol class="sequence">
+    <li>
+      <h3>先在服务端创建一条 streaming 占位消息</h3>
+      <p class="code-path">workbench-service.ts → claimGrillingTurn() → beginAssistantTurn()</p>
+      <p>用户提交需求或回答问题后，服务端先把 Conversation 改成 <code>running</code>，追加一条空的 assistant 消息，状态为 <code>streaming</code>，然后原子写入 Requirement。</p>
+      <p><strong>原因：</strong>后续所有 SDK item 都有一个确定的回合容器；双击或两个页面同时触发时，只有第一个请求能认领这个回合。</p>
+    </li>
+    <li>
+      <h3>Codex SDK 开始产生结构化事件</h3>
+      <p class="code-path">codex-adapter.ts → runCodexTurn() → thread.runStreamed()</p>
+      <p>SDK 会依次产生 thread、tool、file、todo、completed、failed 等结构化事件，但这不等于正文逐字输出。项目实测中，一份数千字 Spec 直接出现在单个事件里：</p>
+      <pre>item.completed  id=msg-7  text="建议只修改登录页"</pre>
+      <p>底层 app-server 才有 <code>item/agentMessage/delta</code>。项目测试夹具里的 <code>item.updated → item.completed</code> 增长正文，是为了验证兼容性，不是当前 exec 的实测事件序列。</p>
+    </li>
+    <li>
+      <h3>Adapter 把 SDK 方言变成工作台稳定事件</h3>
+      <p class="code-path">codex-adapter.ts → normalizeCodexEvent()</p>
+      <p>原始事件被统一成 <code>message / tool / file / completed / failed</code>。ID 由 <code>turnEventScope + SDK item ID</code> 组成。</p>
+      <p><strong>为什么要稳定 ID：</strong>同一个工具从 running 到 completed 应更新原卡片；如果未来同一消息出现多次快照，也应更新同一段文字。再加 Turn 作用域，是为了避免下一回合碰巧复用相同 item ID 时覆盖上一回合。</p>
+    </li>
+    <li>
+      <h3>先更新并持久化 Requirement</h3>
+      <p class="code-path">workbench-service.ts → onEvent() → requirementStore.update() → applyPlanningEvent()</p>
+      <p><code>applyPlanningEvent()</code> 找到当前 streaming assistant 消息。当前真实路径通常是在 <code>item.completed</code> 到达时一次写入 <code>msg-7 = "建议只修改登录页"</code>。若收到同 ID 的后续消息快照，则替换原 segment；工具活动也按 ID 从 running 替换成 completed。更新操作进入串行队列，写临时 JSON 后原子 rename，因此读取方只会看到旧完整文件或新完整文件。</p>
+    </li>
+    <li>
+      <h3>持久化成功后，SSE 才按门铃</h3>
+      <p class="code-path">workbench-service.ts → publishAgentEvent() → api.events.ts</p>
+      <p>顺序是 <code>await store.update()</code>，然后才 <code>publishAgentEvent()</code>。浏览器虽然能收到事件 JSON，但当前页面并不拿它直接修改对话，只把 <code>onmessage</code> 当作刷新信号。</p>
+      <p><strong>如果先通知再保存：</strong>浏览器可能立即读取到旧快照；若之后没有新通知，页面会暂时停在旧状态。</p>
+    </li>
+    <li>
+      <h3>浏览器重新 GET 完整 WorkbenchSnapshot</h3>
+      <p class="code-path">index.tsx → EventSource.onmessage → getWorkbench() → setSnapshot()</p>
+      <p>SSE 到达后，页面调用服务端函数重新读取 Requirement。与此同时还有三秒轮询走同一条读取路径。</p>
+      <p><strong>SSE 的价值：</strong>快。<strong>轮询的价值：</strong>漏掉通知后仍会再读。<strong>完整快照的价值：</strong>告诉浏览器缺失期间最终变成了什么。</p>
+    </li>
+    <li>
+      <h3>hydrate 把服务端快照投影到 Zustand</h3>
+      <p class="code-path">index.tsx → conversationStore.hydrate()</p>
+      <p>对于已完成的历史消息，内容相同就复用旧对象引用。只有当数据源真的产生“正在增长的完整消息快照”时，才比较：</p>
+      <pre>effectiveContent = 页面已经提交的正文 + pending delta
+
+如果 incoming 以 effectiveContent 开头：
+  只把尾部差异放入 pending
+否则：
+  清掉 pending，直接采用 incoming 完整快照</pre>
+      <p>这里的 delta 只是浏览器内部优化。服务端并没有丢掉完整正文，SSE 也不是唯一数据来源。</p>
+    </li>
+    <li>
+      <h3>requestAnimationFrame 把多次 delta 合成一次状态提交</h3>
+      <p class="code-path">conversation-store.ts → appendDelta() → schedule(flush)</p>
+      <p>同一帧内若有多次增长快照，尾部差异先积累在闭包 Map 里。下一次绘制前，<code>flush()</code> 一次性把它们追加进当前消息。当前 exec 一次给全文时，这段逻辑不会制造逐字动画。</p>
+      <pre>屏幕已有：建议
+pending 1：只修改
+pending 2：登录页
+
+一帧只提交一次：建议只修改登录页</pre>
+      <p>这减少的是当前消息的状态提交次数，不是只创建“登录页”三个字的 DOM。</p>
+    </li>
+    <li>
+      <h3>只有变化的消息行响应 Store 更新</h3>
+      <p class="code-path">workbench-panels.tsx → ConversationMessageRow</p>
+      <p>时间线订阅 <code>messageIds</code>，每行再按自己的 ID 订阅 <code>messagesById[id]</code>。第100条消息增长时，前99条保持相同引用，因此不会跟着重新渲染。</p>
+      <p>当前行仍用完整正文渲染。只有接入真正的增长快照或文字 delta 后，未闭合代码围栏处理才会成为实时渲染中的必要优化。</p>
+    </li>
+    <li>
+      <h3>Turn 完成时，用服务端最终快照收口</h3>
+      <p class="code-path">applyPlanningEvent() → event.type === "completed"</p>
+      <p>服务端把消息从 streaming 改成 completed，并决定 Conversation 是等待用户回答，还是开放确认。浏览器下一次 hydrate 看到终态后，不再计算流式 delta，而是直接采用完整最终消息。</p>
+      <p>Grilling 中即使文字已经出现 READY，也必须同时拿到完整 understanding，随后收到 <code>turn.completed</code>，才进入 <code>awaiting-confirmation</code>。这样半截控制协议不会误开门禁。</p>
+    </li>
+  </ol>
+
+  <h2>四、把一次运行放进同一张表</h2>
+  <table class="state-table">
+    <thead><tr><th>时刻</th><th>SDK 输入</th><th>服务端 Requirement</th><th>浏览器投影</th></tr></thead>
+    <tbody>
+      <tr><td>T0</td><td>尚未输出</td><td>空 assistant，streaming</td><td>空消息 + 生成光标</td></tr>
+      <tr><td>T1</td><td>tool / file / todo 等事件</td><td>按 ID 更新活动状态</td><td>重取快照，显示进度卡片</td></tr>
+      <tr><td>T2</td><td><code>item.completed: 建议只修改登录页</code></td><td>一次保存完整正文</td><td>下一次 hydrate 采用完整消息</td></tr>
+      <tr><td>T3</td><td><code>turn.completed</code></td><td>消息 completed，保存终态</td><td>采用终态快照，移除生成光标</td></tr>
+    </tbody>
+  </table>
+
+  <h2>五、每个设计到底保住了什么</h2>
+  <table class="state-table">
+    <thead><tr><th>设计</th><th>不这样做</th><th>性质</th></tr></thead>
+    <tbody>
+      <tr><td>同 ID 更新同一 item</td><td>工具的 running/completed 变成重复卡片；未来增长快照也可能重复</td><td><span class="verdict correct">正确性</span></td></tr>
+      <tr><td>Requirement 保存完整快照</td><td>刷新、断线或重启后无法重建当前对话</td><td><span class="verdict correct">正确性</span></td></tr>
+      <tr><td>先持久化再发 SSE</td><td>收到通知却读到旧值，形成通知与数据竞态</td><td><span class="verdict correct">正确性</span></td></tr>
+      <tr><td>SSE 只通知，轮询兜底</td><td>漏一次事件可能永久停留在旧状态</td><td><span class="verdict correct">可恢复性</span></td></tr>
+      <tr><td>前缀校验后计算 delta</td><td>上游修订历史文字时，客户端拼出错误文本</td><td><span class="verdict correct">正确性</span></td></tr>
+      <tr><td>rAF 合并 pending</td><td>当前消息在一帧内重复提交和渲染</td><td><span class="verdict experience">性能体验</span></td></tr>
+      <tr><td>按 ID 订阅消息行</td><td>当前消息增长可能波及整段历史</td><td><span class="verdict experience">性能体验</span></td></tr>
+      <tr><td>隔离未闭合 Markdown</td><td>代码围栏未闭合时反复重排和高亮</td><td><span class="verdict experience">性能体验</span></td></tr>
+      <tr><td>完整协议 + completed 门禁</td><td>半截 Agent 输出可能提前开放产品确认</td><td><span class="verdict correct">业务正确性</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2>六、三个看起来更简单的方案，为什么没用</h2>
+  <section class="grid">
+    <article class="card bad">
+      <h3>SSE 直接承载所有业务状态</h3>
+      <p>断线时会漏掉状态；工具 running/completed 若不按 ID 归并，还会出现多张重复卡片。</p>
+    </article>
+    <article class="card bad">
+      <h3>SSE 只发送字符 delta</h3>
+      <p>正常时简单，但断线后必须另外建设事件序号、持久日志和补放协议。当前单机工作台用“通知 + 完整快照”更容易证明正确。</p>
+    </article>
+    <article class="card why">
+      <h3>浏览器永远全量替换</h3>
+      <p>这个方案不会导致内容错误，也适合作为最小版本；项目增加 delta、rAF 和按 ID 订阅，是为了长对话与 Markdown 流式更新时仍然顺滑。</p>
+    </article>
+  </section>
+
+  <h2>七、面试时应该怎么讲</h2>
+  <div class="interview">
+    <p>“我先区分了事件流和文字流。当前项目通过 Codex SDK 包装的 <code>codex exec --experimental-json</code> 接收结构化事件：工具、文件和 todo 会在执行中更新，但 assistant 正文通常在 <code>item.completed</code> 一次返回，所以现阶段不能宣称实现了 token 级文字流。我的核心设计是把事件按 Turn 作用域和 item ID 归一化，先原子持久化 Requirement，再由 SSE 通知浏览器重取完整快照，并用三秒轮询兜底。这样断线或漏通知后仍会收敛到服务端真值。前端的安全 delta、pending 和 rAF 是对增长快照的兼容与性能准备；如果产品确实需要逐字效果，下一步应接 app-server 的 <code>item/agentMessage/delta</code>，而不是误解现有 SDK 事件。”</p>
+  </div>
+
+  <p class="tiny">首选资料：<a href="https://github.com/openai/codex/blob/main/codex-rs/exec/src/event_processor_with_jsonl_output.rs">OpenAI Codex exec JSONL 事件处理器</a>。真实实现入口见 <a href="../src/server/workbench-service.ts">workbench-service.ts</a>、<a href="../src/server/codex-adapter.ts">codex-adapter.ts</a>、<a href="../src/store/conversation-store.ts">conversation-store.ts</a>和<a href="../src/components/workbench-panels.tsx">workbench-panels.tsx</a>。有任何一步不清楚，可以直接把那一步的编号发给 Agent。</p>
+
+  <footer class="footer-nav">
+    <a href="./0001-recoverable-streaming-conversation.html">上一课：故障推演</a>
+    · <a href="../reference/recoverable-streaming-cheatsheet.html">一页速查表</a>
+    · <a href="../GLOSSARY.md">术语表</a>
+  </footer>
+</main>
+</body>
+</html>

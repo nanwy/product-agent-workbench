@@ -1,19 +1,12 @@
-import { execFile } from 'node:child_process'
-import { access, chmod, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 
 import { expect, test } from '@playwright/test'
 
 test.describe.configure({ mode: 'serial' })
-const execFileAsync = promisify(execFile)
 
-// 主 E2E 按真实用户顺序贯穿需求、Grilling、探索、执行、验证和产品验收。
-test('creates, restores, explores, previews, and confirms a product requirement', async ({
-  page,
-  request,
-}) => {
+test('reviews, revises, restores, and confirms a local conversational Spec', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('Fixture Product / front')).toBeVisible()
 
@@ -21,194 +14,85 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await page.getByRole('textbox', { name: '目标页面' }).fill('/competition')
   await page.getByLabel('期望结果').fill('把空状态文案改得更明确，同时保留现有页面结构')
   await page.getByRole('button', { name: '建立产品需求' }).click()
-  await expect(page.getByRole('heading', { name: '优化首页空状态文案' })).toBeVisible()
-  await expect(page.getByLabel('协作指标')).toContainText('uncollected')
+  await expect(page.getByText('成功结果', { exact: true })).toBeVisible()
 
-  await expect(page.getByText('Grilling · 共同理解门禁')).toBeVisible()
-  await page.getByRole('button', { name: '共同理解已达成' }).click()
-  await expect(page.getByRole('button', { name: '开始只读探索' })).toBeVisible()
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-grilling'), 'slow\n')
+  await page.getByLabel('回复 Grilling').fill('用户应看到更明确的空状态文案；范围保持 apps/front；以真实预览和无新增控制台错误验收。')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByText('Agent 正在整理当前 frontier…')).toBeVisible()
+  await page.getByRole('button', { name: '停止 Turn' }).click()
+  await expect(page.getByRole('button', { name: '重试当前阶段' })).toBeVisible()
+  await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('共同理解：按已确认结果')).toBeVisible()
+  await page.getByRole('button', { name: '确认共同理解' }).click()
+
+  await expect(page.getByText('Spec v1')).toBeVisible()
+  await expect(page.getByText('当前空状态没有说明用户下一步可以做什么')).toBeVisible()
+  await expect(page.getByText('待确认')).toBeVisible()
+  await expect(page.getByLabel('回复 Spec')).toBeVisible()
+  await expect(page.getByRole('button', { name: '确认当前 Spec' })).toBeVisible()
+  await expect(page.getByLabel('对话工作流').locator('[data-state="current"]')).toContainText('Spec')
+
+  const dataRoot = path.join(os.tmpdir(), 'product-agent-workbench-e2e-data')
+  const requirementPath = path.join(dataRoot, 'current-requirement.json')
+  const first = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(first.tickets).toEqual([])
+  await expect(readFile(path.join(dataRoot, first.specVersions[0].path), 'utf8')).resolves.toContain('## Problem Statement')
 
   await page.reload()
-  await expect(page.getByRole('heading', { name: '优化首页空状态文案' })).toBeVisible()
-
-  await page.getByRole('button', { name: '启动项目' }).click()
-  await expect(page.getByTestId('process-status')).toHaveText('ready')
-  await expect(page.getByTestId('process-ownership')).toHaveText('workbench')
-  await expect(page.getByLabel('协作指标')).toContainText('lead')
-  await expect(page.frameLocator('iframe').getByRole('heading', { name: 'Fixture target' })).toBeVisible()
-
-  const gatewayResponse = await request.get('http://127.0.0.1:4174/competition')
-  expect(gatewayResponse.headers()['x-frame-options']).toBeUndefined()
-  expect(gatewayResponse.headers()['content-security-policy']).toBe("default-src 'self'; script-src 'self'")
-  expect(gatewayResponse.headers()['x-fixture-header']).toBe('preserved')
-
-  await page.getByRole('button', { name: '开始只读探索' }).click()
-  await expect(page.getByText('候选 Spec')).toBeVisible()
-  await expect(page.getByText('AGENTS.md', { exact: true })).toBeVisible()
-  await expect(page.getByText('apps/front/AGENTS.md', { exact: true })).toBeVisible()
-  await expect(page.getByText('product-copy-change', { exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '工作流步骤' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: '目标项目 Skills' })).toBeVisible()
-
-  await page.getByRole('button', { name: '确认 Spec 与执行票' }).click()
-  await expect(page.getByText('规格边界已确认，可以创建安全需求分支并执行。')).toBeVisible()
-
-  const targetRoot = path.join(os.tmpdir(), 'product-agent-workbench-e2e-target')
-  const requirementPath = path.join(os.tmpdir(), 'product-agent-workbench-e2e-data', 'current-requirement.json')
-  const unrelatedFile = path.join(targetRoot, 'unrelated.txt')
-  await writeFile(unrelatedFile, 'existing user work\n')
-  await page.getByRole('button', { name: '创建分支并执行' }).click()
-  await expect(page.getByRole('alert').first()).toContainText('工作区存在 1 条未提交变更')
-  await expect(page.getByText('未能创建需求分支：工作区存在 1 条未提交变更')).toBeVisible()
-  await expect(page.getByText('工作区存在 1 条未提交变更').first()).toBeVisible()
-  await rm(unrelatedFile)
-
-  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), 'slow\n')
-  await page.getByRole('button', { name: '重新检查并执行' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('running')
-  await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
-  await page.getByRole('button', { name: '停止当前 Turn' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('cancelled')
-  await page.getByRole('button', { name: '继续当前 Session' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('completed')
-  await expect(page.locator('.ticket-row[data-status="completed"]')).toHaveCount(2)
-  await expect(page.getByTestId('codex-status')).toContainText('00000000-0000-4000-8000-000000000001')
-  await expect(page.getByText(/product\/spec-/)).toBeVisible()
-  await expect(page.getByTestId('changed-files')).toContainText('apps/front/app/competition/page.tsx')
-  await expect(page.getByText('Verification Matrix')).toBeVisible()
-  await expect(page.locator('.validation-list article[data-result="failed"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '通过产品验收' })).toBeVisible()
-
-  // 在验收前追加返修：同一 Requirement/分支/session 经历失败、刷新、取消和最终成功。
-  const beforeRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  const roundsBeforeRefinement = beforeRefinement.modificationRounds
-  await page.getByPlaceholder(/按钮文案改为/).fill('把按钮文案调整得更明确，但保持原点击行为')
-  await page.getByRole('button', { name: '继续返修' }).click()
-  await expect(page.locator('.ticket-row[data-status="queued"]')).toHaveCount(1)
-  const queuedRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(queuedRefinement.id).toBe(beforeRefinement.id)
-  expect(queuedRefinement.specId).toBe(beforeRefinement.specId)
-  expect(queuedRefinement.branch.requirementBranch).toBe(beforeRefinement.branch.requirementBranch)
-  expect(queuedRefinement.codex.sessionId).toBe(beforeRefinement.codex.sessionId)
-  expect(queuedRefinement.modificationRounds).toBe(roundsBeforeRefinement)
-  expect(queuedRefinement.refinements.at(-1).baselineValidation.length).toBeGreaterThan(0)
-
-  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-fail-turn'), 'fail\n')
-  await page.getByRole('button', { name: '继续当前 Session' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('failed')
-  const failedRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(failedRefinement.modificationRounds).toBe(roundsBeforeRefinement)
-  expect(failedRefinement.refinements.at(-1).status).toBe('failed')
+  await expect(page.getByText('Spec v1')).toBeVisible()
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-fail-spec'), 'fail\n')
+  await page.getByLabel('回复 Spec').fill('方案里补充明确的下一步引导')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByRole('paragraph').filter({ hasText: 'fixture Spec failure' })).toBeVisible()
+  await expect(page.getByText('Spec v1')).toBeVisible()
   await page.reload()
-  await expect(page.locator('.ticket-row').filter({ hasText: '把按钮文案调整得更明确' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重试当前阶段' })).toBeVisible()
+  await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('Spec v2')).toBeVisible()
+  await expect(page.getByText('已失效')).toBeVisible()
+  await expect(page.getByText('使用更具体的空状态文案，并补充下一步引导')).toBeVisible()
 
-  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-turn'), 'slow\n')
-  await page.getByRole('button', { name: '重新检查并执行' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('running')
-  await page.getByRole('button', { name: '停止当前 Turn' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('cancelled')
-  const cancelledRefinement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(cancelledRefinement.modificationRounds).toBe(roundsBeforeRefinement)
-  expect(cancelledRefinement.refinements.at(-1).status).toBe('cancelled')
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-spec'), 'slow\n')
+  await page.getByLabel('回复 Spec').fill('再明确一点测试决定')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByText('Agent 正在整理 Spec…')).toBeVisible()
+  await page.getByRole('button', { name: '停止 Turn' }).click()
   await page.reload()
-  await page.getByRole('button', { name: '继续当前 Session' }).click()
-  await expect(page.getByTestId('codex-status')).toContainText('completed')
-  await expect(page.getByRole('button', { name: '通过产品验收' })).toBeVisible()
-  await expect(page.getByTestId('modification-rounds')).toHaveText(String(roundsBeforeRefinement + 1))
-  expect(JSON.parse(await readFile(requirementPath, 'utf8')).refinements.at(-1).status).toBe('completed')
+  await expect(page.getByText('Spec v2')).toBeVisible()
+  await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('Spec v3')).toBeVisible()
 
-  // 用失败的 pre-commit hook 证明 Git 提交失败时不会写入 accepted，也会回滚交付文件。
-  const failingHook = path.join(targetRoot, '.git/hooks/pre-commit')
-  await writeFile(failingHook, '#!/bin/sh\nexit 1\n')
-  await chmod(failingHook, 0o755)
-  await page.getByRole('button', { name: '通过产品验收' }).click()
-  await expect(page.getByRole('alert')).toBeVisible()
-  const afterFailedCommit = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(afterFailedCommit.stage).toBe('awaiting-product-acceptance')
-  expect(afterFailedCommit.delivery).toBeNull()
-  const artifactRoot = path.join(targetRoot, 'apps/front/.product-agent-workbench', afterFailedCommit.specId)
-  await expect(access(artifactRoot).then(() => true).catch(() => false)).resolves.toBe(false)
-  await rm(failingHook)
+  await page.getByRole('button', { name: '确认当前 Spec' }).click()
+  await expect(page.getByLabel('对话工作流').locator('[data-state="current"]')).toContainText('Tickets')
+  await expect(page.getByText('Spec 已确认')).toBeVisible()
+  await expect(page.getByRole('button', { name: '创建分支并执行' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: '通过产品验收' }).click()
-  await expect(page.getByTestId('delivery-card')).toContainText('Frontend Delivery Handoff')
-  await expect(page.getByTestId('delivery-card')).toContainText('apps/front/app/competition/page.tsx')
-  await expect(page.getByLabel('协作指标')).not.toContainText('uncollected')
-  const { stdout: commitSubject } = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: targetRoot })
-  expect(commitSubject).toContain('SPEC-')
-  const acceptedRequirement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(acceptedRequirement.delivery.artifactPaths).toHaveLength(4)
-  const { stdout: committedFiles } = await execFileAsync('git', ['show', '--pretty=', '--name-only', 'HEAD'], { cwd: targetRoot })
-  for (const artifact of acceptedRequirement.delivery.artifactPaths) expect(committedFiles).toContain(artifact)
-  const frontendHandoff = await readFile(path.join(targetRoot, acceptedRequirement.delivery.artifactPaths.find((source: string) => source.endsWith('frontend-delivery-handoff.md'))), 'utf8')
-  expect(frontendHandoff).toContain('Revision: the commit containing this file')
-  expect(frontendHandoff).toContain('产品验收确认候选实现符合产品意图')
-
-  // Agent 会话转接由 $handoff Skill 写入系统临时目录，页面名称和 Git 跟踪均与前端交付分离。
-  await page.getByRole('button', { name: '生成 Agent 会话转接' }).click()
-  await expect(page.getByTestId('agent-handoff-path')).toContainText('agent-session-handoff.md')
-  const withAgentHandoff = JSON.parse(await readFile(requirementPath, 'utf8'))
-  expect(withAgentHandoff.agentSessionHandoff.path.startsWith(os.tmpdir())).toBe(true)
-  expect(withAgentHandoff.agentSessionHandoff.path.startsWith(targetRoot)).toBe(false)
-  await expect(readFile(withAgentHandoff.agentSessionHandoff.path, 'utf8')).resolves.toContain('suggested skills')
-  const { stdout: trackedFiles } = await execFileAsync('git', ['ls-files'], { cwd: targetRoot })
-  expect(trackedFiles).not.toContain('agent-session-handoff.md')
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-fail-spec'), 'fail\n')
+  await page.getByLabel('修改共同理解').fill('验收信号还要包含用户能理解下一步引导')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByRole('paragraph').filter({ hasText: 'fixture Spec failure' })).toBeVisible()
   await page.reload()
-  await expect(page.getByTestId('agent-handoff-path')).toContainText(withAgentHandoff.agentSessionHandoff.path)
+  await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('Spec v4')).toBeVisible()
+  await expect(page.getByLabel('对话工作流').locator('[data-state="current"]')).toContainText('Spec')
+  await page.getByRole('button', { name: '确认当前 Spec' }).click()
+  await expect(page.getByLabel('对话工作流').locator('[data-state="current"]')).toContainText('Tickets')
 
-  // Simulate a turn that started before the verification transition existed:
-  // its persisted state says implementation is complete, but has no matrix yet.
-  const legacyRequirement = JSON.parse(await readFile(requirementPath, 'utf8'))
-  legacyRequirement.stage = 'implementation'
-  legacyRequirement.validation = []
-  legacyRequirement.delivery = null
-  await writeFile(requirementPath, `${JSON.stringify(legacyRequirement, null, 2)}\n`)
+  await writeFile(path.join(os.tmpdir(), 'product-agent-workbench-slow-spec'), 'slow\n')
+  await page.getByLabel('修改共同理解').fill('共同理解还要强调保留现有页面结构')
+  await page.getByRole('button', { name: '发送', exact: true }).click()
+  await expect(page.getByText('Agent 正在整理 Spec…')).toBeVisible()
+  await page.getByRole('button', { name: '停止 Turn' }).click()
   await page.reload()
-  await expect(page.getByRole('button', { name: '开始验证' })).toBeVisible()
-  await page.getByRole('button', { name: '开始验证' }).click()
-  await expect(page.getByText('Verification Matrix')).toBeVisible()
+  await page.getByRole('button', { name: '重试当前阶段' }).click()
+  await expect(page.getByText('Spec v5')).toBeVisible()
+  await page.getByRole('button', { name: '确认当前 Spec' }).click()
+  await expect(page.getByLabel('对话工作流').locator('[data-state="current"]')).toContainText('Tickets')
 
-  await page.getByRole('button', { name: '停止' }).click()
-  await expect(page.getByTestId('process-status')).toHaveText('stopped')
-
-  // 第五票的负路径直接重放持久化矩阵快照：它们验证 UI/门禁，不重跑 Codex 或新建分支。
-  const verifiedSnapshot = JSON.parse(await readFile(requirementPath, 'utf8'))
-  const verifiedRecord = verifiedSnapshot.validation.find((item: { required: boolean; result: string }) => item.required && item.result === 'verified')
-
-  await test.step('代码检查失败时停留在 verification', async () => {
-    const failed = { ...verifiedSnapshot, stage: 'verification', validation: [{ ...verifiedRecord, id: 'code-failure', result: 'failed', detail: 'typecheck failed', exitCode: 2 }] }
-    await writeFile(requirementPath, `${JSON.stringify(failed, null, 2)}\n`)
-    await page.reload()
-    await expect(page.locator('.validation-list article[data-result="failed"]')).toHaveCount(1)
-    await expect(page.getByTestId('candidate-status')).toContainText('验证受阻')
-    await expect(page.getByRole('button', { name: '通过产品验收' })).toHaveCount(0)
-  })
-
-  await test.step('环境原因 not-run 时阻止验收并展示原因', async () => {
-    const notRun = { ...verifiedRecord, id: 'browser-not-run', source: 'browser', result: 'not-run', notRunReason: 'environment: agent-browser 未安装' }
-    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'verification', validation: [notRun] }, null, 2)}\n`)
-    await page.reload()
-    await expect(page.locator('.validation-list article[data-result="not-run"]')).toContainText('agent-browser 未安装')
-    await expect(page.getByTestId('candidate-status')).toContainText('验证受阻')
-  })
-
-  await test.step('新增 console error 作为失败证据', async () => {
-    const consoleFailure = {
-      ...verifiedRecord,
-      id: 'console-error', source: 'browser', result: 'failed', detail: '发现 1 条新增 browser console/page error',
-      browserEvidence: { targetUrl: 'http://127.0.0.1:4174/competition', viewport: { width: 1440, height: 900 }, accessibilityTree: '@e1 [heading] "Fixture target"', semanticRefs: ['@e1'], consoleErrors: ['[error] boom'] },
-    }
-    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'verification', validation: [consoleFailure] }, null, 2)}\n`)
-    await page.reload()
-    await expect(page.getByText('发现 1 条新增 browser console/page error')).toBeVisible()
-    await page.getByText('agent-browser 证据').click()
-    await expect(page.getByText('[error] boom')).toBeVisible()
-  })
-
-  await test.step('即使快照阶段错误，必要 not-run 仍禁用验收按钮', async () => {
-    const notRun = { ...verifiedRecord, id: 'required-not-run', result: 'not-run', notRunReason: 'environment: preview unavailable' }
-    await writeFile(requirementPath, `${JSON.stringify({ ...verifiedSnapshot, stage: 'awaiting-product-acceptance', validation: [notRun] }, null, 2)}\n`)
-    await page.reload()
-    await expect(page.getByRole('button', { name: '通过产品验收' })).toBeDisabled()
-  })
+  const confirmed = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(confirmed.conversation.phase).toBe('to-tickets')
+  expect(confirmed.conversation.understanding.acceptanceSignal).toContain('引导可理解')
+  expect(confirmed.specVersions.map((version: { status: string }) => version.status)).toEqual(['superseded', 'superseded', 'superseded', 'superseded', 'confirmed'])
+  expect(confirmed.tickets).toEqual([])
 })

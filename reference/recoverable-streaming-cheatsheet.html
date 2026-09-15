@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>可恢复流式对话速查</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Interview cheatsheet</p>
+  <h1>可恢复流式对话</h1>
+  <p class="thesis">一句话：当前是“结构化事件流”，不是“token 文字流”；服务端完整快照是真值，SSE 只催浏览器取新快照。</p>
+
+  <section class="grid">
+    <article class="card"><h3>当前真实协议</h3><p><code>codex exec --experimental-json</code> 中，assistant 正文通常由 <code>item.completed</code> 一次给全；<code>item.updated</code> 不等于文字 delta。</p></article>
+    <article class="card"><h3>安全 delta</h3><p>仅当 <code>incoming.startsWith(current + pending)</code> 时截取尾部；否则直接采用完整快照。</p></article>
+    <article class="card"><h3>恢复原则</h3><p>SSE 可以丢，Requirement 快照不能丢。通知到达或轮询触发后都重新读取真值。</p></article>
+  </section>
+
+  <h2>五段链路</h2>
+  <div class="flow">
+    <div>Codex SDK<small>结构化 item 事件</small></div>
+    <div>Adapter<small>类型 + 稳定 ID</small></div>
+    <div>Requirement<small>完整持久快照</small></div>
+    <div>SSE / 轮询<small>通知重新读取</small></div>
+    <div>Zustand<small>delta + 合帧投影</small></div>
+  </div>
+
+  <h2>面试官追问</h2>
+  <section class="grid two">
+    <article class="card bad"><h3>SDK 现在逐字吗？</h3><p>不逐字。当前 exec 的 assistant 正文通常完成后一次到达；逐 token 需要 app-server 的 delta 事件。</p></article>
+    <article class="card bad"><h3>为什么不只传 delta？</h3><p>浏览器断线漏掉中间片段后，后续 delta 无法补全；完整快照可以立即恢复。</p></article>
+    <article class="card why"><h3>为什么还要前缀校验？</h3><p>上游可能修订之前的文本。不是前缀时硬切 delta 会产生错误内容，必须回退到快照。</p></article>
+    <article class="card why"><h3>为什么用 rAF？</h3><p>数据到达频率可能高于屏幕绘制频率。每帧提交一次，减少当前消息的状态更新；不是只渲染尾部字符。</p></article>
+    <article class="card good"><h3>为什么稳定 ID？</h3><p>同一消息或工具从 running 到 completed 应更新原项；按 ID 订阅也让历史消息不受当前回复波及。</p></article>
+    <article class="card good"><h3>为什么等 turn completed？</h3><p>文本里看到 READY 不代表本轮已经稳定结束；双条件防止半截协议提前打开业务门禁。</p></article>
+  </section>
+
+  <footer class="footer-nav"><a href="../lessons/0001-recoverable-streaming-conversation.html">返回完整交互课程</a></footer>
+</main>
+</body>
+</html>

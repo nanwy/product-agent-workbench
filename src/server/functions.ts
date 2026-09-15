@@ -3,7 +3,6 @@ import { createServerFn } from '@tanstack/react-start'
 import { assertContinueRefinementInput, assertCreateAgentHandoffInput, assertCreateRequirementInput, type ContinueRefinementInput, type CreateAgentHandoffInput, type CreateRequirementInput } from '../domain/workbench'
 import { runIdempotentMutation } from './idempotency'
 import {
-  analyzeCurrentRequirement,
   acceptCurrentRequirement,
   confirmCurrentBoundary,
   confirmCurrentGrilling,
@@ -12,6 +11,14 @@ import {
   generateCurrentAgentHandoff,
   createRequirement,
   getWorkbenchSnapshot,
+  replyToCurrentGrilling,
+  retryCurrentGrilling,
+  cancelCurrentGrilling,
+  cancelCurrentSpec,
+  confirmCurrentSpec,
+  replyToCurrentSpec,
+  retryCurrentSpec,
+  reviseCurrentUnderstanding,
   startConfiguredTarget,
   stopConfiguredTarget,
 } from './workbench-service'
@@ -20,7 +27,8 @@ import { verifyCurrentRequirement } from './verification'
 
 type MutationInput = { idempotencyKey: string }
 type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
-type GrillingMutationInput = MutationInput & { answers: Record<string, string> }
+type GrillingReplyMutationInput = MutationInput & { reply: string }
+type SpecConfirmMutationInput = MutationInput & { versionId: string }
 type RefinementMutationInput = MutationInput & { refinement: ContinueRefinementInput }
 type AgentHandoffMutationInput = MutationInput & { handoff: CreateAgentHandoffInput }
 
@@ -62,30 +70,48 @@ export const submitRequirement = createServerFn({ method: 'POST' })
   .handler(({ data }) => runIdempotentMutation('submit-requirement', data.idempotencyKey, getWorkbenchSnapshot, () => createRequirement(data.requirement)))
 
 /**
- * 提交并确认 Grilling 阶段的全部回答。
- *
- * `confirmCurrentGrilling()` 会检查每道题都有答案，并验证“修改边界”只能等于或收窄
- * 项目配置中的授权范围；成功后推进工作流步骤，需求才允许进入只读探索。
- * 重复请求由 `runIdempotentMutation()` 直接返回当前快照，不会重复追加证据。
- *
- * @returns Grilling 已确认的最新工作台快照。
+ * 回复、重试、取消和确认真实 Grilling 对话。每次写入都经过幂等层；只有 SDK Agent
+ * 宣布 design tree frontier 为空后，服务端才接受共同理解确认。
  */
-export const confirmGrilling = createServerFn({ method: 'POST' })
-  .validator((input: GrillingMutationInput) => ({ ...mutationInput(input), answers: input.answers }))
-  .handler(({ data }) => runIdempotentMutation('confirm-grilling', data.idempotencyKey, getWorkbenchSnapshot, () => confirmCurrentGrilling(data.answers)))
+export const replyGrilling = createServerFn({ method: 'POST' })
+  .validator((input: GrillingReplyMutationInput) => ({ ...mutationInput(input), reply: input.reply }))
+  .handler(({ data }) => runIdempotentMutation('reply-grilling', data.idempotencyKey, getWorkbenchSnapshot, () => replyToCurrentGrilling(data.reply)))
 
-/**
- * 对当前需求执行只读项目探索并生成候选 Spec。
- *
- * `analyzeCurrentRequirement()` 要求 Grilling 已确认，然后委托 exploration 模块检查
- * 代码位置、AGENTS.md、Skills 和边界影响，生成 Spec、执行票与规则清单。
- * 此动作只读取目标仓库，不创建分支、不启动 Codex，也不修改目标代码。
- *
- * @returns 阶段进入 `awaiting-spec-confirmation` 后的工作台快照。
- */
-export const analyzeRequirement = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
-  runIdempotentMutation('analyze-requirement', data.idempotencyKey, getWorkbenchSnapshot, analyzeCurrentRequirement),
+export const retryGrilling = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('retry-grilling', data.idempotencyKey, getWorkbenchSnapshot, retryCurrentGrilling),
 )
+
+export const cancelGrilling = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('cancel-grilling', data.idempotencyKey, getWorkbenchSnapshot, cancelCurrentGrilling),
+)
+
+export const confirmGrilling = createServerFn({ method: 'POST' }).validator(mutationInput)
+  .handler(({ data }) => runIdempotentMutation('confirm-grilling', data.idempotencyKey, getWorkbenchSnapshot, confirmCurrentGrilling))
+
+/** 同一 composer 的 to-spec 动作：修订、重试、取消和按版本确认。 */
+export const replySpec = createServerFn({ method: 'POST' })
+  .validator((input: GrillingReplyMutationInput) => ({ ...mutationInput(input), reply: input.reply }))
+  .handler(({ data }) => runIdempotentMutation('reply-spec', data.idempotencyKey, getWorkbenchSnapshot, () => replyToCurrentSpec(data.reply)))
+
+export const retrySpec = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('retry-spec', data.idempotencyKey, getWorkbenchSnapshot, retryCurrentSpec),
+)
+
+export const cancelSpec = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('cancel-spec', data.idempotencyKey, getWorkbenchSnapshot, cancelCurrentSpec),
+)
+
+export const confirmSpec = createServerFn({ method: 'POST' })
+  .validator((input: SpecConfirmMutationInput) => {
+    mutationInput(input)
+    if (!input.versionId?.trim()) throw new Error('缺少要确认的 Spec 版本')
+    return input
+  })
+  .handler(({ data }) => runIdempotentMutation('confirm-spec', data.idempotencyKey, getWorkbenchSnapshot, () => confirmCurrentSpec(data.versionId)))
+
+export const reviseUnderstanding = createServerFn({ method: 'POST' })
+  .validator((input: GrillingReplyMutationInput) => ({ ...mutationInput(input), reply: input.reply }))
+  .handler(({ data }) => runIdempotentMutation('revise-understanding', data.idempotencyKey, getWorkbenchSnapshot, () => reviseCurrentUnderstanding(data.reply)))
 
 /**
  * 确认候选 Spec 和执行票。

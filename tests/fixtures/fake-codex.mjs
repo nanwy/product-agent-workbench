@@ -3,33 +3,99 @@ import { appendFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-// 假 CLI 复刻工作台依赖的最小 JSONL 协议，并通过真实文件改动模拟 Agent 实现。
+// 假 SDK 底层可执行文件复刻最小事件协议，并通过真实文件改动模拟 Agent 实现。
+// grilling 的 updated -> completed 累计正文是工作台的兼容性场景，不代表 codex exec 0.154
+// 会按 token 推送 assistant 文本；真实 exec 当前通常只给 item.completed 完整正文。
 if (process.argv.includes('--version')) {
   console.log('codex-cli fixture-1.0.0')
   process.exit(0)
 }
 
-if (process.argv.includes('VALIDATE_EXEC_ARGS')) {
+const prompt = await new Promise((resolve) => {
+  let input = ''
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', (chunk) => { input += chunk })
+  process.stdin.on('end', () => resolve(input))
+})
+
+if (prompt.includes('VALIDATE_EXEC_ARGS')) {
   if (process.argv.includes('-a')) {
     console.error("error: unexpected argument '-a' found")
     process.exit(2)
   }
-  console.log(JSON.stringify({ type: 'turn.completed' }))
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: '00000000-0000-4000-8000-000000000001' }))
+  console.log(JSON.stringify({ type: 'item.completed', item: { id: 'sandbox', type: 'agent_message', text: process.argv[process.argv.indexOf('--sandbox') + 1] } }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
   process.exit(0)
 }
 
-const prompt = process.argv.at(-1) ?? ''
 if (prompt.includes('$handoff')) {
   const outputPath = prompt.match(/必须写入这个精确文件：([^\n]+)/)?.[1]?.trim()
   if (!outputPath) process.exit(2)
   await writeFile(outputPath, '# Agent Session Handoff\n\n## suggested skills\n\n- implement\n')
-  console.log(JSON.stringify({ type: 'turn.completed' }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
+  process.exit(0)
+}
+const fixtureSessionId = process.argv.includes('resume')
+  ? process.argv[process.argv.indexOf('resume') + 1]
+  : '00000000-0000-4000-8000-000000000001'
+if (prompt.includes('Product Agent Workbench 的 grilling 阶段')) {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: fixtureSessionId }))
+  console.log(JSON.stringify({ type: 'item.updated', item: { id: 'grilling-message', type: 'agent_message', text: '❓ **Q1** - **成功结果**：用户最终应该观察到什么？' } }))
+  console.log(JSON.stringify({ type: 'item.completed', item: { id: 'grilling-message', type: 'agent_message', text: '❓ **Q1** - **成功结果**：用户最终应该观察到什么？\n\n➡️ 使用需求中的初始期望作为成功结果。' } }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
+  process.exit(0)
+}
+if (prompt.includes('用户对上一轮 frontier 的回答') || prompt.includes('继续刚才中断的 Grilling')) {
+  if (!process.argv.includes('resume')) {
+    console.log(JSON.stringify({ type: 'turn.failed', error: { message: 'grilling reply did not resume its planning thread' } }))
+    process.exit(2)
+  }
+  const slowGrillingMarker = path.join(os.tmpdir(), 'product-agent-workbench-slow-grilling')
+  if (await stat(slowGrillingMarker).then(() => true).catch(() => false)) {
+    await rm(slowGrillingMarker, { force: true })
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+  }
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: fixtureSessionId }))
+  console.log(JSON.stringify({ type: 'item.completed', item: { id: 'grilling-summary', type: 'agent_message', text: '共同理解：按已确认结果，在配置范围内完成修改，并通过真实预览验收。\n[WORKBENCH:UNDERSTANDING]{"summary":"按已确认结果在配置范围内修改","desiredOutcome":"用户应看到更明确的空状态文案","changeBoundary":"只修改 /competition，不修改其他页面","acceptanceSignal":"真实预览可见且无新增控制台错误"}[/WORKBENCH:UNDERSTANDING]\n[WORKBENCH:READY_FOR_CONFIRMATION]' } }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
+  process.exit(0)
+}
+if (prompt.includes('Product Agent Workbench 的 to-spec 阶段')) {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: fixtureSessionId }))
+  const failSpecMarker = path.join(os.tmpdir(), 'product-agent-workbench-fail-spec')
+  if (await stat(failSpecMarker).then(() => true).catch(() => false)) {
+    await rm(failSpecMarker, { force: true })
+    console.log(JSON.stringify({ type: 'turn.failed', error: { message: 'fixture Spec failure' } }))
+    process.exit(2)
+  }
+  const slowSpecMarker = path.join(os.tmpdir(), 'product-agent-workbench-slow-spec')
+  if (await stat(slowSpecMarker).then(() => true).catch(() => false)) {
+    await rm(slowSpecMarker, { force: true })
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+  }
+  const revised = prompt.includes('用户对当前 Spec 的修订要求')
+  const document = {
+    problem: '当前空状态没有说明用户下一步可以做什么',
+    solution: revised ? '使用更具体的空状态文案，并补充下一步引导' : '使用更明确的空状态文案',
+    userStories: ['作为赛事页用户，我能理解当前状态和下一步操作'],
+    implementationDecisions: ['保持现有页面结构，只调整配置范围内的展示'],
+    testingDecisions: ['在真实预览中验证文案可见且没有新增控制台错误'],
+    outOfScope: ['不修改认证、数据库或远程接口'],
+    furtherNotes: ['Spec 仅保存在工作台本地数据目录'],
+  }
+  if (prompt.includes('修改已确认的共同理解')) document.understanding = {
+    summary: '范围不变，验收信号已更新',
+    desiredOutcome: '用户看到明确文案和下一步引导',
+    changeBoundary: '只修改 /competition，不修改其他页面',
+    acceptanceSignal: '真实预览可见、无新增控制台错误且引导可理解',
+  }
+  console.log(JSON.stringify({ type: 'item.completed', item: { id: 'spec-message', type: 'agent_message', text: `Spec 已按共同理解整理。\n[WORKBENCH:SPEC]${JSON.stringify(document)}[/WORKBENCH:SPEC]` } }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
   process.exit(0)
 }
 const ticket = prompt.match(/当前执行票 (TICKET-\d+)/)?.[1] ?? 'TICKET-UNKNOWN'
-const sessionId = process.argv.includes('resume')
-  ? process.argv[process.argv.indexOf('--json') + 1]
-  : '00000000-0000-4000-8000-000000000001'
+const sessionId = fixtureSessionId
 
 console.log(JSON.stringify({ type: 'thread.started', thread_id: sessionId }))
 const failMarker = path.join(os.tmpdir(), 'product-agent-workbench-fail-turn')
@@ -43,10 +109,11 @@ if (prompt.includes('SLOW_TURN') || await stat(slowMarker).then(() => true).catc
   await rm(slowMarker, { force: true })
   await new Promise((resolve) => setTimeout(resolve, 5000))
 }
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: `正在实现 ${ticket}` } }))
-const targetFile = process.cwd().endsWith(path.join('apps', 'front'))
-  ? path.join(process.cwd(), 'app/competition/page.tsx')
-  : path.join(process.cwd(), 'apps/front/app/competition/page.tsx')
+console.log(JSON.stringify({ type: 'item.completed', item: { id: 'agent-message', type: 'agent_message', text: `正在实现 ${ticket}` } }))
+const workingDirectory = process.argv.includes('--cd') ? process.argv[process.argv.indexOf('--cd') + 1] : process.cwd()
+const targetFile = workingDirectory.endsWith(path.join('apps', 'front'))
+  ? path.join(workingDirectory, 'app/competition/page.tsx')
+  : path.join(workingDirectory, 'apps/front/app/competition/page.tsx')
 await appendFile(targetFile, `\n// implemented ${ticket}\n`)
-console.log(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', name: 'apps/front/app/competition/page.tsx' } }))
-console.log(JSON.stringify({ type: 'turn.completed' }))
+console.log(JSON.stringify({ type: 'item.completed', item: { id: 'file-change', type: 'file_change', changes: [{ path: 'apps/front/app/competition/page.tsx', kind: 'update' }], status: 'completed' } }))
+console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))

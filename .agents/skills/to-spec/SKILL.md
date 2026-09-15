@@ -1,22 +1,20 @@
 ---
 name: to-spec
-description: Turn the current conversation into a spec and publish it to the project issue tracker — no interview, just synthesis of what you've already discussed.
+description: Turn the current conversation into a versioned local workbench spec — no interview, just synthesis of what you've already discussed.
 disable-model-invocation: true
 ---
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user — just synthesize what you already know.
 
-The issue tracker and triage label vocabulary should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
+This workbench never publishes planning artifacts to a remote tracker. Treat the workbench-provided local output path as the publication target.
 
 ## Process
 
 1. Explore the repo to understand the current state of the codebase, if you haven't already. Use the project's domain glossary vocabulary throughout the spec, and respect any ADRs in the area you're touching.
 
-2. Sketch out the seams at which you're going to test the feature. Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better - the ideal number is one.
+2. Record the already-confirmed test seams from the conversation. Existing seams should be preferred to new ones and kept at the highest public boundary possible. In a workbench Turn, treat these seams as settled input and continue without another interview.
 
-Check with the user that these seams match their expectations.
-
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Produce the spec using the template below for the exact workbench-local path supplied by the host. Return the host's structured artifact protocol; the host owns the atomic file write and version state. Completion means every template section is non-empty and the artifact is ready for local confirmation. Remote issues, labels, comments, pull requests, and trackers are outside this Skill's publication surface.
 
 <spec-template>
 

@@ -18,4 +18,18 @@ describe('workflow mutation idempotency', () => {
     const other = await runIdempotentMutation('other-operation', key, async () => -1, async () => ++calls)
     expect(other).toBe(2)
   })
+
+  it('does not queue an interrupt behind an unrelated long mutation', async () => {
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => { release = resolve })
+    const longMutation = runIdempotentMutation('long-operation', randomUUID(), async () => 'duplicate', async () => {
+      await blocked
+      return 'finished'
+    })
+    const interrupt = await runIdempotentMutation('cancel-operation', randomUUID(), async () => 'duplicate', async () => 'cancelled')
+
+    expect(interrupt).toBe('cancelled')
+    release()
+    await expect(longMutation).resolves.toBe('finished')
+  })
 })

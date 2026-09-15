@@ -12,4 +12,4 @@ Run typechecking regularly, single test files regularly, and the full test suite
 
 Once done, use /code-review to review the work.
 
-Commit your work to the current branch.
+Do not commit, push, create a pull request, merge, deploy, or publish. Leave the candidate changes in the worktree. The Product Agent Workbench owns the single stable commit after its verification matrix passes and the product user explicitly accepts the result.

@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T01:27:18Z",
+  "title": "Design System: Product Agent Workbench",
+  "extensions": {
+    "colorMeta": {
+      "canvas": { "role": "neutral", "displayName": "Cool Canvas", "canonical": "oklch(0.935 0.004 255)", "tonalRamp": ["oklch(0.15 0.004 255)", "oklch(0.25 0.004 255)", "oklch(0.38 0.004 255)", "oklch(0.5 0.004 255)", "oklch(0.63 0.004 255)", "oklch(0.75 0.004 255)", "oklch(0.86 0.004 255)", "oklch(0.95 0.004 255)"] },
+      "accent": { "role": "primary", "displayName": "Workbench Blue", "canonical": "oklch(0.57 0.205 258)", "tonalRamp": ["oklch(0.15 0.08 258)", "oklch(0.25 0.12 258)", "oklch(0.38 0.17 258)", "oklch(0.5 0.205 258)", "oklch(0.62 0.18 258)", "oklch(0.74 0.13 258)", "oklch(0.86 0.07 258)", "oklch(0.95 0.025 258)"] },
+      "success": { "role": "secondary", "displayName": "Verified Green", "canonical": "oklch(0.56 0.135 150)", "tonalRamp": ["oklch(0.15 0.05 150)", "oklch(0.25 0.08 150)", "oklch(0.38 0.11 150)", "oklch(0.5 0.135 150)", "oklch(0.62 0.12 150)", "oklch(0.74 0.09 150)", "oklch(0.86 0.055 150)", "oklch(0.95 0.025 150)"] },
+      "danger": { "role": "tertiary", "displayName": "Blocking Red", "canonical": "oklch(0.56 0.19 28)", "tonalRamp": ["oklch(0.15 0.07 28)", "oklch(0.25 0.11 28)", "oklch(0.38 0.16 28)", "oklch(0.5 0.19 28)", "oklch(0.62 0.16 28)", "oklch(0.74 0.11 28)", "oklch(0.86 0.06 28)", "oklch(0.95 0.025 28)"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Local Title", "purpose": "需求名称等局部主标题。" },
+      "body": { "displayName": "Dense Body", "purpose": "操作说明、证据与表单内容。" },
+      "label": { "displayName": "Technical Label", "purpose": "ID、路径、英文分区标签与状态。" }
+    },
+    "shadows": [
+      { "name": "floating-alert", "value": "0 12px 32px oklch(0.2 0.02 255 / 0.12)", "purpose": "覆盖内容的错误提示。" },
+      { "name": "preview-lift", "value": "0 2px 8px oklch(0.2 0.02 255 / 0.06)", "purpose": "真实页面预览容器。" }
+    ],
+    "motion": [
+      { "name": "state-feedback", "value": "160ms ease-out", "purpose": "按钮、输入与边框的状态反馈。" }
+    ],
+    "breakpoints": [
+      { "name": "compact-desktop", "value": "1240px" },
+      { "name": "tablet", "value": "980px" },
+      { "name": "mobile", "value": "680px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "当前阶段唯一主行动。",
+      "html": "<button class=\"ds-btn-primary\">确认并继续</button>",
+      "css": ".ds-btn-primary { min-height: 32px; border: 1px solid transparent; border-radius: 6px; background: var(--accent); color: var(--surface-raised); padding: 7px 11px; font: 680 11px/1.2 system-ui, sans-serif; transition: background 160ms ease-out; } .ds-btn-primary:hover { background: var(--accent-hover); } .ds-btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "紧凑的产品事实输入。",
+      "html": "<input class=\"ds-input\" value=\"目标页面 /competition\" />",
+      "css": ".ds-input { width: 100%; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-raised); color: var(--ink); padding: 9px 10px; font: 400 12px/1.4 system-ui, sans-serif; transition: border-color 160ms ease-out, box-shadow 160ms ease-out; } .ds-input:hover { border-color: oklch(0.7 0.01 255); } .ds-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none; }"
+    },
+    {
+      "name": "Current Stage",
+      "kind": "nav",
+      "description": "SDD 导航中的当前阶段。",
+      "html": "<div class=\"ds-stage\"><span>03</span><strong>确认规格</strong></div>",
+      "css": ".ds-stage { display: flex; align-items: center; gap: 9px; min-height: 28px; border-radius: 6px; background: var(--accent-soft); padding: 3px 7px 3px 4px; color: var(--ink); font: 680 11px/1.2 system-ui, sans-serif; } .ds-stage span { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 5px; background: var(--accent); color: var(--surface-raised); font: 650 8px/1 ui-monospace, monospace; }"
+    },
+    {
+      "name": "Status Chip",
+      "kind": "chip",
+      "description": "目标项目的运行健康状态。",
+      "html": "<span class=\"ds-status\"><i></i>Target ready</span>",
+      "css": ".ds-status { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-raised); padding: 6px 9px; color: var(--ink-soft); font: 600 11px/1.2 system-ui, sans-serif; } .ds-status i { width: 7px; height: 7px; border-radius: 999px; background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }"
+    },
+    {
+      "name": "Preview Canvas",
+      "kind": "custom",
+      "description": "页面的主工作表面。",
+      "html": "<div class=\"ds-preview\"><div class=\"ds-preview-bar\">真实预览 <span>localhost:3000</span></div><div class=\"ds-preview-body\">Live page</div></div>",
+      "css": ".ds-preview { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--canvas); box-shadow: 0 2px 8px oklch(0.2 0.02 255 / 0.06); font: 600 11px/1.2 system-ui, sans-serif; } .ds-preview-bar { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); background: var(--surface-muted); padding: 8px 10px; } .ds-preview-bar span { color: var(--muted); font: 400 9px/1.2 ui-monospace, monospace; } .ds-preview-body { display: grid; min-height: 110px; place-items: center; background: var(--surface-raised); color: var(--muted); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Workbench",
+    "overview": "界面借鉴 Praxis 的桌面工具空间组织：窄导航栏提供持续上下文，中间检查区承载 Agent 与证据，真实预览占据剩余画布。结构优先于装饰，状态变化优先于品牌表演。",
+    "keyCharacteristics": ["紧凑上下文栏与固定工具列", "真实预览拥有弹性主画布", "冷灰中性色与克制蓝色", "响应式重排保持主流程可用"],
+    "rules": [
+      { "name": "The One Active Signal Rule", "body": "蓝色只指向当前状态或当前主行动，同一区域禁止出现多个等权蓝色信号。", "section": "colors" },
+      { "name": "The Tool Scale Rule", "body": "页面不使用营销型大标题，层级通过面板位置、留白和字重建立。", "section": "typography" },
+      { "name": "The Flat by Default Rule", "body": "静止面板没有阴影；若每个区域都像浮层，层级已经失败。", "section": "elevation" }
+    ],
+    "dos": ["保证当前阶段和唯一主行动在首屏可见。", "将大部分可用宽度留给真实预览，并让导航与检查区独立滚动。", "让文字、位置和形状共同表达状态，颜色只作为补充。"],
+    "donts": ["回到三列等权卡片墙、过大的宣传标题、重复边框和相同视觉重量。", "使用通用 SaaS 仪表盘、装饰性渐变、玻璃拟态或无意义动画。", "使用大于 1px 的彩色单侧边框作为状态装饰。"]
+  }
+}

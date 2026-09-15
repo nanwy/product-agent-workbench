@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>彻底理解：可恢复的流式对话</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0001 · 约 12 分钟</p>
+  <h1>流式输出不是<br>“一个字一个字蹦出来”</h1>
+  <p class="lede">学完这一节，你应该能分清事件流、文字 delta 和服务端快照，并能准确说明当前项目实际做到了什么。</p>
+  <p class="thesis"><strong>先记一个结论：</strong>服务端完整快照负责正确，浏览器 delta 负责流畅。不能让负责动画的临时状态成为业务真值。</p>
+
+  <h2>第一幕：先纠正一个关键误区</h2>
+  <p><code>runStreamed()</code> 的“streamed”表示会陆续返回 thread、tool、file、todo、completed、failed 等结构化事件，不等于 assistant 正文会逐 token 到达。当前项目走 <code>codex exec --experimental-json</code>：assistant 正文通常只在 <code>item.completed</code> 时以完整字符串一次到达。真正的文字 delta 是 app-server 的 <code>item/agentMessage/delta</code>，本项目目前没有接它。</p>
+  <p>下面的累计事件模拟器是工作台测试的<strong>兼容性场景</strong>：假设未来传输层或其他数据源连续提供同一消息的完整快照，代码是否会重复或丢字。它不是当前 Codex exec 的实测输出。</p>
+
+  <section class="simulator" aria-labelledby="sim-title">
+    <h3 id="sim-title">亲手制造一次重复文本</h3>
+    <div class="sim-controls">
+      <button id="next-event">发送下一条累计事件</button>
+      <button class="secondary" id="reset-event">重新开始</button>
+    </div>
+    <p class="event-log" id="event-log"></p>
+    <div class="sim-grid">
+      <div class="sim-pane"><strong>模拟的上游快照</strong><div class="sim-output" id="upstream"></div></div>
+      <div class="sim-pane"><strong>错误方案：每次 append</strong><div class="sim-output" id="naive"></div></div>
+      <div class="sim-pane"><strong>正确方案：同 ID 替换</strong><div class="sim-output" id="safe"></div></div>
+      <div class="sim-pane"><strong>你应该观察到</strong><div class="sim-output">第三次后：错误结果重复三段；正确结果只剩最新完整句子。</div></div>
+    </div>
+  </section>
+
+  <div class="quiz" data-success="对。因为事件是累计快照，同 ID 表示更新原来的东西。" data-retry="再看一次事件 ID：三次都是 item-42，不是三条新消息。">
+    <h3>检索练习 1：服务端收到同 ID 的累计正文，应该怎样处理？</h3>
+    <div class="choices">
+      <button class="choice" data-correct="false">继续追加</button>
+      <button class="choice" data-correct="true">整条替换</button>
+      <button class="choice" data-correct="false">新建消息</button>
+    </div>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>第二幕：浏览器拿到完整快照后，为什么还要计算 delta？</h2>
+  <section class="grid two">
+    <article class="card">
+      <h3>正确性没问题</h3>
+      <p>每次用最新完整文本替换旧文本，最终内容确实正确。</p>
+    </article>
+    <article class="card bad">
+      <h3>体验和性能会坏</h3>
+      <p>长回复每来一次更新，都可能提交一次状态并重新解析当前消息的 Markdown。如果 Store 用一个大数组、时间线又订阅整个数组，100 条历史消息还可能一起收到更新；滚动位置也可能持续跳动。</p>
+    </article>
+  </section>
+  <p>所以浏览器做两个彼此独立的性能优化。第一，已显示 <code>我建议</code>，新快照是 <code>我建议先确认</code>，确认前缀关系后只把尾部 <code>先确认</code> 放进缓冲区，并在下一动画帧统一提交。第二，消息保存为 <code>messageIds + messagesById</code>，每一行只订阅自己的 ID；没有变化的历史消息复用原对象引用。</p>
+  <p class="thesis"><strong>注意：</strong>这不等于 DOM 只渲染“先确认”三个字。刷新时，当前消息组件仍然拿到累积后的完整正文并重新渲染；真正减少的是状态提交次数，以及被波及的消息行数量。</p>
+  <pre>effective = 已显示正文 + 尚未刷新的 pending delta
+
+if incoming.startsWith(effective):
+    delta = incoming.slice(effective.length)
+else:
+    直接采用 incoming 完整快照</pre>
+  <section class="grid two" style="margin-top:16px">
+    <article class="card bad">
+      <h3>只和屏幕文字比较：会重复</h3>
+      <pre>屏幕：我建议
+pending：先确认
+快照：我建议先确认目标页面
+
+错误 delta：先确认目标页面
+最终：我建议先确认先确认目标页面 ❌</pre>
+    </article>
+    <article class="card good">
+      <h3>和 effectiveContent 比较</h3>
+      <pre>effective：我建议先确认
+快照：我建议先确认目标页面
+
+正确 delta：目标页面
+最终：我建议先确认目标页面 ✅</pre>
+    </article>
+  </section>
+
+  <h2>第三幕：为什么一定要做前缀校验？</h2>
+  <p>模型或上游协议不一定永远只在末尾加字。假设浏览器已有：</p>
+  <pre>current  = "请修改登录页"
+incoming = "请只修改登录页"</pre>
+  <p>新文本在中间插入了“只”。如果仍按旧长度硬切尾巴，会算出一段毫无意义的字符，再追加到旧句子上。项目因此只在 <code>incoming.startsWith(effective)</code> 成立时计算 delta；不成立说明历史被修订，立即丢弃动画投影，采用服务端完整快照。</p>
+  <p class="thesis">delta 是可丢弃的加速缓存，不是事实来源。任何拿不准的情况都回到完整快照。</p>
+
+  <div class="quiz" data-success="对。前缀关系被破坏，说明不能证明尾部就是新增内容。" data-retry="硬切长度默认了旧文本完全没变；这个例子恰好在中间插字。">
+    <h3>检索练习 2：新快照不是当前文本的前缀延伸，应该怎样处理？</h3>
+    <div class="choices">
+      <button class="choice" data-correct="false">强算增量</button>
+      <button class="choice" data-correct="true">采用快照</button>
+      <button class="choice" data-correct="false">丢弃更新</button>
+    </div>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>第四幕：网络在中间断了，会发生什么？</h2>
+  <section class="grid two">
+    <article class="card bad">
+      <h3>如果 SSE 直接承载 delta</h3>
+      <pre>收到："我建议"
+断线，漏掉："先确认"
+重连后收到："目标页面"
+页面："我建议目标页面" ❌</pre>
+      <p>除非额外实现事件序号、持久事件日志和补放协议，否则漏掉的 delta 没办法凭空恢复。</p>
+    </article>
+    <article class="card good">
+      <h3>本项目：SSE 只发“有变化”</h3>
+      <pre>收到通知 → GET Requirement 完整快照
+断线漏通知 → 3 秒轮询触发 GET
+拿到："我建议先确认目标页面" ✅</pre>
+      <p>通知可以丢，因为通知里没有唯一真值。页面只要再次读取 Requirement，就会收敛到正确状态。</p>
+    </article>
+  </section>
+  <p>这也是为什么断线重连不会重放“创建分支、执行 Ticket”之类的副作用：SSE 不是命令通道，只是失效通知。浏览器原生 <code>EventSource</code> 会尝试重新建立连接，但“重新连上”不等于“自动补回断线期间的事件”。本项目没有维护可重放的 SSE 事件日志，因此完整 Requirement 快照负责补状态，轮询负责在没有下一次通知时也能触发读取。</p>
+
+  <div class="quiz" data-success="对。快照包含截至当前的全部事实，漏一次通知也能恢复。" data-retry="本地缓存和最新 delta 都可能缺少断线期间的内容。">
+    <h3>检索练习 3：断线恢复时，哪一个能作为可靠真值？</h3>
+    <div class="choices">
+      <button class="choice" data-correct="false">本地缓存</button>
+      <button class="choice" data-correct="true">完整快照</button>
+      <button class="choice" data-correct="false">最新增量</button>
+    </div>
+    <p class="feedback" aria-live="polite"></p>
+  </div>
+
+  <h2>第五幕：五段链路各自只解决一个问题</h2>
+  <div class="flow">
+    <div><span class="number">1</span>Codex SDK<small>产出结构化事件；正文当前通常完成后一次到达</small></div>
+    <div><span class="number">2</span>Adapter<small>统一类型；用 turn + item 组成稳定 ID</small></div>
+    <div><span class="number">3</span>Requirement<small>同 ID 替换；持久化完整消息和状态</small></div>
+    <div><span class="number">4</span>SSE + 轮询<small>通知页面重新读取权威快照</small></div>
+    <div><span class="number">5</span>Zustand<small>安全切 delta；按帧合并；按 ID 重绘</small></div>
+  </div>
+
+  <section class="grid" style="margin-top:16px">
+    <article class="card why"><h3>没有稳定 ID</h3><p>工具会出现“读取中”“读取完成”两行，甚至不同 Turn 的同名 item 相互覆盖。</p></article>
+    <article class="card why"><h3>没有持久快照</h3><p>刷新页面或服务重启后，只剩零散事件，无法知道当前完整对话和门禁状态。</p></article>
+    <article class="card why"><h3>没有按帧合并</h3><p>假设 16ms 内到达 20 次更新，React 可能收到 20 次状态提交；合帧后这一帧只提交 1 次。</p></article>
+  </section>
+
+  <h2>还有三个容易被忽略的坑</h2>
+  <section class="grid">
+    <article class="card">
+      <h3>未闭合 Markdown</h3>
+      <p><code>```ts</code> 已到达但结尾围栏没到时，解析器可能不断重排。项目先把未闭合部分当纯文本 <code>&lt;pre&gt;</code>，闭合后再交给 Markdown。</p>
+    </article>
+    <article class="card">
+      <h3>业务门禁提前打开</h3>
+      <p>文本里刚出现 READY，不代表结构化理解完整，也不代表 Turn 已结束。项目要求“完整 JSON + READY + turn.completed”后才允许产品确认。</p>
+    </article>
+    <article class="card">
+      <h3>自动滚动抢阅读</h3>
+      <p>用户在底部才自动跟随；用户上滚后停止抢位置，只显示“回到底部”。否则长回复会把正在阅读历史的用户拖走。</p>
+    </article>
+  </section>
+
+  <h2>把技术选择还原成一句因果链</h2>
+  <div class="interview">
+    <p>“我先区分事件流和文字流。当前 TypeScript SDK 包装的是 <code>codex exec --experimental-json</code>，会持续给出工具、文件、todo 和生命周期事件，但 assistant 正文通常在 <code>item.completed</code> 一次返回，并不是真正的逐字流。工作台把服务端 Requirement 作为唯一真值，SSE 只通知浏览器重取快照，三秒轮询负责漏通知后的最终收敛。前端还保留了增长快照转 delta、前缀失败回退和 rAF 合帧能力，这是防御性和前向兼容设计；要实现真正 token 级文字流，需要改接 app-server 的 <code>item/agentMessage/delta</code>。”</p>
+  </div>
+
+  <h2>现在请离开页面回答</h2>
+  <ol>
+    <li>为什么服务端用“替换”，浏览器却还要算 delta？</li>
+    <li>SSE 已经会自动重连，为什么项目还需要完整快照和轮询？</li>
+    <li>如果新快照不是旧文本的前缀，你会怎么处理，为什么？</li>
+  </ol>
+  <p>把答案发给 Agent。我会按真实面试追问纠正你的薄弱点；答对后再把理解写进 learning record。</p>
+
+  <h2>依据与延伸</h2>
+  <ul>
+    <li>首选阅读：<a href="https://github.com/openai/codex/blob/main/codex-rs/exec/src/event_processor_with_jsonl_output.rs">OpenAI Codex exec JSONL 事件处理器</a>，可看到 agent message 在 ItemCompleted 分支输出，而 ItemUpdated 当前用于 todo 等状态。</li>
+    <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">MDN SSE</a>：EventSource 是单向连接，默认会尝试重连。</li>
+    <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame">MDN requestAnimationFrame</a>：回调发生在浏览器下一次重绘之前。</li>
+    <li><a href="https://react.dev/reference/react/memo">React memo</a>：props 不变时可跳过无关重渲染，但它是性能优化，不是正确性保证。</li>
+    <li>项目证据：<a href="../src/store/conversation-store.ts">conversation-store.ts</a> 与 <a href="../tests/conversation-store.test.ts">conversation-store.test.ts</a>。</li>
+  </ul>
+
+  <footer class="footer-nav">
+    <a href="../reference/recoverable-streaming-cheatsheet.html">打开一页速查表</a>
+    · <a href="../GLOSSARY.md">查看术语表</a>
+    · <a href="../RESOURCES.md">查看全部资源</a>
+  </footer>
+</main>
+<script src="../assets/stream-simulator.js"></script>
+</body>
+</html>

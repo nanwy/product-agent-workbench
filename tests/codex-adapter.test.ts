@@ -4,16 +4,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { cancelCodexTurn, normalizeCodexEvent, runCodexTurn } from '../src/server/codex-adapter'
 
-// 适配器测试只验证 CLI 协议、事件归一化和取消语义，不依赖本机真实 Codex。
+// 适配器测试通过假 app-server/SDK 可执行文件验证公共边界，不依赖本机真实 Codex。
 const originalCommand = process.env.WORKBENCH_CODEX_COMMAND
+const originalBackend = process.env.WORKBENCH_CODEX_BACKEND
+const originalFixtureMode = process.env.WORKBENCH_FAKE_APP_SERVER_MODE
 
 afterEach(() => {
   if (originalCommand === undefined) delete process.env.WORKBENCH_CODEX_COMMAND
   else process.env.WORKBENCH_CODEX_COMMAND = originalCommand
+  if (originalBackend === undefined) delete process.env.WORKBENCH_CODEX_BACKEND
+  else process.env.WORKBENCH_CODEX_BACKEND = originalBackend
+  if (originalFixtureMode === undefined) delete process.env.WORKBENCH_FAKE_APP_SERVER_MODE
+  else process.env.WORKBENCH_FAKE_APP_SERVER_MODE = originalFixtureMode
 })
 
 describe('Codex adapter', () => {
-  it('fails clearly when the configured CLI cannot be started', async () => {
+  it('fails clearly when the configured app-server executable cannot be started', async () => {
     process.env.WORKBENCH_CODEX_COMMAND = '/missing/workbench-codex'
     await expect(runCodexTurn({
       workspaceRoot: process.cwd(),
@@ -21,32 +27,67 @@ describe('Codex adapter', () => {
       sessionId: null,
       signal: undefined,
       onEvent: async () => undefined,
-    })).rejects.toThrow('Codex CLI 不可用')
+    })).rejects.toThrow('Codex app-server 无法启动')
   })
 
-  it('uses arguments accepted by the current non-interactive CLI', async () => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+  it('starts an app-server thread, forwards the sandbox, and keeps its thread id', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
     const events: string[] = []
     const result = await runCodexTurn({
       workspaceRoot: process.cwd(),
-      prompt: 'VALIDATE_EXEC_ARGS',
+      prompt: 'VALIDATE_APP_SERVER',
       sessionId: null,
+      sandboxMode: 'read-only',
       onEvent: async (event) => { events.push(event.message) },
     })
 
     expect(result.exitCode).toBe(0)
-    expect(events).not.toContain("error: unexpected argument '-a' found")
+    expect(result.sessionId).toBe('00000000-0000-4000-8000-000000000001')
+    expect(events).toContain('read-only:VALIDATE_APP_SERVER')
+  })
+
+  it('resumes the persisted app-server thread for the next turn', async () => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'continue',
+      sessionId: 'persisted-thread-id',
+      onEvent: async () => undefined,
+    })
+
+    expect(result).toEqual({ exitCode: 0, sessionId: 'persisted-thread-id' })
+  })
+
+  it.each([
+    ['initialize-failure', 'fixture initialize failure'],
+    ['invalid-json', '非法 JSON-RPC'],
+    ['turn-failure', 'fixture turn failure'],
+  ])('settles failures instead of leaving a running turn: %s', async (mode, expected) => {
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
+    process.env.WORKBENCH_FAKE_APP_SERVER_MODE = mode
+    const events: string[] = []
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'failure contract',
+      sessionId: null,
+      onEvent: async (event) => { events.push(`${event.type}:${event.message}`) },
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(events.some((value) => value.includes(expected))).toBe(true)
   })
 
   it('cancels only the active turn process', async () => {
-    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex-app-server.mjs')
     let cancelled = false
+    const events: string[] = []
     const result = await runCodexTurn({
       workspaceRoot: process.cwd(),
       prompt: 'SLOW_TURN',
       sessionId: null,
-      onEvent: async () => {
-        if (!cancelled) {
+      onEvent: async (event) => {
+        events.push(event.message)
+        if (!cancelled && event.message === 'partial before cancel') {
           cancelled = true
           expect(cancelCodexTurn()).toBe(true)
         }
@@ -55,21 +96,46 @@ describe('Codex adapter', () => {
 
     expect(result.exitCode).not.toBe(0)
     expect(result.sessionId).toBe('00000000-0000-4000-8000-000000000001')
+    expect(events).toContain('partial before cancel')
     expect(cancelCodexTurn()).toBe(false)
   })
 
-  it('normalizes session, message, tool, file, completion, failure, and malformed JSONL', () => {
+  it('uses the SDK only when the fallback is selected explicitly', async () => {
+    process.env.WORKBENCH_CODEX_BACKEND = 'sdk'
+    process.env.WORKBENCH_CODEX_COMMAND = path.resolve('tests/fixtures/fake-codex.mjs')
+    const result = await runCodexTurn({
+      workspaceRoot: process.cwd(),
+      prompt: 'VALIDATE_EXEC_ARGS',
+      sessionId: null,
+      sandboxMode: 'read-only',
+      onEvent: async () => undefined,
+    })
+
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('normalizes every SDK event category into the stable workbench contract', () => {
     const cases = [
       [{ type: 'thread.started', thread_id: 'session-1' }, 'session'],
       [{ type: 'item.completed', item: { type: 'agent_message', text: 'implemented' } }, 'message'],
       [{ type: 'item.started', item: { type: 'command_execution', command: 'pnpm test' } }, 'tool'],
-      [{ type: 'item.completed', item: { type: 'file_change', path: 'src/page.tsx' } }, 'file'],
+      [{ type: 'item.completed', item: { type: 'file_change', changes: [{ path: 'src/page.tsx', kind: 'update' }], status: 'completed' } }, 'file'],
       [{ type: 'turn.completed' }, 'completed'],
       [{ type: 'turn.failed', message: 'token=private' }, 'failed'],
+      [{ type: 'item.completed', item: { id: 'reasoning-1', type: 'reasoning', text: 'checked' } }, 'unknown'],
+      // SDK item errors are explicitly non-fatal; only the top-level turn failure closes the turn.
+      [{ type: 'item.completed', item: { id: 'error-1', type: 'error', message: 'tool failed' } }, 'tool'],
       [{ type: 'unknown', message: 'not-json' }, 'unknown'],
     ] as const
 
     for (const [input, expected] of cases) expect(normalizeCodexEvent(input, JSON.stringify(input)).type).toBe(expected)
     expect(normalizeCodexEvent(cases[5][0], '').message).toContain('token=[REDACTED]')
+    expect(normalizeCodexEvent(cases[3][0], '').message).toBe('src/page.tsx')
+    expect(normalizeCodexEvent({ type: 'item.updated', item: { id: 'tool-1', type: 'command_execution', command: 'pnpm test' } }, '').id).toBe('tool-1')
+    expect(normalizeCodexEvent({ type: 'item.updated', item: { id: 'tool-1', type: 'command_execution', command: 'pnpm test' } }, '', 'turn-2').id).toBe('turn-2:tool-1')
+    expect(normalizeCodexEvent({ type: 'item.started', item: { id: 'tool-1', type: 'command_execution', command: 'pnpm test', aggregated_output: '', status: 'in_progress' } }, '').activityStatus).toBe('running')
+    expect(normalizeCodexEvent({ type: 'item.completed', item: { id: 'tool-1', type: 'command_execution', command: 'pnpm test', aggregated_output: 'ok', exit_code: 0, status: 'completed' } }, '').message).toBe('pnpm test\nok\nexit 0')
+    const longReply = `${'x'.repeat(2500)}[WORKBENCH:READY_FOR_CONFIRMATION]`
+    expect(normalizeCodexEvent({ type: 'item.updated', item: { id: 'message-1', type: 'agent_message', text: longReply } }, '').message).toContain('[WORKBENCH:READY_FOR_CONFIRMATION]')
   })
 })
