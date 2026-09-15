@@ -152,6 +152,8 @@ export type Requirement = {
   codex: CodexSession
   validation: ValidationRecord[]
   delivery: DeliveryCard | null
+  // Agent 会话转接只指向系统临时文件，不能与提交进目标仓库的 DeliveryCard 混用。
+  agentSessionHandoff: AgentSessionHandoff | null
 }
 
 export type CollaborationMetrics = {
@@ -195,6 +197,9 @@ export type ValidationCommand = {
   timeoutMs: number
   environment: 'production' | 'test' | 'development'
   proxyPolicy: 'auto' | 'inherit' | 'omit'
+  // 依赖目标 HTTP 服务的集成检查必须等运行时 ready 后执行；其余命令先运行，避免
+  // `next build` 与 `next dev` 同时写同一个构建目录。
+  requiresRuntime?: boolean
 }
 
 /**
@@ -239,6 +244,25 @@ export type DeliveryCard = {
   diffStat: string
   acceptedAt: string
   handoff: string
+  artifactPaths: string[]
+}
+
+export type AgentSessionHandoff = {
+  path: string
+  focus: string
+  createdAt: string
+  sourceSkill: string
+}
+
+export type CreateAgentHandoffInput = {
+  focus: string
+}
+
+/** 会话转接焦点只进入 Skill prompt，并限制长度以防持久化无界增长。 */
+export function assertCreateAgentHandoffInput(input: CreateAgentHandoffInput): CreateAgentHandoffInput {
+  const focus = input.focus.trim() || '继续当前产品需求'
+  if (focus.length > 1000) throw new Error('会话转接焦点不能超过 1000 个字符')
+  return { focus }
 }
 
 export type TargetProcessStatus =

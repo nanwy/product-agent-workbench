@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { TargetProjectConfig, ValidationCommand } from '../src/domain/workbench'
-import { runValidationCommand } from '../src/server/verification'
+import { runValidationCommand, validateRuntime } from '../src/server/verification'
 
 // 验证命令测试覆盖成功、非零退出和超时，确保三种结果都能形成确定性证据。
 describe('host validation commands', () => {
@@ -48,6 +48,22 @@ describe('host validation commands', () => {
   })
 })
 
+describe('runtime validation', () => {
+  it('uses the configured page response as truth even when no process handle exists', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input) => {
+      expect(String(input)).toBe('http://127.0.0.1:3003/home')
+      return new Response('', { status: 200, statusText: 'OK' })
+    }
+    try {
+      const result = await validateRuntime('/home', target())
+      expect(result).toMatchObject({ id: 'runtime-preview', result: 'verified', detail: 'HTTP 200 OK' })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
 function command(id: string, args: string[], timeoutMs = 2000, environment: ValidationCommand['environment'] = 'test'): ValidationCommand {
   return { id, label: id, command: process.execPath, args, timeoutMs, environment, proxyPolicy: 'omit' }
 }
@@ -55,7 +71,7 @@ function command(id: string, args: string[], timeoutMs = 2000, environment: Vali
 function target(): TargetProjectConfig {
   return {
     name: 'validation fixture', repositoryRoot: process.cwd(), modificationScope: '.',
-    startCommand: { command: process.execPath, args: [] }, healthUrl: 'http://127.0.0.1:1', previewUrl: 'http://127.0.0.1:1',
+    startCommand: { command: process.execPath, args: [] }, healthUrl: 'http://127.0.0.1:1', previewUrl: 'http://127.0.0.1:3003',
     previewGatewayPort: 4174, startupTimeoutMs: 1000,
   }
 }

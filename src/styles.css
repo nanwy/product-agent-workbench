@@ -140,10 +140,14 @@ button:disabled { cursor: not-allowed; opacity: .46; }
 .refinement-history article { padding: 8px; border-left: 3px solid var(--blueprint); background: rgba(35,71,217,.06); }
 .refinement-history header { display: flex; justify-content: space-between; font-size: 9px; }
 .refinement-history p, .refinement-history small { display: block; margin: 4px 0 0; font-size: 9px; }
+.agent-handoff-form { display: grid; gap: 6px; margin-top: 10px; padding: 10px; border: 1px solid var(--blueprint); background: rgba(35,71,217,.05); }
+.agent-handoff-form p, .agent-handoff-form small { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+.agent-handoff-form button { justify-self: start; }
 .metrics-card { display: grid; gap: 7px; margin-top: 14px; padding: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.42); }
 .metrics-card dl { display: grid; gap: 5px; margin: 0; }
 .metrics-card dl div { display: grid; grid-template-columns: 92px 1fr; gap: 7px; font-size: 10px; }
 .metrics-card dd { margin: 0; overflow-wrap: anywhere; }
+.next-requirement { display: grid; gap: 8px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ink); }
 .delivery-card { padding: 12px; border: 1px solid var(--ink); background: rgba(200,255,54,.12); box-shadow: 4px 4px 0 var(--ink); }
 .delivery-card dl { display: grid; gap: 5px; margin: 10px 0; }
 .delivery-card dl div { display: grid; grid-template-columns: 60px 1fr; gap: 7px; font-size: 10px; }

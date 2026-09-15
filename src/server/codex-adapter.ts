@@ -17,6 +17,9 @@ export async function runCodexTurn(input: {
   prompt: string
   sessionId: string | null
   signal?: AbortSignal
+  // 会话转接在系统临时目录运行，不要求那里是 Git 仓库，并且不保留额外 Codex session。
+  skipGitRepositoryCheck?: boolean
+  ephemeral?: boolean
   onEvent: (event: AgentEvent, sessionId: string | null) => Promise<void>
 }): Promise<CodexTurnResult> {
   if (globalCodex.__workbenchCodexChild) throw new Error('已有 Codex turn 正在运行')
@@ -25,9 +28,10 @@ export async function runCodexTurn(input: {
   if (input.signal?.aborted) throw new Error('Codex turn 已取消')
   // 首张票创建 session，后续票/返修用 resume 保留共同理解。
   // -C 和 workspace-write 把执行位置与写权限锁在目标仓库；实际文件范围还会在 turn 后二次检查。
+  const transientArgs = [input.skipGitRepositoryCheck ? '--skip-git-repo-check' : '', input.ephemeral ? '--ephemeral' : ''].filter(Boolean)
   const args = input.sessionId
     ? ['exec', 'resume', '--json', input.sessionId, input.prompt]
-    : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', input.prompt]
+    : ['exec', '--json', '--color', 'never', '-C', input.workspaceRoot, '-s', 'workspace-write', ...transientArgs, input.prompt]
   const child = spawn(command, args, { cwd: input.workspaceRoot, detached: process.platform !== 'win32', env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
   globalCodex.__workbenchCodexChild = child
   const abort = () => terminateCodexChild(child)

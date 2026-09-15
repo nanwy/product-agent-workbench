@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFile, rm, stat } from 'node:fs/promises'
+import { appendFile, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -19,6 +19,13 @@ if (process.argv.includes('VALIDATE_EXEC_ARGS')) {
 }
 
 const prompt = process.argv.at(-1) ?? ''
+if (prompt.includes('$handoff')) {
+  const outputPath = prompt.match(/必须写入这个精确文件：([^\n]+)/)?.[1]?.trim()
+  if (!outputPath) process.exit(2)
+  await writeFile(outputPath, '# Agent Session Handoff\n\n## suggested skills\n\n- implement\n')
+  console.log(JSON.stringify({ type: 'turn.completed' }))
+  process.exit(0)
+}
 const ticket = prompt.match(/当前执行票 (TICKET-\d+)/)?.[1] ?? 'TICKET-UNKNOWN'
 const sessionId = process.argv.includes('resume')
   ? process.argv[process.argv.indexOf('--json') + 1]

@@ -109,11 +109,12 @@ export function GrillingPanel({ requirement, busy, onConfirm }: {
   )
 }
 
-export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
+export function AgentConsole({ requirement, busyAction, onExecute, onCancel, onHandoff }: {
   requirement: Requirement
   busyAction: string | null
   onExecute: () => void
   onCancel: () => void
+  onHandoff: (focus: string) => Promise<void> | void
 }) {
   // completed 后必须先走验证，不能再次执行；failed/cancelled 则允许在同一需求上恢复。
   const canExecute = requirement.stage === 'implementation' && requirement.codex.status !== 'running' && requirement.codex.status !== 'completed'
@@ -139,8 +140,23 @@ export function AgentConsole({ requirement, busyAction, onExecute, onCancel }: {
         {requirement.codex.events.slice().reverse().map((agentEvent) => <article key={agentEvent.id}><span>{agentEvent.type}</span><p>{agentEvent.message}</p><time>{new Date(agentEvent.recordedAt).toLocaleTimeString('zh-CN')}</time></article>)}
       </div>
       {requirement.codex.changedFiles.length ? <div className="changed-files" data-testid="changed-files"><strong>Changed files</strong>{requirement.codex.changedFiles.map((file) => <code key={file}>{file}</code>)}</div> : null}
+      {requirement.codex.sessionId && requirement.codex.status !== 'running' ? <AgentHandoffForm requirement={requirement} busy={busyAction !== null} onSubmit={onHandoff} /> : null}
     </div>
   )
+}
+
+function AgentHandoffForm({ requirement, busy, onSubmit }: { requirement: Requirement; busy: boolean; onSubmit: (focus: string) => Promise<void> | void }) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    await onSubmit(String(new FormData(event.currentTarget).get('focus') ?? ''))
+  }
+  return <form className="agent-handoff-form" onSubmit={handleSubmit}>
+    <strong>Agent 会话转接</strong>
+    <p>调用本地 $handoff Skill 写入系统临时目录，不进入 Frontend Delivery Handoff commit。</p>
+    <input name="focus" defaultValue="继续当前产品需求" maxLength={1000} aria-label="会话转接焦点" />
+    <button disabled={busy} type="submit">{busy ? '正在生成…' : '生成 Agent 会话转接'}</button>
+    {requirement.agentSessionHandoff ? <small data-testid="agent-handoff-path">临时文件：{requirement.agentSessionHandoff.path}</small> : null}
+  </form>
 }
 
 export function ValidationPanel({ requirement, busyAction, onRerun, onAccept, onRefine }: {
@@ -181,7 +197,7 @@ export function ValidationPanel({ requirement, busyAction, onRerun, onAccept, on
         <button className="primary-button" disabled={busyAction !== null || hasBlockingRecord} onClick={onAccept} type="button">{busyAction === 'accept' ? '正在创建稳定提交…' : '通过产品验收'}</button>
         <RefinementForm busy={busyAction !== null} onSubmit={onRefine} />
       </> : null}
-      {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
+      {requirement.delivery ? <div className="delivery-card" data-testid="delivery-card"><strong>Frontend Delivery Handoff</strong><dl><div><dt>Branch</dt><dd><code>{requirement.delivery.branch}</code></dd></div><div><dt>Revision</dt><dd><code>{requirement.delivery.revision}</code></dd></div><div><dt>Changed</dt><dd>{requirement.delivery.changedFiles.length} files</dd></div><div><dt>Artifacts</dt><dd>{requirement.delivery.artifactPaths.map((source) => <code key={source}>{source}</code>)}</dd></div></dl><pre>{requirement.delivery.handoff}</pre></div> : null}
     </section>
   )
 }

@@ -27,7 +27,8 @@
       "args": ["-F", "front", "test:event-map-focus"],
       "timeoutMs": 120000,
       "environment": "test",
-      "proxyPolicy": "auto"
+      "proxyPolicy": "auto",
+      "requiresRuntime": true
     },
     {
       "id": "front-build",

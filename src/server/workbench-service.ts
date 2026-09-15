@@ -11,11 +11,13 @@ import {
   type Requirement,
   type WorkbenchSnapshot,
 } from '../domain/workbench'
+import { createAgentSessionHandoff } from './agent-handoff'
 import { loadTargetProjectConfig } from './config'
 import { exploreRequirement, workflowSteps } from './exploration'
 import { requirementStore } from './requirement-store'
 import { reconcileInterruptedExecution } from './workbench-execution'
 import { commitAcceptedCandidate } from './git-workspace'
+import { unstageDeliveryArtifacts, writeDeliveryArtifacts } from './delivery-artifacts'
 import {
   getTargetProcessSnapshot,
   startTargetProject,
@@ -94,6 +96,7 @@ export async function createRequirement(
     },
     validation: [],
     delivery: null,
+    agentSessionHandoff: null,
     evidence: [
       evidence(
         'project-adaptation',
@@ -319,6 +322,24 @@ export async function continueCurrentRefinement(rawInput: ContinueRefinementInpu
   return getWorkbenchSnapshot()
 }
 
+/** 生成并记录临时的 Agent 会话转接；它不属于前端交付 commit。 */
+export async function generateCurrentAgentHandoff(focus: string): Promise<WorkbenchSnapshot> {
+  const requirement = await requireCurrentRequirement()
+  if (requirement.codex.status === 'running') throw new Error('Codex 执行中不能生成会话转接')
+  const handoff = await createAgentSessionHandoff(requirement, focus)
+  await requirementStore.update((current) => {
+    if (!current || current.id !== requirement.id) throw new Error('生成转接期间活动需求已变化')
+    if (current.codex.status === 'running') throw new Error('生成转接期间 Codex 已开始执行')
+    return {
+      ...current,
+      agentSessionHandoff: handoff,
+      updatedAt: handoff.createdAt,
+      evidence: [...current.evidence, evidence(current.stage, focus, '调用本地 $handoff Skill 生成 Agent 会话转接', handoff.path)],
+    }
+  })
+  return getWorkbenchSnapshot()
+}
+
 /**
  * 对通过自动验证的候选实现执行产品验收。
  *
@@ -335,9 +356,6 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   }
   const configuredTarget = await loadTargetProjectConfig()
   const target = { ...configuredTarget, modificationScope: requirement.spec?.proposedScope ?? configuredTarget.modificationScope }
-  // 验收的副作用是“冻结候选实现”：先重查当前分支/范围，再创建稳定 commit。
-  // 只有 commit 成功后才会把 Requirement 写成 accepted，中途失败不会产生假验收。
-  const committed = await commitAcceptedCandidate(requirement, target)
   const acceptedAt = new Date().toISOString()
   const validation = requirement.validation.map((item) => item.source === 'product' && item.result === 'not-run' ? {
     ...item,
@@ -346,6 +364,19 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
     notRunReason: null,
     completedAt: acceptedAt,
   } : item)
+  const acceptedCandidate = { ...requirement, validation, metrics: { ...requirement.metrics, acceptedAt } }
+  // 先生成可审查文件，再与业务代码一起暂存提交。文件中的 revision 使用“承载本文件的
+  // commit”语义，避免把未知 hash 写进决定该 hash 的 tree 而形成自引用。
+  const artifacts = await writeDeliveryArtifacts(acceptedCandidate, target)
+  let committed: Awaited<ReturnType<typeof commitAcceptedCandidate>>
+  try {
+    committed = await commitAcceptedCandidate(acceptedCandidate, target)
+  } catch (error) {
+    // Git commit 失败时精确恢复交付文件，并保持 Requirement 在待验收阶段。
+    await unstageDeliveryArtifacts(target, artifacts.paths)
+    await artifacts.rollback()
+    throw error
+  }
   // Handoff 是前端审查的摘要，不是 PR 或发布单；所以只记录可审查事实，不执行 push/merge。
   const handoff = [
     `# Frontend Delivery Handoff · ${requirement.specId}`,
@@ -354,6 +385,7 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
     `- 分支：${committed.branch}`,
     `- 提交：${committed.revision}`,
     `- 改动文件：${committed.changedFiles.join(', ')}`,
+    `- 跟踪文件：${artifacts.paths.join(', ')}`,
     `- 验证：${validation.map((item) => `${item.criterion}=${item.result}`).join('；')}`,
     '- 责任边界：产品验收已完成；生产合并与发布仍由前端工程师负责。',
   ].join('\n')
@@ -361,7 +393,7 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
     ...requirement,
     stage: 'accepted',
     validation,
-    delivery: { ...committed, acceptedAt, handoff },
+    delivery: { ...committed, acceptedAt, handoff, artifactPaths: artifacts.paths },
     updatedAt: acceptedAt,
     metrics: { ...requirement.metrics, acceptedAt },
     evidence: [...requirement.evidence, evidence('accepted', '产品显式验收候选实现', '创建稳定提交并生成前端交付 Handoff', `${committed.branch} @ ${committed.revision.slice(0, 8)}`)],

@@ -162,6 +162,6 @@ function requirementFixture(requestedOutcome: string): Requirement {
       error: null,
     },
     validation: [],
-    delivery: null,
+    delivery: null, agentSessionHandoff: null,
   }
 }

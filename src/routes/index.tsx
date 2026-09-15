@@ -23,6 +23,7 @@ import {
   confirmPlan,
   continueRefinement,
   getWorkbench,
+  generateAgentHandoff,
   rerunVerification,
   executeRequirement,
   startTarget,
@@ -57,6 +58,7 @@ function WorkbenchPage() {
   const rerun = useServerFn(rerunVerification)
   const accept = useServerFn(acceptRequirement)
   const refine = useServerFn(continueRefinement)
+  const handoff = useServerFn(generateAgentHandoff)
 
   useEffect(() => setHydrated(true), [])
   // 轮询是最终收敛通道：即使 SSE 短暂断线，页面最多三秒后仍能恢复一致。
@@ -110,13 +112,18 @@ function WorkbenchPage() {
         <section className="panel workflow-panel" aria-label="产品需求与 SDD 状态">
           <PanelHeader index="01" title="产品需求" hint="Intent & SDD" />
           {requirement ? (
-            <RequirementSummary
+            <><RequirementSummary
               requirement={requirement}
               busyAction={busyAction}
               onAnalyze={() => runAction('analyze', (idempotencyKey) => analyze({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
               onConfirm={() => runAction('confirm', (idempotencyKey) => confirm({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
               onConfirmBoundary={() => runAction('boundary', (idempotencyKey) => confirmRisk({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
             />
+            {requirement.stage === 'accepted' ? <section className="next-requirement"><div className="section-label">Next Requirement</div><RequirementForm
+              busy={busyAction === 'create'}
+              ready={hydrated}
+              onSubmit={(nextRequirement) => runAction('create', (idempotencyKey) => create({ data: { idempotencyKey, requirement: nextRequirement } }) as Promise<WorkbenchSnapshot>)}
+            /></section> : null}</>
           ) : (
             <RequirementForm
               busy={busyAction === 'create'}
@@ -136,6 +143,7 @@ function WorkbenchPage() {
               busyAction={busyAction}
               onExecute={() => runAction('execute', (idempotencyKey) => execute({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
               onCancel={() => runAction('cancel', (idempotencyKey) => cancel({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
+              onHandoff={(focus) => runAction('handoff', (idempotencyKey) => handoff({ data: { idempotencyKey, handoff: { focus } } }) as Promise<WorkbenchSnapshot>)}
             />
           ) : <div className="empty-copy">建立产品需求后，这里会进入 grilling 需求追问。</div>}
           {requirement ? <ValidationPanel

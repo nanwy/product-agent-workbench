@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { assertContinueRefinementInput, assertCreateRequirementInput } from '../src/domain/workbench'
+import { assertContinueRefinementInput, assertCreateAgentHandoffInput, assertCreateRequirementInput } from '../src/domain/workbench'
 import { assertCanCreateRequirement, assertConfirmedScope, confirmGrillingAnswers } from '../src/server/workbench-service'
 
 const target = {
@@ -27,6 +27,12 @@ describe('product requirement boundaries', () => {
     expect(assertContinueRefinementInput({ requestedOutcome: ' 调整按钮文案 ' })).toEqual({ requestedOutcome: '调整按钮文案' })
     expect(() => assertContinueRefinementInput({ requestedOutcome: ' ' })).toThrow('具体的返修结果')
     expect(() => assertContinueRefinementInput({ requestedOutcome: 'x'.repeat(2001) })).toThrow('2000')
+  })
+
+  it('normalizes the Agent handoff focus without accepting unbounded content', () => {
+    expect(assertCreateAgentHandoffInput({ focus: ' ' })).toEqual({ focus: '继续当前产品需求' })
+    expect(assertCreateAgentHandoffInput({ focus: ' 下一轮修复验证 ' })).toEqual({ focus: '下一轮修复验证' })
+    expect(() => assertCreateAgentHandoffInput({ focus: 'x'.repeat(1001) })).toThrow('1000')
   })
 
   it('allows only the configured scope or a child directory', () => {

@@ -102,7 +102,8 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
       required: record.required ?? record.id !== 'product-acceptance',
       browserEvidence: record.browserEvidence ?? null,
     })),
-    delivery: requirement.delivery ?? null,
+    delivery: requirement.delivery ? { ...requirement.delivery, artifactPaths: requirement.delivery.artifactPaths ?? [] } : null,
+    agentSessionHandoff: requirement.agentSessionHandoff ?? null,
   }
 }
 

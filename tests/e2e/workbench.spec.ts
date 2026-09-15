@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -117,12 +117,44 @@ test('creates, restores, explores, previews, and confirms a product requirement'
   await expect(page.getByTestId('modification-rounds')).toHaveText(String(roundsBeforeRefinement + 1))
   expect(JSON.parse(await readFile(requirementPath, 'utf8')).refinements.at(-1).status).toBe('completed')
 
+  // 用失败的 pre-commit hook 证明 Git 提交失败时不会写入 accepted，也会回滚交付文件。
+  const failingHook = path.join(targetRoot, '.git/hooks/pre-commit')
+  await writeFile(failingHook, '#!/bin/sh\nexit 1\n')
+  await chmod(failingHook, 0o755)
+  await page.getByRole('button', { name: '通过产品验收' }).click()
+  await expect(page.getByRole('alert')).toBeVisible()
+  const afterFailedCommit = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(afterFailedCommit.stage).toBe('awaiting-product-acceptance')
+  expect(afterFailedCommit.delivery).toBeNull()
+  const artifactRoot = path.join(targetRoot, 'apps/front/.product-agent-workbench', afterFailedCommit.specId)
+  await expect(access(artifactRoot).then(() => true).catch(() => false)).resolves.toBe(false)
+  await rm(failingHook)
+
   await page.getByRole('button', { name: '通过产品验收' }).click()
   await expect(page.getByTestId('delivery-card')).toContainText('Frontend Delivery Handoff')
   await expect(page.getByTestId('delivery-card')).toContainText('apps/front/app/competition/page.tsx')
   await expect(page.getByLabel('协作指标')).not.toContainText('uncollected')
   const { stdout: commitSubject } = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: targetRoot })
   expect(commitSubject).toContain('SPEC-')
+  const acceptedRequirement = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(acceptedRequirement.delivery.artifactPaths).toHaveLength(4)
+  const { stdout: committedFiles } = await execFileAsync('git', ['show', '--pretty=', '--name-only', 'HEAD'], { cwd: targetRoot })
+  for (const artifact of acceptedRequirement.delivery.artifactPaths) expect(committedFiles).toContain(artifact)
+  const frontendHandoff = await readFile(path.join(targetRoot, acceptedRequirement.delivery.artifactPaths.find((source: string) => source.endsWith('frontend-delivery-handoff.md'))), 'utf8')
+  expect(frontendHandoff).toContain('Revision: the commit containing this file')
+  expect(frontendHandoff).toContain('产品验收确认候选实现符合产品意图')
+
+  // Agent 会话转接由 $handoff Skill 写入系统临时目录，页面名称和 Git 跟踪均与前端交付分离。
+  await page.getByRole('button', { name: '生成 Agent 会话转接' }).click()
+  await expect(page.getByTestId('agent-handoff-path')).toContainText('agent-session-handoff.md')
+  const withAgentHandoff = JSON.parse(await readFile(requirementPath, 'utf8'))
+  expect(withAgentHandoff.agentSessionHandoff.path.startsWith(os.tmpdir())).toBe(true)
+  expect(withAgentHandoff.agentSessionHandoff.path.startsWith(targetRoot)).toBe(false)
+  await expect(readFile(withAgentHandoff.agentSessionHandoff.path, 'utf8')).resolves.toContain('suggested skills')
+  const { stdout: trackedFiles } = await execFileAsync('git', ['ls-files'], { cwd: targetRoot })
+  expect(trackedFiles).not.toContain('agent-session-handoff.md')
+  await page.reload()
+  await expect(page.getByTestId('agent-handoff-path')).toContainText(withAgentHandoff.agentSessionHandoff.path)
 
   // Simulate a turn that started before the verification transition existed:
   // its persisted state says implementation is complete, but has no matrix yet.

@@ -1,7 +1,7 @@
 # TICKET-07 生成可审查交付文件并完成真实目标冒烟验收
 
 **Type:** AFK  
-**Status:** Blocked
+**Status:** Complete
 
 ## Parent
 
@@ -25,16 +25,26 @@ Handoff 文件不嵌入它所在 commit 的完整 hash，因为 commit hash 取�
 
 ## Acceptance criteria
 
-- [ ] 产品验收时生成可追踪的 Spec、Ticket 和 Frontend Delivery Handoff 文件，并与业务代码一起进入同一稳定候选提交。
-- [ ] 交付内容包含 Requirement/Spec 身份、需求分支、承载 commit 的 revision 语义、改动文件、diff 统计、执行票结果、验证矩阵、未验证项和责任边界。
-- [ ] Frontend Delivery Handoff 与业务代码位于同一个 commit；提交完成后 Requirement JSON 记录该 commit 的实际 hash，刷新或重启服务后仍可恢复。
-- [ ] 验收流程不 push、不创建 PR、不合并，页面明示“产品验收不等于生产批准”。
-- [ ] “Agent 会话转接”通过本地 `$handoff` Skill 在系统临时目录生成，不被纳入 Git commit。
-- [ ] UI 和领域模型使用两个明确名称，不把 Agent 会话转接文档称为 Frontend Delivery Handoff。
-- [ ] 使用真实 `Mysterious-Realm-v2 / front` 完成一次最小需求冒烟流程，并记录未能验证的外部边界，不伪造通过证据。
-- [ ] UI 探索和视觉确认使用 `agent-browser` 的 Accessibility Tree 和语义化引用；稳定回归使用 Playwright，不使用 Computer Use。
-- [ ] 新增的交付边界、Git 原子性、临时文件生命周期和 Skill 调用代码必须有简体中文注释；修改旧调用链时同步补齐相关边界注释。
-- [ ] 自动化测试覆盖交付文件生成、提交失败不写入 accepted、会话转接文件不入 Git 和重启恢复。
+- [x] 产品验收时生成可追踪的 Spec、Ticket 和 Frontend Delivery Handoff 文件，并与业务代码一起进入同一稳定候选提交。
+- [x] 交付内容包含 Requirement/Spec 身份、需求分支、承载 commit 的 revision 语义、改动文件、diff 统计、执行票结果、验证矩阵、未验证项和责任边界。
+- [x] Frontend Delivery Handoff 与业务代码位于同一个 commit；提交完成后 Requirement JSON 记录该 commit 的实际 hash，刷新或重启服务后仍可恢复。
+- [x] 验收流程不 push、不创建 PR、不合并，页面明示“产品验收不等于生产批准”。
+- [x] “Agent 会话转接”通过本地 `$handoff` Skill 在系统临时目录生成，不被纳入 Git commit。
+- [x] UI 和领域模型使用两个明确名称，不把 Agent 会话转接文档称为 Frontend Delivery Handoff。
+- [x] 使用真实 `Mysterious-Realm-v2 / front` 完成一次最小需求冒烟流程，并记录未能验证的外部边界，不伪造通过证据。
+- [x] UI 探索和视觉确认使用 `agent-browser` 的 Accessibility Tree 和语义化引用；稳定回归使用 Playwright，不使用 Computer Use。
+- [x] 新增的交付边界、Git 原子性、临时文件生命周期和 Skill 调用代码必须有简体中文注释；修改旧调用链时同步补齐相关边界注释。
+- [x] 自动化测试覆盖交付文件生成、提交失败不写入 accepted、会话转接文件不入 Git 和重启恢复。
+
+## Completion evidence
+
+- 真实 Requirement：`REQ-20260915-fb279080`；Spec：`SPEC-20260915-538da8c9`。
+- 真实目标分支：`product/spec-20260915-538da8c9-首页-china-标识补充无障碍文案`。
+- 候选实现 Session：`01a0a265-dad3-7db1-8906-5108ecde0c63`。
+- 同一交付提交：`28f965aef3d416afa8e928bf5c8d050bee2a9125`；未 push、未建 PR、未合并。
+- `/home` Accessibility Tree 确认 `CAPITAL_LOCK` 后出现 `国家：中国`；最终矩阵 12 项均为 `verified`，agent-browser 保存 68 个语义引用且无新增 console/page error。
+- Agent 会话转接生成于系统临时目录 `product-agent-handoff-*/agent-session-handoff.md`，来源为仓库内 `.agents/skills/handoff/SKILL.md`，未进入目标 Git 提交。
+- 工作台验证：`pnpm typecheck`、`pnpm build`、39 项 Vitest、1 项 Playwright E2E 全部通过。
 
 ## Blocked by
 

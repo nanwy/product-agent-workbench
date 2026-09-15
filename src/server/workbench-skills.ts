@@ -11,6 +11,7 @@ export const workbenchSkillNames = [
   'tdd',
   'setup-matt-pocock-skills',
   'codebase-design',
+  'handoff',
 ] as const
 
 export type WorkbenchSkillName = (typeof workbenchSkillNames)[number]

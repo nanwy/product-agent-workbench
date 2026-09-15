@@ -13,7 +13,13 @@ const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecution?: Promise<void> | null
   __workbenchExecutionStart?: Promise<void> | null
   __workbenchExecutionAbort?: AbortController | null
+  __workbenchExecutionHeartbeat?: ReturnType<typeof setInterval> | null
 }
+
+// Vite 开发态可能让后台 Server Function 与轮询请求落在不同模块实例中，后者看不到
+// 前者的内存 Promise。持久化心跳才是跨模块判断“执行仍活着”的共同事实。
+const EXECUTION_HEARTBEAT_INTERVAL_MS = 5_000
+const EXECUTION_HEARTBEAT_GRACE_MS = 15_000
 
 /**
  * 准备并启动当前 Requirement 的后台执行队列。
@@ -38,6 +44,10 @@ export async function reconcileInterruptedExecution() {
   const requirement = await requirementStore.load()
   if (!requirement || requirement.codex.status !== 'running') return requirement
   if (globalExecution.__workbenchExecution || hasActiveCodexTurn()) return requirement
+  // 刚启动或仍在写心跳的任务不能被另一个 SSR 模块实例误判为服务重启。只有共同
+  // 存储超过宽限期没有任何更新，才把不可恢复的内存进程状态降级为可重试失败态。
+  const lastHeartbeatAt = Date.parse(requirement.updatedAt)
+  if (Number.isFinite(lastHeartbeatAt) && Date.now() - lastHeartbeatAt < EXECUTION_HEARTBEAT_GRACE_MS) return requirement
   const reason = '工作台服务在 Codex 执行期间重启；原进程已不存在，可从当前 Session 继续'
   const interrupted = event('failed', reason)
   const recovered = await requirementStore.update((current) => {
@@ -115,6 +125,7 @@ async function prepareExecution() {
   })
   const abortController = new AbortController()
   globalExecution.__workbenchExecutionAbort = abortController
+  startExecutionHeartbeat(abortController.signal)
   // 请求只等待“启动完成”，长时间 Codex 队列留在后台，进度通过 JSON 快照 + SSE 展示。
   globalExecution.__workbenchExecution = executeQueue(abortController.signal)
     .catch(async (error) => {
@@ -122,9 +133,36 @@ async function prepareExecution() {
       if (current.codex.status !== 'cancelled') await recordExecutionFailure(error instanceof Error ? error.message : String(error))
     })
     .finally(() => {
+      stopExecutionHeartbeat()
       globalExecution.__workbenchExecution = null
       globalExecution.__workbenchExecutionAbort = null
     })
+}
+
+/**
+ * 在 Codex 沉默执行长命令时刷新持久化时间戳。
+ *
+ * 心跳不写证据事件，避免污染用户可读时间线；它只更新 `updatedAt`，供其他服务端
+ * 模块实例区分“正常运行但暂时没有 JSONL”与“Node 进程已经重启”。
+ */
+function startExecutionHeartbeat(signal: AbortSignal) {
+  stopExecutionHeartbeat()
+  const heartbeat = setInterval(() => {
+    void requirementStore.update((current) => {
+      if (!current) throw new Error('产品需求已不存在')
+      if (current.codex.status !== 'running') return current
+      return { ...current, updatedAt: new Date().toISOString() }
+    }).catch(() => undefined)
+  }, EXECUTION_HEARTBEAT_INTERVAL_MS)
+  heartbeat.unref()
+  globalExecution.__workbenchExecutionHeartbeat = heartbeat
+  signal.addEventListener('abort', stopExecutionHeartbeat, { once: true })
+}
+
+/** 停止当前进程拥有的执行心跳；重复调用安全。 */
+function stopExecutionHeartbeat() {
+  if (globalExecution.__workbenchExecutionHeartbeat) clearInterval(globalExecution.__workbenchExecutionHeartbeat)
+  globalExecution.__workbenchExecutionHeartbeat = null
 }
 
 /**

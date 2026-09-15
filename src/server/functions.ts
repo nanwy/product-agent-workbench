@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 
-import { assertContinueRefinementInput, assertCreateRequirementInput, type ContinueRefinementInput, type CreateRequirementInput } from '../domain/workbench'
+import { assertContinueRefinementInput, assertCreateAgentHandoffInput, assertCreateRequirementInput, type ContinueRefinementInput, type CreateAgentHandoffInput, type CreateRequirementInput } from '../domain/workbench'
 import { runIdempotentMutation } from './idempotency'
 import {
   analyzeCurrentRequirement,
@@ -9,6 +9,7 @@ import {
   confirmCurrentGrilling,
   confirmCurrentPlan,
   continueCurrentRefinement,
+  generateCurrentAgentHandoff,
   createRequirement,
   getWorkbenchSnapshot,
   startConfiguredTarget,
@@ -21,6 +22,7 @@ type MutationInput = { idempotencyKey: string }
 type RequirementMutationInput = MutationInput & { requirement: CreateRequirementInput }
 type GrillingMutationInput = MutationInput & { answers: Record<string, string> }
 type RefinementMutationInput = MutationInput & { refinement: ContinueRefinementInput }
+type AgentHandoffMutationInput = MutationInput & { handoff: CreateAgentHandoffInput }
 
 /**
  * 校验所有写请求共有的输入。
@@ -208,3 +210,13 @@ export const acceptRequirement = createServerFn({ method: 'POST' }).validator(mu
 export const continueRefinement = createServerFn({ method: 'POST' })
   .validator((input: RefinementMutationInput) => ({ ...mutationInput(input), refinement: assertContinueRefinementInput(input.refinement) }))
   .handler(({ data }) => runIdempotentMutation('continue-refinement', data.idempotencyKey, getWorkbenchSnapshot, () => continueCurrentRefinement(data.refinement)))
+
+/**
+ * 通过仓库内 `$handoff` Skill 生成临时的 Agent 会话转接文件。
+ *
+ * 该动作不写目标仓库，也不创建 Frontend Delivery Handoff；服务端只接受转接焦点，
+ * 输出路径由系统临时目录生成，调用方不能指定任意文件位置。
+ */
+export const generateAgentHandoff = createServerFn({ method: 'POST' })
+  .validator((input: AgentHandoffMutationInput) => ({ ...mutationInput(input), handoff: assertCreateAgentHandoffInput(input.handoff) }))
+  .handler(({ data }) => runIdempotentMutation('generate-agent-handoff', data.idempotencyKey, getWorkbenchSnapshot, () => generateCurrentAgentHandoff(data.handoff.focus)))

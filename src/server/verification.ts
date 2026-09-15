@@ -6,7 +6,7 @@ import type { Requirement, TargetProjectConfig, ValidationCommand, ValidationRec
 import { loadTargetProjectConfig } from './config'
 import { changedFilesSince, filesOutsideScope } from './git-workspace'
 import { requirementStore } from './requirement-store'
-import { getTargetProcessSnapshot, startTargetProject } from './target-runtime'
+import { getTargetProcessSnapshot, startTargetProject, stopTargetProject } from './target-runtime'
 
 /**
  * 第五票的验证编排入口。
@@ -29,14 +29,27 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
 
   const target = await loadTargetProjectConfig()
   const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
-  // 机器证据串行生成：配置命令、Git 边界、健康端点、真实路由和 agent-browser。
-  // 串行使页面展示顺序稳定，也避免多个重型构建命令抢占同一仓库。
+  // 机器证据串行生成。先跑不依赖服务的 typecheck/build，再启动运行时并跑 HTTP
+  // 集成检查，避免 next build 与 next dev 同时写同一个 `.next` 目录。
   const records: ValidationRecord[] = []
-  for (const command of target.validationCommands ?? []) records.push(await runValidationCommand(command, target, signal))
-  const scopeRecord = await validateScope(requirement.branch.baseRevision, scopedTarget)
-  records.push(scopeRecord)
+  const commands = target.validationCommands ?? []
+  const commandRecords = new Map<string, ValidationRecord>()
+  const processBeforeValidation = getTargetProcessSnapshot(target)
+  if (processBeforeValidation.status === 'ready' && processBeforeValidation.ownership === 'workbench') {
+    await stopTargetProject(target)
+  }
+  for (const command of commands.filter((item) => !item.requiresRuntime)) {
+    commandRecords.set(command.id, await runValidationCommand(command, target, signal))
+  }
   // 候选实现完成后由宿主确保运行时就绪；执行 Agent 无需在沙箱中监听端口或操作浏览器。
   if (!signal?.aborted && getTargetProcessSnapshot(target).status !== 'ready') await startTargetProject(target)
+  for (const command of commands.filter((item) => item.requiresRuntime)) {
+    commandRecords.set(command.id, await runValidationCommand(command, target, signal))
+  }
+  // UI 仍按配置顺序展示，运行依赖只是编排事实，不改变验证矩阵的阅读顺序。
+  for (const command of commands) records.push(commandRecords.get(command.id)!)
+  const scopeRecord = await validateScope(requirement.branch.baseRevision, scopedTarget)
+  records.push(scopeRecord)
   await captureFirstPreviewMetric(target)
   records.push(await validateHealth(target))
   records.push(await validateRuntime(requirement.targetPage, target))
@@ -147,17 +160,16 @@ async function validateHealth(target: TargetProjectConfig): Promise<ValidationRe
   }
 }
 
-async function validateRuntime(targetPage: string, target: TargetProjectConfig): Promise<ValidationRecord> {
-  const snapshot = getTargetProcessSnapshot(target)
-  if (snapshot.status !== 'ready') return record({
-    id: 'runtime-preview', criterionId: null, criterion: `目标页面 ${targetPage} 可访问`, required: true, result: 'not-run', source: 'runtime',
-    detail: '目标项目尚未就绪，可启动后重跑验证', notRunReason: '目标运行时未就绪',
-  })
+export async function validateRuntime(targetPage: string, target: TargetProjectConfig): Promise<ValidationRecord> {
+  // 可访问性必须以真实 HTTP 响应为准。Vite 开发态的不同 Server Function 模块实例
+  // 可能不共享内存中的 ChildProcess 状态；用 snapshot 作前置条件会出现“页面已打开，
+  // 矩阵却写 not-run”的假阴性。
+  const targetUrl = new URL(targetPage, target.previewUrl).toString()
   try {
-    const response = await fetch(new URL(targetPage, snapshot.gatewayUrl), { signal: AbortSignal.timeout(5000) })
+    const response = await fetch(targetUrl, { signal: AbortSignal.timeout(5000) })
     return record({
       id: 'runtime-preview', criterionId: null, criterion: `目标页面 ${targetPage} 可访问`, required: true, result: response.ok ? 'verified' : 'failed', source: 'runtime',
-      detail: `HTTP ${response.status} ${response.statusText}`,
+      detail: `HTTP ${response.status} ${response.statusText}`, command: `GET ${targetUrl}`,
     })
   } catch (error) {
     return record({
@@ -176,15 +188,10 @@ async function validateRuntime(targetPage: string, target: TargetProjectConfig):
  */
 export async function runAgentBrowserValidation(targetPage: string, target: TargetProjectConfig, signal?: AbortSignal): Promise<ValidationRecord> {
   const startedAt = new Date().toISOString()
-  const snapshot = getTargetProcessSnapshot(target)
   const viewport = { width: 1440, height: 900 }
-  const targetUrl = snapshot.gatewayUrl ? new URL(targetPage, snapshot.gatewayUrl).toString() : new URL(targetPage, target.previewUrl).toString()
-  if (snapshot.status !== 'ready') return record({
-    id: 'agent-browser-route', criterionId: null, criterion: `agent-browser 验证 ${targetPage}`, required: true,
-    result: 'not-run', source: 'browser', detail: '目标运行时未就绪，未启动浏览器探索',
-    command: `agent-browser open ${targetUrl}`, startedAt, completedAt: new Date().toISOString(),
-    notRunReason: 'environment: 目标运行时未就绪',
-  })
+  // agent-browser 不需要 iframe 网关，直接访问显式配置的目标地址。是否可访问由 open
+  // 的退出码证明，不依赖当前模块实例是否持有启动该服务的 ChildProcess。
+  const targetUrl = new URL(targetPage, target.previewUrl).toString()
 
   const executable = process.env.WORKBENCH_AGENT_BROWSER_COMMAND ?? 'agent-browser'
   const session = `workbench-${randomUUID().slice(0, 8)}`
@@ -204,7 +211,8 @@ export async function runAgentBrowserValidation(targetPage: string, target: Targ
     if (failedStep) return browserNotRun(failedStep, targetUrl, viewport, startedAt)
 
     const accessibilityTree = treeResult.output.slice(-4000)
-    const semanticRefs = [...new Set(accessibilityTree.match(/@e\d+/g) ?? [])].slice(0, 100)
+    // agent-browser 文本模式使用 @e1，JSON 模式使用 `[ref=e1]`；统一成 UI 可复用的 @eN。
+    const semanticRefs = [...new Set([...accessibilityTree.matchAll(/(?:@|ref=)(e\d+)/g)].map((match) => `@${match[1]}`))].slice(0, 100)
     const consoleErrors = extractBrowserErrors(pageErrors.output, consoleOutput.output)
     return record({
       id: 'agent-browser-route', criterionId: null, criterion: `agent-browser 验证 ${targetPage}`, required: true,
@@ -255,6 +263,9 @@ function extractBrowserErrors(pageErrors: string, consoleOutput: string) {
   const candidates = `${pageErrors}\n${consoleOutput}`.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   return [...new Set(candidates.filter((line) => {
     if (/no (page |console )?errors?|"errors"\s*:\s*\[\]/i.test(line)) return false
+    // 严格 CSP 会阻止 React 开发态为调试堆栈调用 eval；React 自己说明生产模式不会
+    // 使用它。生产 build 已由独立门禁覆盖，因此这条框架诊断不是候选实现新增错误。
+    if (/eval\(\) is not supported in this environment[\s\S]*React will never use eval\(\) in production mode/i.test(line)) return false
     return /(\[error\]|"type"\s*:\s*"error"|pageerror|console\.error|uncaught|unhandled)/i.test(line)
   }))].slice(0, 20)
 }
