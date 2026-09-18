@@ -15,9 +15,13 @@ import {
   retryCurrentGrilling,
   cancelCurrentGrilling,
   cancelCurrentSpec,
+  cancelCurrentTickets,
   confirmCurrentSpec,
+  confirmCurrentTickets,
   replyToCurrentSpec,
+  replyToCurrentTickets,
   retryCurrentSpec,
+  retryCurrentTickets,
   reviseCurrentUnderstanding,
   startConfiguredTarget,
   stopConfiguredTarget,
@@ -112,6 +116,27 @@ export const confirmSpec = createServerFn({ method: 'POST' })
 export const reviseUnderstanding = createServerFn({ method: 'POST' })
   .validator((input: GrillingReplyMutationInput) => ({ ...mutationInput(input), reply: input.reply }))
   .handler(({ data }) => runIdempotentMutation('revise-understanding', data.idempotencyKey, getWorkbenchSnapshot, () => reviseCurrentUnderstanding(data.reply)))
+
+/** 同一 composer 的 to-tickets 动作：修订、重试、取消和按版本确认。 */
+export const replyTickets = createServerFn({ method: 'POST' })
+  .validator((input: GrillingReplyMutationInput) => ({ ...mutationInput(input), reply: input.reply }))
+  .handler(({ data }) => runIdempotentMutation('reply-tickets', data.idempotencyKey, getWorkbenchSnapshot, () => replyToCurrentTickets(data.reply)))
+
+export const retryTickets = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('retry-tickets', data.idempotencyKey, getWorkbenchSnapshot, retryCurrentTickets),
+)
+
+export const cancelTickets = createServerFn({ method: 'POST' }).validator(mutationInput).handler(({ data }) =>
+  runIdempotentMutation('cancel-tickets', data.idempotencyKey, getWorkbenchSnapshot, cancelCurrentTickets),
+)
+
+export const confirmTickets = createServerFn({ method: 'POST' })
+  .validator((input: SpecConfirmMutationInput) => {
+    mutationInput(input)
+    if (!input.versionId?.trim()) throw new Error('缺少要确认的 Tickets 版本')
+    return input
+  })
+  .handler(({ data }) => runIdempotentMutation('confirm-tickets', data.idempotencyKey, getWorkbenchSnapshot, () => confirmCurrentTickets(data.versionId)))
 
 /**
  * 确认候选 Spec 和执行票。

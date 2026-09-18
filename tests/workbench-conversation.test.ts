@@ -140,7 +140,7 @@ function fixtureRequirement(): Requirement {
     id: 'REQ-1', specId: 'SPEC-1', title: '优化登录', targetPage: '/sign-in', requestedOutcome: '手机号登录', stage: 'intent-drafting',
     createdAt: now, updatedAt: now, modificationRounds: 0, metrics: { firstPreviewAt: null, acceptedAt: null }, refinements: [],
     grilling: { status: 'pending', questions: [], confirmedAt: null }, conversation: createWorkbenchConversation('REQ-1', now),
-    spec: null, specVersions: [], activeSpecVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [], targetSnapshot: target,
+    spec: null, specVersions: [], activeSpecVersionId: null, ticketVersions: [], activeTicketVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [], targetSnapshot: target,
     processFacts: { status: 'stopped', ownership: 'none', pid: null, command: '', healthUrl: target.healthUrl, previewUrl: target.previewUrl, gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },
     branch: null, codex: { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null }, validation: [], delivery: null, agentSessionHandoff: null,
   }

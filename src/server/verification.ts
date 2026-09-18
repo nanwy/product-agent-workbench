@@ -57,8 +57,10 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
   records.push(browserRecord)
   // Spec 的字符串顺序在确认后冻结，因此由 specId + 序号形成稳定条件 ID。
   // 每条条件单独映射到最贴近的机器证据，不能用一条“页面可访问”覆盖全部产品行为。
-  if (requirement.spec) {
-    records.push(...requirement.spec.acceptanceCriteria.map((criterion, index) =>
+  const confirmedSpec = requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId && version.status === 'confirmed')
+  const criteria = confirmedSpec?.document.testingDecisions ?? requirement.spec?.acceptanceCriteria ?? []
+  if (criteria.length) {
+    records.push(...criteria.map((criterion, index) =>
       criterionRecord(criterion, index, scopeRecord, browserRecord, requirement),
     ))
   }
@@ -82,6 +84,16 @@ export async function verifyCurrentRequirement(signal?: AbortSignal) {
       ...current,
       stage: blocking ? 'verification' : 'awaiting-product-acceptance',
       validation: records,
+      conversation: {
+        ...current.conversation,
+        messages: [...current.conversation.messages, {
+          id: randomUUID(), role: 'system' as const, phase: 'implement' as const,
+          status: 'completed' as const, recordedAt: now,
+          segments: [{ id: randomUUID(), type: 'activity' as const, label: blocking ? '验证未通过' : '自动验证已通过',
+            detail: records.map((item) => `${item.criterion}: ${item.result}${item.notRunReason ? `（${item.notRunReason}）` : ''}`).join('\n'),
+            status: blocking ? 'failed' as const : 'completed' as const }],
+        }],
+      },
       updatedAt: now,
       evidence: [...current.evidence, {
         stage: blocking ? 'verification' : 'awaiting-product-acceptance',

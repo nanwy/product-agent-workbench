@@ -30,6 +30,12 @@ export type ExecutionTicket = {
   title: string
   status: 'queued' | 'active' | 'completed' | 'blocked'
   acceptanceCriteria: string[]
+  /** 只记录真实依赖边；执行阶段仍按依赖顺序串行消费 tickets。 */
+  blockedBy?: string[]
+  /** 用户可以独立观察或验证的端到端交付行为。 */
+  deliverable?: string
+  /** 工作台数据目录中的本地票据文件，不指向目标项目。 */
+  path?: string
 }
 
 export type ResolvedRule = {
@@ -81,6 +87,7 @@ export type ConversationSegment =
   | { id: string; type: 'activity'; label: string; detail: string; status: 'running' | 'completed' | 'failed' }
   | { id: string; type: 'gate'; label: string; detail: string }
   | { id: string; type: 'spec'; versionId: string }
+  | { id: string; type: 'tickets'; versionId: string }
 
 export type ConversationMessage = {
   id: string
@@ -190,6 +197,26 @@ export type SpecVersion = {
   document: SpecDocument
 }
 
+export type TicketDraft = {
+  id: string
+  title: string
+  blockedBy: string[]
+  deliverable: string
+  acceptanceCriteria: string[]
+  path: string
+}
+
+/** 一次 Tickets Turn 的不可变快照；新版本只会使旧版本失效，不覆盖旧文件。 */
+export type TicketVersion = {
+  id: string
+  version: number
+  status: 'draft' | 'confirmed' | 'superseded'
+  directory: string
+  createdAt: string
+  confirmedAt: string | null
+  tickets: TicketDraft[]
+}
+
 export type Requirement = {
   // 聚合根同时承载产品契约、执行进度和交付证据，避免多个文件各自维护一套状态机。
   id: string
@@ -212,6 +239,8 @@ export type Requirement = {
   // 草稿永不覆盖：新版本产生后，旧草稿保留并标记 superseded。
   specVersions: SpecVersion[]
   activeSpecVersionId: string | null
+  ticketVersions: TicketVersion[]
+  activeTicketVersionId: string | null
   tickets: ExecutionTicket[]
   rules: ResolvedRule[]
   workflow: WorkflowStep[]

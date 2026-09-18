@@ -55,7 +55,7 @@ function fixtureRequirement(): Requirement {
     modificationRounds: 0, metrics: { firstPreviewAt: null, acceptedAt: null }, refinements: [],
     grilling: { status: 'confirmed', questions: [], confirmedAt: now },
     conversation: { id: 'CONVERSATION-REQ-1', phase: 'to-spec', status: 'running', planningThreadId: 'thread-1', implementationThreadId: null, activeSkill: 'to-spec', understanding: { summary: '摘要', desiredOutcome: '文案更明确', changeBoundary: 'apps/front', acceptanceSignal: '预览可见' }, pendingUnderstandingRevision: null, turnReadyForConfirmation: false, messages: [{ id: 'assistant', role: 'assistant', phase: 'to-spec', status: 'streaming', recordedAt: now, segments: [] }], error: null },
-    spec: null, specVersions: [], activeSpecVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
+    spec: null, specVersions: [], activeSpecVersionId: null, ticketVersions: [], activeTicketVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
     targetSnapshot: { name: 'Fixture', repositoryRoot: '/tmp/fixture', modificationScope: 'apps/front', startCommand: { command: 'pnpm', args: [] }, healthUrl: 'http://127.0.0.1:1', previewUrl: 'http://127.0.0.1:1', previewGatewayPort: 4174, startupTimeoutMs: 1000 },
     processFacts: { status: 'stopped', ownership: 'none', pid: null, command: '', healthUrl: '', previewUrl: '', gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },
     branch: null, codex: { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null }, validation: [], delivery: null, agentSessionHandoff: null,

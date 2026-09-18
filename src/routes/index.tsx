@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  AgentConsole,
   EvidenceTimeline,
   ConversationPanel,
   HistoricalRequirementRecord,
@@ -23,18 +22,20 @@ import {
   cancelExecution,
   cancelGrilling,
   cancelSpec,
+  cancelTickets,
   confirmBoundary,
   confirmGrilling,
   confirmSpec,
+  confirmTickets,
   confirmPlan,
   continueRefinement,
   getWorkbench,
-  generateAgentHandoff,
   replyGrilling,
   replySpec,
+  replyTickets,
   retryGrilling,
   retrySpec,
-  reviseUnderstanding,
+  retryTickets,
   rerunVerification,
   executeRequirement,
   startTarget,
@@ -76,7 +77,10 @@ function WorkbenchPage() {
   const retryCurrentSpec = useServerFn(retrySpec);
   const stopSpec = useServerFn(cancelSpec);
   const confirmCurrentSpec = useServerFn(confirmSpec);
-  const reviseUnderstandingFromTickets = useServerFn(reviseUnderstanding);
+  const replyToTickets = useServerFn(replyTickets);
+  const retryCurrentTickets = useServerFn(retryTickets);
+  const stopTickets = useServerFn(cancelTickets);
+  const confirmCurrentTickets = useServerFn(confirmTickets);
   const confirm = useServerFn(confirmPlan);
   const confirmRisk = useServerFn(confirmBoundary);
   const start = useServerFn(startTarget);
@@ -86,7 +90,6 @@ function WorkbenchPage() {
   const rerun = useServerFn(rerunVerification);
   const accept = useServerFn(acceptRequirement);
   const refine = useServerFn(continueRefinement);
-  const handoff = useServerFn(generateAgentHandoff);
   const queryClient = useQueryClient();
   const snapshotQuery = useQuery({
     queryKey: workbenchQueryKeys.snapshot,
@@ -256,21 +259,42 @@ function WorkbenchPage() {
         "to-tickets": {
           reply: (reply) =>
             runAction(
-              "understanding-reply",
+              "tickets-reply",
               (idempotencyKey) =>
-                reviseUnderstandingFromTickets({
+                replyToTickets({
                   data: { idempotencyKey, reply },
                 }) as Promise<WorkbenchSnapshot>,
             ),
-          confirm: unavailable,
-          retry: unavailable,
-          cancel: unavailable,
+          confirm: () =>
+            runAction(
+              "tickets-confirm",
+              (idempotencyKey) =>
+                confirmCurrentTickets({
+                  data: {
+                    idempotencyKey,
+                    versionId: requirement.activeTicketVersionId ?? "",
+                  },
+                }) as Promise<WorkbenchSnapshot>,
+            ),
+          retry: () =>
+            runAction(
+              "tickets-retry",
+              (idempotencyKey) =>
+                retryCurrentTickets({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>,
+            ),
+          cancel: () =>
+            runAction(
+              "tickets-cancel",
+              (idempotencyKey) =>
+                stopTickets({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>,
+            ),
         },
         implement: {
-          reply: unavailable,
+          reply: (reply) => runAction('implement-reply', (idempotencyKey) =>
+            refine({ data: { idempotencyKey, refinement: { requestedOutcome: reply } } }) as Promise<WorkbenchSnapshot>),
           confirm: unavailable,
-          retry: unavailable,
-          cancel: unavailable,
+          retry: () => runAction('execute', (idempotencyKey) => execute({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>),
+          cancel: () => runAction('cancel', (idempotencyKey) => cancel({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>),
         },
       }
     : null;
@@ -411,41 +435,9 @@ function WorkbenchPage() {
                 onCancel={
                   conversationActions![requirement.conversation.phase].cancel
                 }
+                onStart={() => runAction('execute', (idempotencyKey) =>
+                  execute({ data: { idempotencyKey } }) as Promise<WorkbenchSnapshot>)}
               />
-              {requirement.conversation.phase === "implement" ? (
-                <AgentConsole
-                  requirement={requirement}
-                  busyAction={busyAction}
-                  readOnly={viewingHistory}
-                  onExecute={() =>
-                    runAction(
-                      "execute",
-                      (idempotencyKey) =>
-                        execute({
-                          data: { idempotencyKey },
-                        }) as Promise<WorkbenchSnapshot>,
-                    )
-                  }
-                  onCancel={() =>
-                    runAction(
-                      "cancel",
-                      (idempotencyKey) =>
-                        cancel({
-                          data: { idempotencyKey },
-                        }) as Promise<WorkbenchSnapshot>,
-                    )
-                  }
-                  onHandoff={(focus) =>
-                    runAction(
-                      "handoff",
-                      (idempotencyKey) =>
-                        handoff({
-                          data: { idempotencyKey, handoff: { focus } },
-                        }) as Promise<WorkbenchSnapshot>,
-                    )
-                  }
-                />
-              ) : null}
             </>
           ) : (
             <div className="empty-copy">
@@ -474,18 +466,6 @@ function WorkbenchPage() {
                   (idempotencyKey) =>
                     accept({
                       data: { idempotencyKey },
-                    }) as Promise<WorkbenchSnapshot>,
-                )
-              }
-              onRefine={(requestedOutcome) =>
-                runAction(
-                  "refine",
-                  (idempotencyKey) =>
-                    refine({
-                      data: {
-                        idempotencyKey,
-                        refinement: { requestedOutcome },
-                      },
                     }) as Promise<WorkbenchSnapshot>,
                 )
               }

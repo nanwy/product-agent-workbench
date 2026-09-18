@@ -136,6 +136,8 @@ function requirementFixture(requestedOutcome: string): Requirement {
     spec: null,
     specVersions: [],
     activeSpecVersionId: null,
+    ticketVersions: [],
+    activeTicketVersionId: null,
     tickets: [],
     rules: [],
     workflow: [],

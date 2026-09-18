@@ -102,6 +102,31 @@ if (prompt.includes('Product Agent Workbench 的 to-spec 阶段')) {
   console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
   process.exit(0)
 }
+if (prompt.includes('Product Agent Workbench 的 to-tickets 阶段')) {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: fixtureSessionId }))
+  const failTicketsMarker = path.join(os.tmpdir(), 'product-agent-workbench-fail-tickets')
+  if (await stat(failTicketsMarker).then(() => true).catch(() => false)) {
+    await rm(failTicketsMarker, { force: true })
+    console.log(JSON.stringify({ type: 'turn.failed', error: { message: 'fixture Tickets failure' } }))
+    process.exit(2)
+  }
+  const slowTicketsMarker = path.join(os.tmpdir(), 'product-agent-workbench-slow-tickets')
+  if (await stat(slowTicketsMarker).then(() => true).catch(() => false)) {
+    await rm(slowTicketsMarker, { force: true })
+    console.log(JSON.stringify({ type: 'item.delta', item: { id: 'tickets-message', type: 'agent_message', text: '正在重新拆分 Tickets，已保留当前修订上下文。' } }))
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+  }
+  const revised = prompt.includes('用户对当前 Tickets 的修订要求')
+  const tickets = revised ? [
+    { id: 'TICKET-01', title: '交付明确空状态', blockedBy: [], deliverable: '用户在赛事页看到明确状态和下一步引导', acceptanceCriteria: ['真实预览显示新文案', '页面没有新增控制台错误'] },
+    { id: 'TICKET-02', title: '验证保留现有结构', blockedBy: ['TICKET-01'], deliverable: '既有页面结构和交互保持可用', acceptanceCriteria: ['现有交互仍可使用'] },
+  ] : [
+    { id: 'TICKET-01', title: '交付赛事页空状态引导', blockedBy: [], deliverable: '用户能理解当前状态和下一步操作', acceptanceCriteria: ['真实预览显示新文案', '页面没有新增控制台错误'] },
+  ]
+  console.log(JSON.stringify({ type: 'item.completed', item: { id: 'tickets-message', type: 'agent_message', text: `Tickets 已按依赖顺序整理。\n[WORKBENCH:TICKETS]${JSON.stringify({ tickets })}[/WORKBENCH:TICKETS]` } }))
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } }))
+  process.exit(0)
+}
 const ticket = prompt.match(/当前执行票 (TICKET-\d+)/)?.[1] ?? 'TICKET-UNKNOWN'
 const sessionId = fixtureSessionId
 
@@ -152,7 +177,10 @@ async function runAppServer() {
     }
     if (request.method === 'initialized') continue
     if (request.method === 'thread/start') {
-      threadId = '00000000-0000-4000-8000-000000000001'
+      // E2E 的实现根是 apps/front；保证它和规划根创建不同的真实 Thread ID。
+      threadId = request.params.cwd.endsWith(path.join('apps', 'front'))
+        ? '00000000-0000-4000-8000-000000000002'
+        : '00000000-0000-4000-8000-000000000001'
       resumed = false
       respond(request.id, { thread: { id: threadId } })
       continue
@@ -271,6 +299,10 @@ function runExecFixture(params, threadId, turnId, resumed, notify) {
       return
     }
     if (event.type.startsWith('item.')) {
+      if (event.type === 'item.delta' && event.item?.type === 'agent_message' && event.item.text) {
+        notify('item/agentMessage/delta', { threadId, turnId, itemId: event.item.id, delta: event.item.text })
+        return
+      }
       if (event.type === 'item.completed' && event.item?.type === 'agent_message' && event.item.text) {
         const boundary = Math.min(5, event.item.text.length)
         pendingAgentDeliveries += 1

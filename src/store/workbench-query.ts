@@ -1,6 +1,6 @@
 import { QueryClient, type QueryClientConfig } from '@tanstack/react-query'
 
-import type { ConversationMessage, Requirement, SpecVersion, WorkbenchSnapshot } from '../domain/workbench'
+import type { ConversationMessage, Requirement, SpecVersion, TicketVersion, WorkbenchSnapshot } from '../domain/workbench'
 import type { AgentStreamBatch } from '../server/agent-events'
 
 export const workbenchQueryKeys = {
@@ -13,6 +13,7 @@ export type ConversationProjection = {
   messageIds: string[]
   messagesById: Record<string, ConversationMessage>
   specVersionsById: Record<string, SpecVersion>
+  ticketVersionsById: Record<string, TicketVersion>
   lastSequenceByTurn: Record<string, number>
   revision: string
 }
@@ -91,6 +92,12 @@ export function projectConversation(
       return [version.id, existing && sameValue(existing, version) ? existing : version]
     }),
   )
+  const ticketVersionsById = Object.fromEntries(
+    requirement.ticketVersions.map((version) => {
+      const existing = previous?.ticketVersionsById?.[version.id]
+      return [version.id, existing && sameValue(existing, version) ? existing : version]
+    }),
+  )
   const nextIds = requirement.conversation.messages.map(({ id }) => id)
   const messageIds = previous && sameStringArray(previous.messageIds, nextIds)
     ? previous.messageIds
@@ -100,6 +107,7 @@ export function projectConversation(
     messageIds,
     messagesById,
     specVersionsById,
+    ticketVersionsById,
     lastSequenceByTurn: previous?.lastSequenceByTurn ?? {},
     revision: newerRevision(previous?.revision, requirement.updatedAt),
   }

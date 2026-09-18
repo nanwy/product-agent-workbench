@@ -164,6 +164,10 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .spec-artifact summary { cursor: pointer; padding: 8px 12px; color: var(--ink-soft); font-size: 10px; font-weight: 700; }
 .spec-artifact details > p, .spec-artifact details > ol { margin: 0; padding: 0 12px 10px 30px; color: var(--ink-soft); font-size: 10px; line-height: 1.55; }
 .spec-artifact details > p { padding-left: 12px; }
+.ticket-artifact-body { padding: 0 12px 10px; color: var(--ink-soft); font-size: 10px; line-height: 1.55; }
+.ticket-artifact-body p { margin: 5px 0; }
+.ticket-artifact-body > p > code { font-size: 9px; }
+.ticket-artifact-body ol { margin: 7px 0 0; padding-left: 18px; }
 .streaming-caret { display: inline-block; width: 6px; height: 12px; margin: 4px 0 0 4px; background: var(--accent); animation: blink 850ms steps(1) infinite; }
 .return-to-bottom { position: absolute; right: 8px; bottom: 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-raised); padding: 6px 9px; box-shadow: 0 4px 14px oklch(0.2 0.02 255 / 0.1); color: var(--ink-soft); cursor: pointer; font-size: 9px; }
 .conversation-composer { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }

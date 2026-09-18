@@ -38,6 +38,14 @@ import {
   renderSpecMarkdown,
   stripSpecProtocol,
 } from "./workbench-spec";
+import {
+  buildTicketsPrompt,
+  confirmTicketVersion,
+  nextTicketVersionIdentity,
+  parseTicketsArtifact,
+  recordTicketVersion,
+  stripTicketsProtocol,
+} from "./workbench-tickets";
 import { commitAcceptedCandidate } from "./git-workspace";
 import {
   unstageDeliveryArtifacts,
@@ -52,6 +60,7 @@ import {
 // 开发期热更新后仍保留规划 Turn 生命周期，避免取消/重试落到不同模块实例而产生并发 Turn。
 const globalPlanning = globalThis as typeof globalThis & {
   __workbenchPlanningTurn?: Promise<void> | null;
+  __workbenchPlanningFlush?: (() => Promise<void>) | null;
 };
 
 /**
@@ -114,6 +123,8 @@ export async function createRequirement(
     spec: null,
     specVersions: [],
     activeSpecVersionId: null,
+    ticketVersions: [],
+    activeTicketVersionId: null,
     tickets: [],
     rules: [],
     workflow: workflowSteps(false),
@@ -199,35 +210,7 @@ export async function retryCurrentGrilling(): Promise<WorkbenchSnapshot> {
 
 /** 取消活动的规划 Turn；SDK AbortSignal 会负责回收其子进程。 */
 export async function cancelCurrentGrilling(): Promise<WorkbenchSnapshot> {
-  const now = new Date().toISOString();
-  let shouldCancel = false;
-  await requirementStore.update((current) => {
-    if (!current) throw new Error("请先创建产品需求");
-    if (
-      current.conversation.phase !== "grilling" ||
-      current.conversation.status !== "running"
-    )
-      return current;
-    shouldCancel = true;
-    return {
-      ...current,
-      conversation: {
-        ...current.conversation,
-        status: "cancelled",
-        messages: current.conversation.messages.map(
-          (message, index, messages) =>
-            index === messages.length - 1 && message.status === "streaming"
-              ? { ...message, status: "cancelled" as const }
-              : message,
-        ),
-      },
-      updatedAt: now,
-    };
-  });
-  if (!shouldCancel) return getWorkbenchSnapshot();
-  cancelCodexTurn();
-  // 取消按钮立即返回已持久化的终态；真正重试会在 claim 前等待旧 Turn finally，因此无竞态也不阻塞 UI。
-  return getWorkbenchSnapshot();
+  return cancelCurrentPlanningPhase("grilling");
 }
 
 /** 在同一对话中提交 Spec 修订要求；成功结果产生新版本，旧草稿仍保留。 */
@@ -289,11 +272,111 @@ export async function cancelCurrentSpec(): Promise<WorkbenchSnapshot> {
 export async function confirmCurrentSpec(
   versionId: string,
 ): Promise<WorkbenchSnapshot> {
-  await requirementStore.update((current) => {
+  const confirmed = await requirementStore.update((current) => {
     if (!current) throw new Error("请先创建产品需求");
     return confirmSpecVersion(current, versionId);
   });
+  if (confirmed.conversation.phase !== "to-tickets" || confirmed.conversation.status !== "idle")
+    return getWorkbenchSnapshot();
+  const requirement = await claimTicketsTurn(["idle"]);
+  return runTicketsConversationTurn(
+    requirement,
+    buildTicketsPrompt(requirement, nextTicketVersionIdentity(requirement).directory),
+  );
+}
+
+/** 在同一规划对话中提交 Tickets 的拆分、合并或依赖修订要求。 */
+export async function replyToCurrentTickets(rawReply: string): Promise<WorkbenchSnapshot> {
+  const reply = rawReply.trim();
+  if (!reply) throw new Error("请输入 Tickets 修订要求");
+  if (reply.length > 4000) throw new Error("Tickets 修订要求不能超过 4000 个字符");
+  const specRevision = reply.match(/^修改\s*Spec\s*[：:]\s*(.+)$/is)?.[1]?.trim();
+  if (specRevision) return reviseCurrentSpecFromTickets(reply, specRevision);
+  const requirement = await requirementStore.update((current) => {
+    if (!current) throw new Error("请先创建产品需求");
+    if (current.conversation.phase !== "to-tickets") throw new Error("当前需求不在 to-tickets 阶段");
+    if (current.conversation.status !== "awaiting-confirmation") throw new Error("当前 Tickets 不在可修订状态");
+    return {
+      ...current,
+      conversation: beginAssistantTurn(appendUserMessage(current.conversation, reply)),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  return runTicketsConversationTurn(
+    requirement,
+    buildTicketsPrompt(requirement, nextTicketVersionIdentity(requirement).directory, reply),
+  );
+}
+
+/** 从已保存的 Spec、版本和 Thread 继续失败或取消的 Tickets Turn。 */
+export async function retryCurrentTickets(): Promise<WorkbenchSnapshot> {
+  await globalPlanning.__workbenchPlanningTurn?.catch(() => undefined);
+  const requirement = await claimTicketsTurn(["failed", "cancelled"]);
+  return runTicketsConversationTurn(
+    requirement,
+    buildTicketsPrompt(
+      requirement,
+      nextTicketVersionIdentity(requirement).directory,
+      "重试刚才中断的 Tickets Turn；保留既有版本，仅在成功后创建新版本。",
+    ),
+  );
+}
+
+export async function cancelCurrentTickets(): Promise<WorkbenchSnapshot> {
+  return cancelCurrentPlanningPhase("to-tickets");
+}
+
+export async function confirmCurrentTickets(versionId: string): Promise<WorkbenchSnapshot> {
+  await requirementStore.update((current) => {
+    if (!current) throw new Error("请先创建产品需求");
+    const confirmed = confirmTicketVersion(current, versionId);
+    if (confirmed === current) return current;
+    return {
+      ...confirmed,
+      workflow: activateImplementationStep(confirmed.workflow, true, "Spec 与 Tickets 均已确认"),
+      evidence: [
+        ...confirmed.evidence,
+        evidence("implementation", versionId, "确认当前 Tickets 版本并开放 Implement", `${confirmed.tickets.length} 张执行票已冻结`),
+      ],
+    };
+  });
   return getWorkbenchSnapshot();
+}
+
+/** 同一个 Tickets composer 用显式“修改 Spec：”前缀返回规格阶段，并失效全部下游票据。 */
+async function reviseCurrentSpecFromTickets(userReply: string, revision: string): Promise<WorkbenchSnapshot> {
+  const requirement = await requirementStore.update((current) => {
+    if (!current) throw new Error("请先创建产品需求");
+    if (current.conversation.phase !== "to-tickets" || current.conversation.status !== "awaiting-confirmation")
+      throw new Error("当前阶段不能修改已确认的 Spec");
+    const reset = {
+      ...current.conversation,
+      phase: "to-spec" as const,
+      activeSkill: "to-spec" as const,
+      status: "awaiting-confirmation" as const,
+      turnReadyForConfirmation: false,
+      error: null,
+    };
+    return {
+      ...current,
+      stage: "spec-drafting" as const,
+      tickets: [],
+      activeSpecVersionId: null,
+      activeTicketVersionId: null,
+      specVersions: current.specVersions.map((version) =>
+        version.status === "superseded" ? version : { ...version, status: "superseded" as const, confirmedAt: null },
+      ),
+      ticketVersions: current.ticketVersions.map((version) =>
+        version.status === "superseded" ? version : { ...version, status: "superseded" as const, confirmedAt: null },
+      ),
+      conversation: beginAssistantTurn(appendUserMessage(reset, userReply)),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  return runSpecConversationTurn(
+    requirement,
+    buildSpecPrompt(requirement, nextSpecVersionIdentity(requirement).path, revision),
+  );
 }
 
 /** 从后续阶段修改共同理解：先失效下游，再由只读 to-spec Turn 形成新理解和新 Spec。 */
@@ -324,6 +407,10 @@ export async function reviseCurrentUnderstanding(
       stage: "spec-drafting",
       spec: null,
       tickets: [],
+      ticketVersions: current.ticketVersions.map((version) =>
+        version.status === "superseded" ? version : { ...version, status: "superseded" as const, confirmedAt: null },
+      ),
+      activeTicketVersionId: null,
       boundaryItems: [],
       activeSpecVersionId: null,
       specVersions: current.specVersions.map((version) =>
@@ -344,6 +431,102 @@ export async function reviseCurrentUnderstanding(
     ),
     true,
   );
+}
+
+/** 执行只读 to-tickets Turn；完整协议到达后才发布一票一文件并开放确认门禁。 */
+async function runTicketsConversationTurn(
+  requirement: Requirement,
+  prompt: string,
+): Promise<WorkbenchSnapshot> {
+  const requirementId = requirement.id;
+  const deltaSink = createPlanningDeltaSink(requirement);
+  let pendingTickets: ReturnType<typeof parseTicketsArtifact> = null;
+  const turn = (async () => {
+    try {
+      await runCodexTurn({
+        workspaceRoot: requirement.targetSnapshot.repositoryRoot,
+        prompt,
+        sessionId: requirement.conversation.planningThreadId,
+        sandboxMode: "read-only",
+        onEvent: async (incomingEvent, sessionId) => {
+          await deltaSink.flush();
+          let agentEvent = incomingEvent;
+          if (agentEvent.type === "message") {
+            pendingTickets = parseTicketsArtifact(agentEvent.message) ?? pendingTickets;
+            agentEvent = { ...agentEvent, message: stripTicketsProtocol(agentEvent.message) };
+          }
+          await requirementStore.update(async (current) => {
+            if (!current || current.id !== requirementId) throw new Error("Tickets 期间活动需求已变化");
+            if (current.conversation.status === "cancelled") return current;
+            if (agentEvent.type === "completed") {
+              if (!pendingTickets) {
+                return {
+                  ...current,
+                  conversation: applyPlanningEvent(current.conversation, {
+                    id: randomUUID(),
+                    type: "failed",
+                    message: "Tickets Turn 未返回完整且依赖有效的结构化 artifact",
+                    recordedAt: new Date().toISOString(),
+                  }, sessionId),
+                };
+              }
+              const identity = nextTicketVersionIdentity(current);
+              const tickets = await requirementStore.writeTicketArtifacts(
+                current.id,
+                identity.version,
+                pendingTickets,
+              );
+              return recordTicketVersion(current, tickets, identity);
+            }
+            return {
+              ...current,
+              conversation: applyPlanningEvent(current.conversation, agentEvent, sessionId),
+              updatedAt: new Date().toISOString(),
+            };
+          });
+          publishAgentEvent(agentEvent);
+        },
+        onTextDelta: deltaSink.push,
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await requirementStore.update((current) => {
+        if (!current || current.id !== requirementId) return current ?? requirement;
+        if (current.conversation.status === "cancelled") return current;
+        return {
+          ...current,
+          conversation: applyPlanningEvent(current.conversation, {
+            id: randomUUID(), type: "failed", message: reason, recordedAt: new Date().toISOString(),
+          }, current.conversation.planningThreadId),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+    }
+    await deltaSink.flush();
+  })();
+  globalPlanning.__workbenchPlanningTurn = turn;
+  globalPlanning.__workbenchPlanningFlush = deltaSink.flush;
+  await turn.finally(() => {
+    if (globalPlanning.__workbenchPlanningTurn === turn) {
+      globalPlanning.__workbenchPlanningTurn = null;
+      globalPlanning.__workbenchPlanningFlush = null;
+    }
+  });
+  return getWorkbenchSnapshot();
+}
+
+/** 原子认领 Tickets Turn，防止双击确认 Spec 或并发重试创建两份草稿。 */
+async function claimTicketsTurn(allowedStatuses: Requirement["conversation"]["status"][]) {
+  return requirementStore.update((current) => {
+    if (!current) throw new Error("请先创建产品需求");
+    if (current.conversation.phase !== "to-tickets") throw new Error("当前需求不在 to-tickets 阶段");
+    if (!allowedStatuses.includes(current.conversation.status)) throw new Error("当前 Tickets Turn 已在运行或无需重试");
+    return {
+      ...current,
+      conversation: beginAssistantTurn(current.conversation),
+      updatedAt: new Date().toISOString(),
+    };
+  });
 }
 
 /** 执行只读 to-spec Turn，并在完整协议到达后发布本地版本文件。 */
@@ -467,9 +650,12 @@ async function runSpecConversationTurn(
     await deltaSink.flush();
   })();
   globalPlanning.__workbenchPlanningTurn = turn;
+  globalPlanning.__workbenchPlanningFlush = deltaSink.flush;
   await turn.finally(() => {
-    if (globalPlanning.__workbenchPlanningTurn === turn)
+    if (globalPlanning.__workbenchPlanningTurn === turn) {
       globalPlanning.__workbenchPlanningTurn = null;
+      globalPlanning.__workbenchPlanningFlush = null;
+    }
   });
   return getWorkbenchSnapshot();
 }
@@ -498,7 +684,13 @@ async function cancelCurrentPlanningPhase(
   phase: Requirement["conversation"]["phase"],
 ) {
   const now = new Date().toISOString();
-  let shouldCancel = false;
+  const current = await requirementStore.load();
+  if (!current) throw new Error("请先创建产品需求");
+  if (current.conversation.phase !== phase || current.conversation.status !== "running")
+    return getWorkbenchSnapshot();
+  // 先阻止更多 SDK 事件，再把缓冲正文落盘，最后记录 cancelled 终态。
+  cancelCodexTurn();
+  await globalPlanning.__workbenchPlanningFlush?.();
   await requirementStore.update((current) => {
     if (!current) throw new Error("请先创建产品需求");
     if (
@@ -506,7 +698,6 @@ async function cancelCurrentPlanningPhase(
       current.conversation.status !== "running"
     )
       return current;
-    shouldCancel = true;
     return {
       ...current,
       conversation: {
@@ -522,7 +713,6 @@ async function cancelCurrentPlanningPhase(
       updatedAt: now,
     };
   });
-  if (shouldCancel) cancelCodexTurn();
   return getWorkbenchSnapshot();
 }
 
@@ -610,9 +800,12 @@ async function runGrillingConversationTurn(
     await deltaSink.flush();
   })();
   globalPlanning.__workbenchPlanningTurn = turn;
+  globalPlanning.__workbenchPlanningFlush = deltaSink.flush;
   await turn.finally(() => {
-    if (globalPlanning.__workbenchPlanningTurn === turn)
+    if (globalPlanning.__workbenchPlanningTurn === turn) {
       globalPlanning.__workbenchPlanningTurn = null;
+      globalPlanning.__workbenchPlanningFlush = null;
+    }
   });
   return getWorkbenchSnapshot();
 }
@@ -935,6 +1128,7 @@ export async function continueCurrentRefinement(
   await requirementStore.save({
     ...requirement,
     stage: "implementation",
+    conversation: { ...appendUserMessage(requirement.conversation, input.requestedOutcome, now), status: "awaiting-user" },
     updatedAt: now,
     delivery: null,
     tickets: [
@@ -1086,6 +1280,13 @@ export async function acceptCurrentRequirement(): Promise<WorkbenchSnapshot> {
   await requirementStore.save({
     ...requirement,
     stage: "accepted",
+    conversation: {
+      ...requirement.conversation,
+      messages: [...requirement.conversation.messages, {
+        id: randomUUID(), role: "system", phase: "implement", status: "completed", recordedAt: acceptedAt,
+        segments: [{ id: randomUUID(), type: "gate", label: "产品验收完成", detail: handoff }],
+      }],
+    },
     validation,
     delivery: {
       ...committed,

@@ -2,19 +2,22 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import type { ConversationMessage, DiscoveredSkill, Requirement, WorkbenchConversation, WorkflowStep } from '../domain/workbench'
+import type { ConversationMessage, DiscoveredSkill, Requirement, TicketDraft, WorkbenchConversation, WorkflowStep } from '../domain/workbench'
 import { specArtifactPath } from './workbench-spec'
+import { renderTicketMarkdown, ticketsArtifactDirectory, type ParsedTicket } from './workbench-tickets'
 
 export class RequirementStore {
   readonly #filePath: string
   readonly #historyDirectory: string
   readonly #specDirectory: string
+  readonly #ticketsDirectory: string
   #queue: Promise<unknown> = Promise.resolve()
 
   constructor(dataDirectory = process.env.WORKBENCH_DATA_DIR ?? '.data') {
     this.#filePath = path.resolve(dataDirectory, 'current-requirement.json')
     this.#historyDirectory = path.resolve(dataDirectory, 'requirements')
     this.#specDirectory = path.resolve(dataDirectory, 'specs')
+    this.#ticketsDirectory = path.resolve(dataDirectory, 'tickets')
   }
 
   /** 把 Spec 发布到工作台数据目录；返回可持久化、与机器无关的相对路径。 */
@@ -28,6 +31,24 @@ export class RequirementStore {
     await writeFile(temporaryPath, `${content.trimEnd()}\n`, { mode: 0o600 })
     await rename(temporaryPath, filePath)
     return relativePath
+  }
+
+  /** 按依赖顺序把一个 Tickets 版本发布成一票一文件，目标项目始终不受影响。 */
+  async writeTicketArtifacts(requirementId: string, version: number, tickets: ParsedTicket[]): Promise<TicketDraft[]> {
+    if (!/^REQ-[A-Za-z0-9-]+$/.test(requirementId) || !Number.isSafeInteger(version) || version < 1 || tickets.length === 0)
+      throw new Error('Tickets artifact 标识、版本或内容无效')
+    const directory = ticketsArtifactDirectory(requirementId, version)
+    const outputDirectory = path.join(this.#ticketsDirectory, requirementId, path.basename(directory))
+    await mkdir(outputDirectory, { recursive: true })
+    return Promise.all(tickets.map(async (ticket, index) => {
+      const filename = `${String(index + 1).padStart(2, '0')}-ticket.md`
+      const relativePath = `${directory}/${filename}`
+      const filePath = path.join(outputDirectory, filename)
+      const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`
+      await writeFile(temporaryPath, `${renderTicketMarkdown(ticket).trimEnd()}\n`, { mode: 0o600 })
+      await rename(temporaryPath, filePath)
+      return { ...ticket, path: relativePath }
+    }))
   }
 
   async load(): Promise<Requirement | null> {
@@ -159,6 +180,8 @@ async function migrateRequirement(requirement: Requirement): Promise<Requirement
     refinements: requirement.refinements ?? [],
     specVersions: requirement.specVersions ?? [],
     activeSpecVersionId: requirement.activeSpecVersionId ?? null,
+    ticketVersions: requirement.ticketVersions ?? [],
+    activeTicketVersionId: requirement.activeTicketVersionId ?? null,
     grilling,
     conversation,
     workflow,

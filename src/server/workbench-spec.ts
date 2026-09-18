@@ -124,6 +124,8 @@ export function recordSpecVersion(
     updatedAt: recordedAt,
     spec: null,
     tickets: [],
+    ticketVersions: requirement.ticketVersions.map((item) => item.status === 'superseded' ? item : { ...item, status: 'superseded' as const, confirmedAt: null }),
+    activeTicketVersionId: null,
     boundaryItems: [],
     specVersions: [
       ...requirement.specVersions.map((item) => item.status === 'superseded' ? item : { ...item, status: 'superseded' as const, confirmedAt: null }),
@@ -150,6 +152,8 @@ export function confirmSpecVersion(
     stage: 'ticket-drafting',
     updatedAt: confirmedAt,
     tickets: [],
+    ticketVersions: requirement.ticketVersions.map((item) => item.status === 'superseded' ? item : { ...item, status: 'superseded' as const, confirmedAt: null }),
+    activeTicketVersionId: null,
     specVersions: requirement.specVersions.map((item) => item.id === versionId ? { ...item, status: 'confirmed' as const, confirmedAt } : item),
     conversation: {
       ...requirement.conversation,
@@ -180,7 +184,9 @@ export function reviseConfirmedUnderstanding(
     tickets: [],
     boundaryItems: [],
     activeSpecVersionId: null,
+    activeTicketVersionId: null,
     specVersions: requirement.specVersions.map((version) => version.status === 'superseded' ? version : { ...version, status: 'superseded' as const, confirmedAt: null }),
+    ticketVersions: requirement.ticketVersions.map((version) => version.status === 'superseded' ? version : { ...version, status: 'superseded' as const, confirmedAt: null }),
     conversation: {
       ...requirement.conversation,
       phase: 'to-spec',

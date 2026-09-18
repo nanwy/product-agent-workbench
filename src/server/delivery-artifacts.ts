@@ -5,6 +5,8 @@ import { promisify } from 'node:util'
 
 import type { Requirement, TargetProjectConfig } from '../domain/workbench'
 import { changedFilesSince } from './git-workspace'
+import { renderSpecMarkdown } from './workbench-spec'
+import { renderTicketMarkdown } from './workbench-tickets'
 
 const execFileAsync = promisify(execFile)
 
@@ -26,11 +28,14 @@ export async function unstageDeliveryArtifacts(target: TargetProjectConfig, path
  * 文件的旧内容；如果 commit 失败，调用方可撤销本次生成而不删除用户原有文件。
  */
 export async function writeDeliveryArtifacts(requirement: Requirement, target: TargetProjectConfig): Promise<DeliveryArtifactSet> {
-  if (!requirement.spec || !requirement.branch?.requirementBranch) throw new Error('生成交付文件前缺少已确认 Spec 或需求分支')
+  const confirmedSpec = requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId && version.status === 'confirmed')
+  if ((!confirmedSpec && !requirement.spec) || !requirement.branch?.requirementBranch) throw new Error('生成交付文件前缺少已确认 Spec 或需求分支')
   const scopeRoot = path.resolve(target.repositoryRoot, target.modificationScope)
   const artifactRoot = path.join(scopeRoot, '.product-agent-workbench', requirement.specId)
   assertWithinScope(artifactRoot, scopeRoot)
-  const filenames = ['spec.md', 'tickets.md', 'validation.md', 'frontend-delivery-handoff.md'] as const
+  const confirmedTickets = requirement.ticketVersions.find((version) => version.id === requirement.activeTicketVersionId && version.status === 'confirmed')
+  const filenames = ['spec.md', 'tickets.md', 'validation.md', 'frontend-delivery-handoff.md',
+    ...(confirmedTickets?.tickets.map((_, index) => `tickets/${String(index + 1).padStart(2, '0')}-ticket.md`) ?? [])]
   const absolutePaths = filenames.map((filename) => path.join(artifactRoot, filename))
   const previous = new Map<string, string | null>()
   for (const source of absolutePaths) previous.set(source, await readExisting(source))
@@ -47,9 +52,11 @@ export async function writeDeliveryArtifacts(requirement: Requirement, target: T
     renderTickets(requirement),
     renderValidation(requirement),
     renderFrontendHandoff(requirement, filesAfterPackaging, businessDiffStat.trim(), risks),
+    ...(confirmedTickets?.tickets.map(renderTicketMarkdown) ?? []),
   ]
 
   await mkdir(artifactRoot, { recursive: true })
+  if (confirmedTickets) await mkdir(path.join(artifactRoot, 'tickets'), { recursive: true })
   try {
     await Promise.all(absolutePaths.map((source, index) => writeFile(source, `${contents[index].trim()}\n`, { mode: 0o600 })))
   } catch (error) {
@@ -60,6 +67,8 @@ export async function writeDeliveryArtifacts(requirement: Requirement, target: T
 }
 
 function renderSpec(requirement: Requirement) {
+  const confirmed = requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId && version.status === 'confirmed')
+  if (confirmed) return renderSpecMarkdown(requirement, confirmed.document)
   const spec = requirement.spec!
   return [
     `# ${requirement.specId} · ${spec.title}`,
@@ -75,6 +84,11 @@ function renderSpec(requirement: Requirement) {
 }
 
 function renderTickets(requirement: Requirement) {
+  const confirmed = requirement.ticketVersions.find((version) => version.id === requirement.activeTicketVersionId && version.status === 'confirmed')
+  if (confirmed) return [
+    `# Confirmed Tickets · ${confirmed.id}`, '',
+    ...confirmed.tickets.flatMap((ticket) => [renderTicketMarkdown(ticket), '']),
+  ].join('\n')
   return [
     `# Execution Tickets · ${requirement.specId}`, '',
     ...requirement.tickets.flatMap((ticket) => [
@@ -94,14 +108,15 @@ function renderValidation(requirement: Requirement) {
 }
 
 function renderFrontendHandoff(requirement: Requirement, changedFiles: string[], businessDiffStat: string, risks: Requirement['validation']) {
+  const confirmedSpec = requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId && version.status === 'confirmed')
   return [
     `# Frontend Delivery Handoff · ${requirement.specId}`, '',
     `- Requirement: ${requirement.id}`,
     `- Branch: ${requirement.branch!.requirementBranch}`,
     '- Revision: the commit containing this file（实际 hash 由工作台在提交后记录）',
-    `- Target behavior: ${requirement.spec!.desiredBehavior}`,
+    `- Target behavior: ${confirmedSpec?.document.solution ?? requirement.spec?.desiredBehavior ?? requirement.requestedOutcome}`,
     `- Target page: ${requirement.targetPage}`,
-    `- Confirmed scope: ${requirement.spec!.proposedScope}`,
+    `- Confirmed scope: ${requirement.spec?.proposedScope ?? requirement.targetSnapshot.modificationScope}`,
     '', '## Changed files', '', ...changedFiles.map((source) => `- ${source}`),
     '', '## Business diff stat before delivery files', '', '```text', businessDiffStat || 'uncollected', '```',
     '', '## Ticket results', '', ...requirement.tickets.map((ticket) => `- ${ticket.id}: ${ticket.status}`),

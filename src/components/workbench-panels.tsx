@@ -279,6 +279,7 @@ export function ConversationPanel({
   onConfirm,
   onRetry,
   onCancel,
+  onStart,
 }: {
   requirement: Requirement;
   busyAction: string | null;
@@ -287,10 +288,13 @@ export function ConversationPanel({
   onConfirm: () => void;
   onRetry: () => void;
   onCancel: () => void;
+  onStart: () => void;
 }) {
   const conversation = requirement.conversation;
   const copy = conversationPhaseCopy[conversation.phase];
-  const canCompose = copy.composerStatuses.includes(conversation.status);
+  const implementation = conversation.phase === 'implement';
+  const canCompose = copy.composerStatuses.includes(conversation.status) &&
+    (!implementation || requirement.stage === 'awaiting-product-acceptance');
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -376,6 +380,14 @@ export function ConversationPanel({
           </button>
         </div>
       ) : null}
+      {!readOnly && implementation && requirement.stage === 'implementation' && requirement.codex.status === 'idle' ? (
+        <div className="conversation-gate">
+          <p>已确认 Spec 与 Tickets。执行将使用独立 workspace-write Thread；失败或取消后从保存的分支和 Session 继续。</p>
+          <button className="primary-button" disabled={busyAction !== null} onClick={onStart} type="button">
+            {requirement.branch?.requirementBranch ? '继续当前 Session' : '创建分支并执行'}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -412,18 +424,18 @@ const conversationPhaseCopy: Record<
   },
   "to-tickets": {
     turnName: "Tickets",
-    composerStatuses: ["idle"],
-    composerLabel: "修改共同理解",
-    composerPlaceholder: "修改共同理解会使下游 Spec 与 Tickets 失效…",
-    confirmationText: "",
-    confirmationLabel: "",
+    composerStatuses: ["awaiting-confirmation"],
+    composerLabel: "回复 Tickets",
+    composerPlaceholder: "调整票据粒度或依赖；修改规格请以“修改 Spec：”开头…",
+    confirmationText: "确认当前有效版本后才会开放 Implement。",
+    confirmationLabel: "确认当前 Tickets",
     runningText: "Agent 正在整理执行票…",
   },
   implement: {
     turnName: "Implement",
-    composerStatuses: [],
-    composerLabel: "继续实现",
-    composerPlaceholder: "",
+    composerStatuses: ["awaiting-user"],
+    composerLabel: "提出返修意见",
+    composerPlaceholder: "验收前提出新的产品意见，将保留上一版验证证据并追加返修轮次…",
     confirmationText: "",
     confirmationLabel: "",
     runningText: "Agent 正在执行…",
@@ -601,6 +613,8 @@ function ConversationSegmentView({
     );
   if (segment.type === "spec")
     return <SpecArtifactCard requirementId={requirementId} versionId={segment.versionId} />;
+  if (segment.type === "tickets")
+    return <TicketsArtifactCard requirementId={requirementId} versionId={segment.versionId} />;
   return (
     <details className="conversation-activity">
       <summary>
@@ -609,6 +623,44 @@ function ConversationSegmentView({
       </summary>
       <pre>{segment.detail}</pre>
     </details>
+  );
+}
+
+/** Tickets 卡片只展示对话 artifact；对话外不再复制规划详情。 */
+function TicketsArtifactCard({
+  requirementId,
+  versionId,
+}: {
+  requirementId: string;
+  versionId: string;
+}) {
+  const { data: version } = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirementId),
+    queryFn: disabledConversationQuery,
+    enabled: false,
+    select: (conversation: ConversationProjection) => conversation.ticketVersionsById[versionId],
+  });
+  if (!version)
+    return <div className="spec-artifact missing">Tickets artifact 不可用</div>;
+  return (
+    <article className="spec-artifact tickets-artifact" data-status={version.status}>
+      <header>
+        <strong>Tickets v{version.version}</strong>
+        <span>{ticketVersionStatusLabel(version.status)}</span>
+      </header>
+      <code>{version.directory}</code>
+      {version.tickets.map((ticket) => (
+        <details key={ticket.id} open>
+          <summary>{ticket.id} · {ticket.title}</summary>
+          <div className="ticket-artifact-body">
+            <p><strong>阻塞：</strong>{ticket.blockedBy.length ? ticket.blockedBy.join(", ") : "无"}</p>
+            <p><strong>交付：</strong>{ticket.deliverable}</p>
+            <p><strong>本地文件：</strong><code>{ticket.path}</code></p>
+            <ol>{ticket.acceptanceCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ol>
+          </div>
+        </details>
+      ))}
+    </article>
   );
 }
 
@@ -674,6 +726,10 @@ function specStatusLabel(
     : status === "confirmed"
       ? "已确认"
       : "已失效";
+}
+
+function ticketVersionStatusLabel(status: "draft" | "confirmed" | "superseded") {
+  return status === "draft" ? "待确认" : status === "confirmed" ? "已确认" : "已失效";
 }
 
 const markdownPlugins = [remarkGfm];
@@ -907,13 +963,11 @@ export function ValidationPanel({
   busyAction,
   onRerun,
   onAccept,
-  onRefine,
 }: {
   requirement: Requirement;
   busyAction: string | null;
   onRerun: () => void;
   onAccept: () => void;
-  onRefine: (requestedOutcome: string) => Promise<void> | void;
 }) {
   // UI 只根据持久化的矩阵渲染，不通过日志文案推断验证结果。
   // disabled 是交互反馈；真正的验收门禁在 acceptCurrentRequirement 服务端函数中。
@@ -1017,7 +1071,6 @@ export function ValidationPanel({
           >
             {busyAction === "accept" ? "正在创建稳定提交…" : "通过产品验收"}
           </button>
-          <RefinementForm busy={busyAction !== null} onSubmit={onRefine} />
         </>
       ) : null}
       {requirement.delivery ? (
@@ -1053,42 +1106,6 @@ export function ValidationPanel({
         </div>
       ) : null}
     </section>
-  );
-}
-
-function RefinementForm({
-  busy,
-  onSubmit,
-}: {
-  busy: boolean;
-  onSubmit: (requestedOutcome: string) => Promise<void> | void;
-}) {
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const requestedOutcome = String(
-      new FormData(form).get("requestedOutcome") ?? "",
-    );
-    await onSubmit(requestedOutcome);
-    form.reset();
-  }
-  // textarea 的内容只作为返修领域数据提交；执行命令仍来自受信任的项目配置。
-  return (
-    <form className="refinement-form" onSubmit={handleSubmit}>
-      <label>
-        <span>候选实现不符合预期？填写具体返修结果</span>
-        <textarea
-          name="requestedOutcome"
-          placeholder="例如：按钮文案改为“立即创建”，并保持原来的点击行为。"
-          maxLength={2000}
-          rows={3}
-          required
-        />
-      </label>
-      <button className="risk-button" disabled={busy} type="submit">
-        {busy ? "正在提交…" : "继续返修"}
-      </button>
-    </form>
   );
 }
 

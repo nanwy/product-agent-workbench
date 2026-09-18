@@ -40,10 +40,34 @@ describe('requirement persistence', () => {
     await expect(readFile(path.join(directory, second), 'utf8')).resolves.toBe('# Spec v2\n')
   })
 
+  it('publishes one local file per Ticket in dependency order', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'workbench-store-'))
+    temporaryDirectories.push(directory)
+    const store = new RequirementStore(directory)
+
+    const tickets = await store.writeTicketArtifacts('REQ-STORE', 1, [
+      { id: 'TICKET-01', title: '第一票', blockedBy: [], deliverable: '结果一', acceptanceCriteria: ['标准一'] },
+      { id: 'TICKET-02', title: '第二票', blockedBy: ['TICKET-01'], deliverable: '结果二', acceptanceCriteria: ['标准二'] },
+    ])
+
+    expect(tickets.map(({ path: ticketPath }) => ticketPath)).toEqual([
+      'tickets/REQ-STORE/v001/01-ticket.md',
+      'tickets/REQ-STORE/v001/02-ticket.md',
+    ])
+    await expect(readFile(path.join(directory, tickets[1].path), 'utf8')).resolves.toContain('**Blocked by:** TICKET-01')
+  })
+
   it('migrates legacy mixed Skills into separate workflow and target capabilities', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'workbench-store-'))
     temporaryDirectories.push(directory)
-    const { workflow: _newWorkflowField, metrics: _newMetrics, refinements: _newRefinements, ...legacy } = fixtureRequirement()
+    const {
+      workflow: _newWorkflowField,
+      metrics: _newMetrics,
+      refinements: _newRefinements,
+      ticketVersions: _ticketVersions,
+      activeTicketVersionId: _activeTicketVersionId,
+      ...legacy
+    } = fixtureRequirement()
     const legacyDocument = { ...legacy, skills: [
       { name: 'to-spec', description: 'workflow', source: 'workflow', active: true, activationReason: 'legacy', content: null, kind: 'workflow' },
       { name: 'product-copy-change', description: 'target', source: 'tests/fixtures/target-project/.agents/skills/product-copy-change/SKILL.md', active: true, activationReason: 'legacy', content: null, kind: 'target-project' },
@@ -63,6 +87,8 @@ describe('requirement persistence', () => {
     })
     expect(restored?.metrics).toEqual({ firstPreviewAt: null, acceptedAt: null })
     expect(restored?.refinements).toEqual([])
+    expect(restored?.ticketVersions).toEqual([])
+    expect(restored?.activeTicketVersionId).toBeNull()
   })
 
   it('migrates fixed Grilling questions into a resumable logical conversation', async () => {
@@ -102,7 +128,7 @@ function fixtureRequirement(): Requirement {
   return {
     id: 'REQ-STORE', specId: 'SPEC-STORE', title: '持久化需求', targetPage: '/', requestedOutcome: '刷新后仍存在',
     stage: 'intent-drafting', createdAt: now, updatedAt: now, modificationRounds: 0, metrics: { firstPreviewAt: null, acceptedAt: null }, refinements: [],
-    grilling: { status: 'pending', questions: [], confirmedAt: null }, conversation: { id: 'CONVERSATION-REQ-STORE', phase: 'grilling', status: 'idle', planningThreadId: null, implementationThreadId: null, activeSkill: 'grilling', understanding: null, pendingUnderstandingRevision: null, turnReadyForConfirmation: false, messages: [], error: null }, spec: null, specVersions: [], activeSpecVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
+    grilling: { status: 'pending', questions: [], confirmedAt: null }, conversation: { id: 'CONVERSATION-REQ-STORE', phase: 'grilling', status: 'idle', planningThreadId: null, implementationThreadId: null, activeSkill: 'grilling', understanding: null, pendingUnderstandingRevision: null, turnReadyForConfirmation: false, messages: [], error: null }, spec: null, specVersions: [], activeSpecVersionId: null, ticketVersions: [], activeTicketVersionId: null, tickets: [], rules: [], workflow: [], skills: [], boundaryItems: [], evidence: [],
     targetSnapshot: target,
     processFacts: { status: 'stopped', ownership: 'none', pid: null, command: '', healthUrl: target.healthUrl, previewUrl: target.previewUrl, gatewayUrl: '', startedAt: null, error: null, recentOutput: [] },
     branch: null, codex: { status: 'idle', sessionId: null, activeTicketId: null, changedFiles: [], events: [], error: null }, validation: [], delivery: null, agentSessionHandoff: null,

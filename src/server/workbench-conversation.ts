@@ -215,7 +215,7 @@ export function applyPlanningEvent(
         {
           id: agentEvent.id,
           type: "activity",
-          label: `${conversation.phase === "to-spec" ? "Spec" : "Grilling"} 失败`,
+          label: `${conversation.phase === "to-spec" ? "Spec" : conversation.phase === "to-tickets" ? "Tickets" : "Grilling"} 失败`,
           detail: agentEvent.message,
           status: "failed",
         },

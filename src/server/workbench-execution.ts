@@ -9,18 +9,21 @@ import { requirementStore } from './requirement-store'
 import { getTargetProcessSnapshot, startTargetProject, stopTargetProject } from './target-runtime'
 import { verifyCurrentRequirement } from './verification'
 import { assertWorkbenchSkillBundle, resolveWorkbenchSkillPath } from './workbench-skills'
+import { applyImplementationEvent, beginImplementationTurn, finishImplementationTurn } from './workbench-implementation'
 
 const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecution?: Promise<void> | null
   __workbenchExecutionStart?: Promise<void> | null
   __workbenchExecutionAbort?: AbortController | null
   __workbenchExecutionHeartbeat?: ReturnType<typeof setInterval> | null
+  __workbenchExecutionFlush?: (() => Promise<void>) | null
 }
 
 // Vite 开发态可能让后台 Server Function 与轮询请求落在不同模块实例中，后者看不到
 // 前者的内存 Promise。持久化心跳才是跨模块判断“执行仍活着”的共同事实。
 const EXECUTION_HEARTBEAT_INTERVAL_MS = 5_000
 const EXECUTION_HEARTBEAT_GRACE_MS = 15_000
+const EXECUTION_TURN_TIMEOUT_MS = 30 * 60_000
 
 /**
  * 准备并启动当前 Requirement 的后台执行队列。
@@ -72,6 +75,7 @@ export function recoverInterruptedRequirement(requirement: Requirement, reason: 
     tickets: requirement.tickets.map((ticket) => ticket.id === activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
     refinements: setRefinementStatus(requirement.refinements, activeTicketId, 'failed'),
     codex: { ...requirement.codex, status: 'failed', error: reason, events: [...requirement.codex.events, interrupted].slice(-200) },
+    conversation: finishImplementationTurn(requirement.conversation, 'failed', reason),
     updatedAt: new Date().toISOString(),
   }
 }
@@ -80,6 +84,13 @@ async function prepareExecution() {
   if (globalExecution.__workbenchExecution) return
   let requirement = await requireRequirement()
   if (requirement.stage !== 'implementation') throw new Error('只有已确认规格与边界的需求可以执行')
+  if (requirement.conversation.phase !== 'implement' ||
+      requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId)?.status !== 'confirmed' ||
+      requirement.ticketVersions.find((version) => version.id === requirement.activeTicketVersionId)?.status !== 'confirmed') {
+    throw new Error('必须先确认当前 Spec 与 Tickets 才能开始实现')
+  }
+  if (requirement.codex.sessionId && requirement.codex.sessionId === requirement.conversation.planningThreadId)
+    throw new Error('实现必须使用独立于只读规划的 Codex Thread')
   // 产品流程 Skill 必须随工作台仓库完整交付；缺失时在修改目标 Git 状态前失败。
   await assertWorkbenchSkillBundle()
   const configuredTarget = await loadTargetProjectConfig()
@@ -131,6 +142,7 @@ async function prepareExecution() {
       tickets,
       refinements: setRefinementStatus(current.refinements, tickets[nextIndex].id, 'running'),
       codex: { ...current.codex, status: 'running', activeTicketId: tickets[nextIndex].id, error: null },
+      conversation: beginImplementationTurn(current.conversation, tickets[nextIndex].id),
       updatedAt: new Date().toISOString(),
     }
   })
@@ -146,6 +158,7 @@ async function prepareExecution() {
     .finally(async () => {
       stopExecutionHeartbeat()
       globalExecution.__workbenchExecutionAbort = null
+      globalExecution.__workbenchExecutionFlush = null
       // 成功路径的验证编排通常已经重启运行时；失败/取消路径则在这里恢复用户原先
       // 打开的预览。先看当前状态，避免重复启动同一个目标进程。
       if (restoreOwnedRuntime && getTargetProcessSnapshot(configuredTarget).status !== 'ready') {
@@ -192,22 +205,31 @@ export async function cancelRequirementExecution() {
   const requirement = await requireRequirement()
   if (requirement.codex.status !== 'running') return
   const cancelled = event('cancelled', `已停止 ${requirement.codex.activeTicketId ?? '当前执行票'} 的 Codex turn`)
-  // 先持久化 cancelled，再取消 Codex Turn。否则退出可能先触发后台 catch，把用户取消
-  // 竞态覆盖成 failed；session、分支和当前票都继续保留用于恢复。
+  // 先把执行状态设为 cancelled，阻止后台退出竞态把它覆盖成 failed。
+  // 对话消息暂时保持 streaming，等后台 flush 完正文后再写取消终态。
   await requirementStore.update((current) => {
     if (!current) throw new Error('产品需求已不存在')
     return {
       ...current,
       refinements: setRefinementStatus(current.refinements, current.codex.activeTicketId, 'cancelled'),
-      codex: { ...current.codex, status: 'cancelled', error: null, events: [...current.codex.events, cancelled].slice(-200) },
+      codex: { ...current.codex, status: 'cancelled', error: null },
       updatedAt: new Date().toISOString(),
     }
   })
   // 两个取消入口共同收敛到 Adapter 管理的 Turn；取消不会删除 session ID。
   globalExecution.__workbenchExecutionAbort?.abort()
   cancelCodexTurn()
-  publishAgentEvent(cancelled)
   await globalExecution.__workbenchExecution?.catch(() => undefined)
+  await globalExecution.__workbenchExecutionFlush?.()
+  await requirementStore.update((current) => {
+    if (!current) throw new Error('产品需求已不存在')
+    return { ...current,
+      conversation: finishImplementationTurn(current.conversation, 'cancelled', cancelled.message),
+      codex: { ...current.codex, events: [...current.codex.events, cancelled].slice(-200) },
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  publishAgentEvent(cancelled)
 }
 
 async function executeQueue(signal: AbortSignal) {
@@ -221,19 +243,34 @@ async function executeQueue(signal: AbortSignal) {
     const scopedTarget = { ...target, modificationScope: requirement.spec?.proposedScope ?? target.modificationScope }
     const writableRoot = executionWritableRoot(scopedTarget)
     const deltaSink = createExecutionDeltaSink(requirement)
-    const result = await runCodexTurn({
+    globalExecution.__workbenchExecutionFlush = deltaSink.flush
+    const turnAbort = new AbortController()
+    let timedOut = false
+    const forwardAbort = () => turnAbort.abort()
+    signal.addEventListener('abort', forwardAbort, { once: true })
+    if (signal.aborted) turnAbort.abort()
+    const timeout = setTimeout(() => { timedOut = true; turnAbort.abort() }, EXECUTION_TURN_TIMEOUT_MS)
+    timeout.unref()
+    let result: Awaited<ReturnType<typeof runCodexTurn>>
+    try {
+      result = await runCodexTurn({
       // -C 与 workspace-write 同时指向确认范围，越界写入会在发生前被 Codex 沙箱拒绝。
       workspaceRoot: writableRoot,
       prompt: buildExecutionPrompt(requirement, ticket),
       sessionId: requirement.codex.sessionId,
-      signal,
+      signal: turnAbort.signal,
       onEvent: async (agentEvent, sessionId) => {
         await deltaSink.flush()
         await persistAgentEvent(agentEvent, sessionId)
       },
       onTextDelta: deltaSink.push,
-    })
+      })
+    } finally {
+      clearTimeout(timeout)
+      signal.removeEventListener('abort', forwardAbort)
+    }
     await deltaSink.flush()
+    globalExecution.__workbenchExecutionFlush = null
     const latest = await requireRequirement()
     if (latest.codex.status === 'cancelled') return
     // Codex 退出后不相信其文本声明，而是用 Git 真值检查改动文件、分支和 HEAD。
@@ -241,7 +278,8 @@ async function executeQueue(signal: AbortSignal) {
     const outside = filesOutsideScope(changedFiles, scopedTarget)
     const workspaceProblem = await executionWorkspaceProblem(latest, scopedTarget)
     if (result.exitCode !== 0 || outside.length || workspaceProblem) {
-      const reason = outside.length ? `Codex 修改越出范围：${outside.join(', ')}` : workspaceProblem ?? `Codex turn 退出码为 ${result.exitCode}`
+      const reason = timedOut ? `Codex turn 超过 ${Math.round(EXECUTION_TURN_TIMEOUT_MS / 60_000)} 分钟，已停止并保留现场`
+        : outside.length ? `Codex 修改越出范围：${outside.join(', ')}` : workspaceProblem ?? `Codex turn 退出码为 ${result.exitCode}`
       await recordExecutionFailure(reason, result.sessionId, changedFiles, ticket.id)
       return
     }
@@ -258,6 +296,9 @@ async function executeQueue(signal: AbortSignal) {
         modificationRounds: current.modificationRounds + 1,
         refinements: setRefinementStatus(current.refinements, ticket.id, 'completed'),
         codex: { ...current.codex, status: nextIndex >= 0 ? 'running' as const : 'completed' as const, sessionId: result.sessionId, activeTicketId: nextIndex >= 0 ? tickets[nextIndex].id : null, changedFiles, error: null, events: [...current.codex.events, completed].slice(-200) },
+        conversation: nextIndex >= 0
+          ? beginImplementationTurn(finishImplementationTurn(current.conversation, 'completed', completed.message), tickets[nextIndex].id)
+          : finishImplementationTurn(current.conversation, 'completed', completed.message),
         updatedAt: new Date().toISOString(),
       }
     })
@@ -266,6 +307,7 @@ async function executeQueue(signal: AbortSignal) {
       // Agent 退出码为 0 只证明 turn 结束，不证明代码可交付。
       // 最后一张票完成后才进入独立验证阶段，避免 Agent 自我声明“已验证”。
       await verifyCurrentRequirement()
+      publishAgentEvent(event('completed', '宿主验证矩阵已更新'))
       return
     }
   }
@@ -295,8 +337,8 @@ function createExecutionDeltaSink(requirement: Requirement) {
       pendingBytes += Buffer.byteLength(delta.delta, 'utf8')
       publishAgentTextDelta({
         requirementId: requirement.id,
-        target: 'execution',
-        targetId: delta.itemId,
+        target: 'conversation',
+        targetId: requirement.conversation.messages.at(-1)?.id ?? delta.itemId,
         turnId: delta.turnId,
         itemId: delta.itemId,
         revision: new Date().toISOString(),
@@ -316,7 +358,7 @@ async function persistAgentEvent(agentEvent: AgentEvent, sessionId: string | nul
     const events = [...current.codex.events]
     if (existingIndex >= 0) events[existingIndex] = agentEvent
     else events.push(agentEvent)
-    return { ...current, codex: { ...current.codex, sessionId, events: events.slice(-200) }, updatedAt: new Date().toISOString() }
+    return { ...current, conversation: applyImplementationEvent(current.conversation, agentEvent, sessionId), codex: { ...current.codex, sessionId, events: events.slice(-200) }, updatedAt: new Date().toISOString() }
   })
   publishAgentEvent(agentEvent)
 }
@@ -331,6 +373,7 @@ async function recordExecutionFailure(reason: string, sessionId?: string | null,
       tickets: current.tickets.map((ticket) => ticket.id === activeTicketId ? { ...ticket, status: 'blocked' as const } : ticket),
       refinements: setRefinementStatus(current.refinements, activeTicketId, 'failed'),
       codex: { ...current.codex, status: 'failed', sessionId: sessionId ?? current.codex.sessionId, changedFiles: changedFiles ?? current.codex.changedFiles, error: reason, events: [...current.codex.events, failed].slice(-200) },
+      conversation: finishImplementationTurn(current.conversation, 'failed', reason),
       updatedAt: new Date().toISOString(),
     }
   })
@@ -347,14 +390,26 @@ export function buildExecutionPrompt(requirement: Requirement, ticket: Requireme
   const targetSkillSources = requirement.skills
     .filter((skill) => skill.active)
     .map((skill) => `- ${skill.name}：${path.resolve(requirement.targetSnapshot.repositoryRoot, skill.source)}`)
+  const specVersion = requirement.specVersions.find((version) => version.id === requirement.activeSpecVersionId)
+  const ticketVersion = requirement.ticketVersions.find((version) => version.id === requirement.activeTicketVersionId)
+  const transcript = requirement.conversation.messages.flatMap((message) => {
+    const text = message.segments.filter((segment) => segment.type === 'text').map((segment) => segment.content).join('\n')
+    return text ? [`${message.phase}/${message.role}: ${text}`] : []
+  }).join('\n\n')
   // prompt 只传 Skill 入口路径，不复制正文；Codex 在自己的文件上下文中读取唯一事实源。
   return [
     `实现已确认需求：${requirement.spec?.title}`,
     `当前执行票 ${ticket.id}：${ticket.title}`,
+    `已确认对话摘要：\n${requirement.conversation.understanding?.summary ?? requirement.requestedOutcome}`,
+    `已确认 Spec (${specVersion?.id ?? requirement.specId})：\n${specVersion ? JSON.stringify(specVersion.document, null, 2) : JSON.stringify(requirement.spec, null, 2)}`,
+    `已确认 Tickets (${ticketVersion?.id ?? 'legacy'})：\n${ticketVersion ? JSON.stringify(ticketVersion.tickets, null, 2) : JSON.stringify(requirement.tickets, null, 2)}`,
+    `同一产品对话的已持久化正文：\n${transcript || '（无）'}`,
+    `可信目标项目：${requirement.targetSnapshot.name}；仓库：${requirement.targetSnapshot.repositoryRoot}`,
     `目标页面：${requirement.targetPage}`,
     `唯一允许写入的范围：${requirement.spec?.proposedScope ?? requirement.targetSnapshot.modificationScope}`,
     `验收条件：\n${ticket.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}`,
-    `生效规则：\n${requirement.rules.map((rule) => `- ${rule.source} (${rule.scope})`).join('\n')}`,
+    `生效规则：\n${requirement.rules.filter((rule) => rule.active).map((rule) => `- ${rule.source} (${rule.scope})：${rule.content}`).join('\n') || '无'}`,
+    `已确认工程边界：\n${requirement.boundaryItems.map((item) => `- ${item.label}：${item.reason}（${item.confirmed ? '已确认' : '未确认'}）`).join('\n') || '无额外边界'}`,
     '实现方式：直接实现，不采用 TDD；完成后再运行与改动相关的回归验证。',
     '代码可读性：关键函数补充中文多行 JSDoc，解释职责、关键调用和返回结果，便于鼠标悬浮阅读。',
     [

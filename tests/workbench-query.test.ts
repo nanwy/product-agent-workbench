@@ -70,6 +70,7 @@ function requirementWith(id: string, messages: ConversationMessage[]) {
   return {
     id,
     specVersions: [],
+    ticketVersions: [],
     conversation: { messages },
   } as unknown as Requirement
 }
