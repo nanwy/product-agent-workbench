@@ -107,30 +107,38 @@ go test -race ./apps/server/internal/store/...
 `internal/app` 已完成依赖注入、Requirement 创建与读取、输入规范化、Store 错误透传和
 context 传播，三组测试默认全部执行。
 
-### 当前小步：GET /health
+### 已完成：GET /health
 
-先学习最小 HTTP 请求链路，不急着连接 Requirement 用例：
+健康检查已完成 GET 方法限制、JSON 响应、错误方法 405 和多余响应内容检查。
+
+### 当前小步：Requirement HTTP endpoint
+
+现在连接第一条完整纵向请求链路：
 
 ```text
-httptest.Request → Server.ServeHTTP → ServeMux → handleHealth → JSON Response
+HTTP JSON → Requirement handler → Application → Store
+          ← JSON response    ← Domain result
 ```
 
 练习顺序：
 
-1. 打开 `internal/httpapi/server_test.go`，删除 `TestNewServer` 开头的 `t.Skip`。
-2. 根据 `server.go` 的“实现要点”完成 `NewServer`。
-3. 构造测试通过后，删除 `TestServer_Health` 的 `t.Skip`。
-4. 实现 `ServeHTTP` 和 `handleHealth`，直到状态码、Content-Type、JSON body 都通过。
-5. 健康检查不能调用 Application；完成后再开始 Requirement endpoint。
+1. 删除 `TestServer_CreateRequirement` 的 `t.Skip`，实现 `writeJSON`、响应 DTO 映射和
+   创建 handler 的成功路径。
+2. 删除 `TestServer_CreateRequirementRejectsInvalidJSON` 的 `t.Skip`，完成严格
+   `decodeJSON`。
+3. 删除 `TestServer_MapsApplicationErrors` 的 `t.Skip`，完成集中错误映射。
+4. 删除 `TestServer_GetRequirement` 的 `t.Skip`，实现路径参数查询。
+5. 四组通过后删除私有的 `errNotImplemented` 占位错误和所有失效占位代码。
 
 ```bash
-go test ./apps/server/internal/httpapi -run TestNewServer -v
-go test ./apps/server/internal/httpapi -run TestServer_Health -v
+go test ./apps/server/internal/httpapi -run TestServer_CreateRequirement -v
+go test ./apps/server/internal/httpapi -run TestServer_MapsApplicationErrors -v
+go test ./apps/server/internal/httpapi -run TestServer_GetRequirement -v
 go test -race ./apps/server/...
 ```
 
-这一步不要启动真实端口、访问 Store、检查 Codex 或启动 goroutine。`httptest` 会直接调用
-`http.Handler`，先把协议行为学清楚。
+这一步 handler 只能调用 `RequirementApplication`，不能导入 memory Store、实现领域校验，
+也不能把内部错误文本直接返回给浏览器。
 
 ### 学习目标
 

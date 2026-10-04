@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,8 +15,6 @@ import (
 )
 
 func TestNewServer(t *testing.T) {
-	// t.Skip("练习 1：实现 httpapi.NewServer 后删除本行")
-
 	t.Run("依赖完整", func(t *testing.T) {
 		server, err := httpapi.NewServer(httpapi.Dependencies{Application: stubApplication{}})
 		if err != nil {
@@ -38,8 +37,6 @@ func TestNewServer(t *testing.T) {
 }
 
 func TestServer_Health(t *testing.T) {
-	// t.Skip("练习 2：实现 ServeHTTP 和 GET /health 后删除本行")
-
 	application := &recordingApplication{}
 	server, err := httpapi.NewServer(httpapi.Dependencies{Application: application})
 	if err != nil {
@@ -63,11 +60,35 @@ func TestServer_Health(t *testing.T) {
 	if err := decoder.Decode(&body); err != nil {
 		t.Fatalf("decode health response: %v", err)
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		t.Fatalf("health response 包含多余内容：error = %v", err)
+	}
 	if body.Status != "ok" {
 		t.Fatalf("health status = %q, want ok", body.Status)
 	}
 	if application.calls != 0 {
 		t.Fatalf("health endpoint 调用了 Application %d 次，want 0", application.calls)
+	}
+}
+
+func TestServer_HealthRejectsUnsupportedMethod(t *testing.T) {
+	t.Parallel()
+
+	application := &recordingApplication{}
+	server, err := httpapi.NewServer(httpapi.Dependencies{Application: application})
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, httpapi.PathHealth, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST %s status = %d, want %d", httpapi.PathHealth, response.Code, http.StatusMethodNotAllowed)
+	}
+	if application.calls != 0 {
+		t.Fatalf("错误方法调用了 Application %d 次，want 0", application.calls)
 	}
 }
 

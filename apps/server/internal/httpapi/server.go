@@ -11,16 +11,9 @@ import (
 	"product-agent-workbench/internal/domain"
 )
 
-var (
-	// ErrNotImplemented 表示当前 HTTP 学习练习还没有完成。
-	//
-	// 每完成一个占位方法，就删除该方法返回这个错误的代码；全部完成后删除此变量。
-	ErrNotImplemented = errors.New("HTTP 接口尚未实现")
-
-	// ErrInvalidDependencies 表示 HTTP Server 缺少必需的应用用例依赖。
-	// 这是启动期错误，main 应停止启动，而不是运行一个部分可用的 Server。
-	ErrInvalidDependencies = errors.New("HTTP Server 依赖无效")
-)
+// ErrInvalidDependencies 表示 HTTP Server 缺少必需的应用用例依赖。
+// 这是启动期错误，main 应停止启动，而不是运行一个部分可用的 Server。
+var ErrInvalidDependencies = errors.New("HTTP Server 依赖无效")
 
 // RequirementApplication 是 HTTP 模块真正消费的应用用例 seam。
 //
@@ -66,7 +59,9 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 		application: dependencies.Application,
 	}
 
-	mux.HandleFunc(http.MethodGet+PathHealth, server.handleHealth)
+	mux.HandleFunc(http.MethodGet+" "+PathHealth, server.handleHealth)
+	mux.HandleFunc(http.MethodPost+" "+PathRequirements, server.handleCreateRequirement)
+	mux.HandleFunc(http.MethodGet+" "+PathRequirements+"/{id}", server.handleGetRequirement)
 
 	return server, nil
 }
@@ -75,11 +70,7 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 //
 // 实现要点：只把请求转交给 s.mux.ServeHTTP；不要在这里编写具体 endpoint 逻辑。
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// TODO(学习者):完成转发后删除下面的占位响应。
-
 	s.mux.ServeHTTP(w, r)
-
-	// http.Error(w, ErrNotImplemented.Error(), http.StatusNotImplemented)
 }
 
 // handleHealth 返回轻量进程存活信息。
@@ -99,5 +90,4 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		// 但可以在日志中记录编码失败的情况。
 		log.Printf("failed to encode health response: %v", err)
 	}
-	// http.Error(w, ErrNotImplemented.Error(), http.StatusNotImplemented)
 }
