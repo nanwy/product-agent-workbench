@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 接入难点面试卡</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Interview card · 打印版</p>
+  <h1>从“有事件”到“能实时读字”</h1>
+  <p class="thesis">具体矛盾：<code>runStreamed()</code> 返回事件，不代表当前组合一定给 assistant 文字 delta。先抓协议，再决定接口。</p>
+  <table class="state-table">
+    <thead><tr><th>阶段</th><th>得到什么</th><th>为什么继续改</th></tr></thead>
+    <tbody>
+      <tr><td>Node + CLI</td><td>逐行解析 <code>codex exec --json</code> 的 JSONL</td><td>工具事件实时，正文可能在 <code>item.completed</code> 才整段到</td></tr>
+      <tr><td>TypeScript SDK</td><td>Thread/Turn 封装与结构化事件</td><td>实测组合仍缺可用的正文增量；不是说 SDK 永远不支持 streaming</td></tr>
+      <tr><td>app-server</td><td><code>item/agentMessage/delta</code> 与最终全文</td><td>要处理小片段过密、断线漏字和最终校准</td></tr>
+      <tr><td>服务端合批</td><td>50ms/4KB SSE 快路；500ms/32KB 快照稳路</td><td>React Query 只投影，缺包回快照，completed 同 ID 覆盖</td></tr>
+    </tbody>
+  </table>
+  <h2>一分钟口述骨架</h2>
+  <p>“页面要边生成边看。先接 CLI，再接 SDK；我抓原始事件发现它们当时流的是生命周期事件，正文常常整段落在完成事件。换 app-server 后拿到文字 delta，但逐条推送太密、断线又可能漏。我把高频合批移到服务端，React Query 保留投影，序号缺口走持久快照，最后用完成事件校准全文。这个方案解决的是显示速度和恢复一致性，不是做一个假打字机动画。”</p>
+  <h2>两句防夸大</h2>
+  <p>SDK 有结构化事件流；“缺少可用文字增量”只针对当时的实测组合。app-server delta 的粒度由上游决定，不承诺逐字或逐 token。</p>
+  <p class="tiny">证据入口：<a href="../src/server/codex-adapter.ts">codex-adapter.ts</a> · <a href="../src/server/agent-events.ts">agent-events.ts</a> · <a href="../src/store/workbench-query.ts">workbench-query.ts</a> · <a href="https://github.com/openai/codex/blob/main/sdk/typescript/README.md">官方 SDK 文档</a>。</p>
+  <footer class="footer-nav"><a href="../lessons/0008-codex-integration-interview-story.html#implementation">实现细节与源码</a> · <a href="./project-interview-cheatsheet.html">项目总览</a></footer>
+</main>
+</body>
+</html>

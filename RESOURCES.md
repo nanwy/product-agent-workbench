@@ -2,6 +2,8 @@
 
 ## Knowledge
 
+- [OpenAI Codex TypeScript SDK README](https://github.com/openai/codex/blob/main/sdk/typescript/README.md)
+  `runStreamed()` 返回结构化事件；“streaming responses”不能直接等同于特定版本里逐字输出。与本项目捕获的 JSONL 日志一起核对面试措辞。
 - [OpenAI Codex app-server README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
   app-server 的 JSON-RPC 生命周期、Thread/Turn API、`item/agentMessage/delta` 与 `item/completed` 语义。当前链路的上游协议依据。
 - [TanStack Query: QueryClient](https://tanstack.com/query/latest/docs/framework/react/reference/classes/QueryClient)

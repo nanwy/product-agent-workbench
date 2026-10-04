@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Product Agent Workbench · 项目全流程图解</title>
+  <style>
+    :root {
+      --canvas: #eef0f3;
+      --rail: #f7f8fa;
+      --paper: #ffffff;
+      --muted-paper: #f3f5f7;
+      --ink: #20242d;
+      --ink-soft: #515866;
+      --muted: #7b8493;
+      --line: #d9dde4;
+      --line-strong: #c3c9d2;
+      --blue: #3568df;
+      --blue-deep: #234fac;
+      --blue-soft: #e9efff;
+      --green: #26835b;
+      --green-soft: #e5f4ec;
+      --amber: #9b6414;
+      --amber-soft: #fff2d8;
+      --red: #ba3f3a;
+      --red-soft: #fdebea;
+      --purple: #7355c6;
+      --purple-soft: #efeafd;
+      --shadow: 0 14px 40px rgba(31, 40, 55, .08);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--canvas);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.62;
+    }
+    button, input { font: inherit; }
+    a { color: inherit; }
+    :focus-visible { outline: 3px solid rgba(53, 104, 223, .28); outline-offset: 2px; }
+
+    .app {
+      display: grid;
+      grid-template-columns: 246px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 24px 18px;
+      border-right: 1px solid var(--line);
+      background: rgba(247, 248, 250, .95);
+      backdrop-filter: blur(14px);
+      overflow: auto;
+    }
+    .brand { display: flex; gap: 11px; align-items: center; margin-bottom: 28px; }
+    .brand-mark {
+      display: grid; place-items: center; width: 34px; height: 34px;
+      color: white; background: var(--blue); border-radius: 8px;
+      font-weight: 750; box-shadow: 0 5px 14px rgba(53, 104, 223, .22);
+    }
+    .brand strong { display: block; font-size: 13px; line-height: 1.3; }
+    .brand small { color: var(--muted); font-family: var(--mono); font-size: 9px; letter-spacing: .05em; }
+    nav { display: grid; gap: 4px; }
+    nav a {
+      display: flex; gap: 9px; align-items: center; padding: 8px 10px;
+      color: var(--ink-soft); text-decoration: none; border-radius: 7px; font-size: 12px;
+    }
+    nav a:hover, nav a.active { color: var(--blue-deep); background: var(--blue-soft); }
+    nav span { width: 20px; color: var(--muted); font: 700 9px var(--mono); }
+    .rail-note {
+      margin-top: 26px; padding: 12px; color: var(--ink-soft); background: var(--paper);
+      border: 1px solid var(--line); border-radius: 8px; font-size: 11px;
+    }
+    .rail-note b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+
+    main { min-width: 0; padding: 0 34px 80px; }
+    .hero {
+      position: relative; max-width: 1180px; margin: 0 auto; padding: 62px 0 36px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow { color: var(--blue); font: 720 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    h1 { max-width: 850px; margin: 12px 0 14px; font-size: clamp(34px, 5vw, 66px); line-height: 1.03; letter-spacing: -.045em; }
+    .hero > p { max-width: 780px; margin: 0; color: var(--ink-soft); font-size: 17px; }
+    .thesis {
+      display: inline-flex; align-items: center; gap: 9px; margin-top: 24px; padding: 9px 12px;
+      color: var(--green); background: var(--green-soft); border-radius: 7px; font-size: 12px; font-weight: 650;
+    }
+    .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(38, 131, 91, .12); }
+
+    section { max-width: 1180px; margin: 0 auto; padding: 52px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 16px; }
+    .section-head { display: grid; grid-template-columns: 70px 1fr; gap: 12px; margin-bottom: 24px; }
+    .section-index { padding-top: 5px; color: var(--blue); font: 720 10px var(--mono); letter-spacing: .08em; }
+    h2 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.02em; }
+    .section-head p { max-width: 760px; margin: 6px 0 0; color: var(--ink-soft); }
+
+    .one-line {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+      overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--paper); box-shadow: var(--shadow);
+    }
+    .one-line > div { position: relative; min-height: 128px; padding: 18px 15px; border-right: 1px solid var(--line); }
+    .one-line > div:last-child { border-right: 0; }
+    .one-line > div:not(:last-child)::after {
+      content: "→"; position: absolute; z-index: 2; top: 50%; right: -11px; display: grid; place-items: center;
+      width: 21px; height: 21px; color: var(--blue); background: var(--paper); font: 700 13px var(--mono); transform: translateY(-50%);
+    }
+    .one-line small { color: var(--muted); font: 700 9px var(--mono); letter-spacing: .08em; }
+    .one-line b { display: block; margin: 7px 0 5px; font-size: 14px; }
+    .one-line p { margin: 0; color: var(--ink-soft); font-size: 11px; }
+
+    .stage-shell { padding: 18px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+    .stage-rail { display: grid; grid-template-columns: repeat(10, minmax(82px, 1fr)); gap: 7px; overflow-x: auto; padding: 2px 2px 13px; }
+    .stage-button {
+      position: relative; min-width: 82px; min-height: 78px; padding: 10px 8px; text-align: left;
+      color: var(--ink-soft); background: var(--muted-paper); border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+    }
+    .stage-button::after { content: ""; position: absolute; left: 100%; top: 50%; width: 8px; border-top: 1px solid var(--line-strong); }
+    .stage-button:last-child::after { display: none; }
+    .stage-button span { display: block; color: var(--muted); font: 700 9px var(--mono); }
+    .stage-button b { display: block; margin-top: 8px; font-size: 11px; line-height: 1.35; }
+    .stage-button:hover { border-color: var(--line-strong); }
+    .stage-button.active { color: var(--blue-deep); background: var(--blue-soft); border-color: rgba(53, 104, 223, .35); }
+    .stage-button.active span { color: var(--blue); }
+    .stage-detail { display: grid; grid-template-columns: 1.05fr .95fr; gap: 16px; padding-top: 17px; border-top: 1px solid var(--line); }
+    .stage-detail h3 { margin: 0 0 7px; font-size: 17px; }
+    .stage-detail p { margin: 0; color: var(--ink-soft); }
+    .fact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .fact { padding: 10px; background: var(--muted-paper); border-radius: 6px; }
+    .fact small { display: block; color: var(--muted); font: 700 8px var(--mono); letter-spacing: .07em; }
+    .fact code { display: block; margin-top: 5px; color: var(--ink); font: 600 10px/1.4 var(--mono); overflow-wrap: anywhere; }
+
+    .architecture { display: grid; grid-template-columns: 1fr 62px 1.2fr 62px 1fr; align-items: stretch; gap: 0; }
+    .arch-col { display: grid; gap: 9px; }
+    .arch-title { padding: 10px 12px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+    .browser .arch-title { color: var(--blue-deep); background: var(--blue-soft); }
+    .server .arch-title { color: #5d43a5; background: var(--purple-soft); }
+    .target .arch-title { color: var(--green); background: var(--green-soft); }
+    .arch-card { padding: 13px; background: var(--paper); border: 1px solid var(--line); border-radius: 7px; }
+    .arch-card b { display: block; margin-bottom: 4px; font-size: 12px; }
+    .arch-card p { margin: 0; color: var(--ink-soft); font-size: 11px; }
+    .arch-arrow { display: grid; place-items: center; color: var(--muted); font: 700 18px var(--mono); }
+    .boundary {
+      grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin-top: 13px; padding: 11px 13px;
+      color: var(--amber); background: var(--amber-soft); border-radius: 7px; font-size: 11px;
+    }
+    .boundary b { white-space: nowrap; }
+
+    .sequence { display: grid; grid-template-columns: 160px minmax(0,1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+    .sequence-tabs { padding: 10px; background: var(--rail); border-right: 1px solid var(--line); }
+    .seq-tab { width: 100%; margin-bottom: 4px; padding: 9px 10px; text-align: left; color: var(--ink-soft); background: transparent; border: 0; border-radius: 6px; cursor: pointer; font-size: 11px; }
+    .seq-tab.active { color: var(--blue-deep); background: var(--blue-soft); font-weight: 700; }
+    .sequence-panel { padding: 20px; }
+    .call-row { display: grid; grid-template-columns: 160px 30px 1fr; align-items: start; min-height: 54px; }
+    .call-owner { padding: 6px 8px; color: var(--ink); background: var(--muted-paper); border-radius: 6px; font: 650 10px var(--mono); overflow-wrap: anywhere; }
+    .call-line { position: relative; height: 100%; }
+    .call-line::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 0; border-left: 1px solid var(--line-strong); }
+    .call-line::after { content: ""; position: absolute; left: 10px; top: 10px; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); }
+    .call-row:last-child .call-line::before { bottom: calc(100% - 16px); }
+    .call-copy b { display: block; font-size: 12px; }
+    .call-copy p { margin: 2px 0 0; color: var(--ink-soft); font-size: 11px; }
+
+    .truth-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .truth-card { padding: 18px; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; }
+    .truth-card h3 { margin: 0 0 14px; font-size: 15px; }
+    .truth-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); }
+    .truth-row:first-of-type { border-top: 0; }
+    .truth-row b { font-size: 11px; }
+    .truth-row p { margin: 0; color: var(--ink-soft); font-size: 11px; }
+    .truth-row code { font: 600 10px var(--mono); }
+    .recovery { padding: 18px; background: #19202c; color: #f4f6fa; border-radius: 9px; }
+    .recovery h3 { margin: 0 0 13px; font-size: 15px; }
+    .code-line { display: grid; grid-template-columns: 22px 1fr; padding: 4px 0; color: #cfd5df; font: 11px/1.55 var(--mono); }
+    .code-line span { color: #667185; }
+    .code-line em { color: #8db0ff; font-style: normal; }
+    .code-line strong { color: #95dfb7; font-weight: 600; }
+
+    .guard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .guard { min-height: 156px; padding: 16px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+    .guard .icon { display: grid; place-items: center; width: 28px; height: 28px; margin-bottom: 12px; border-radius: 6px; background: var(--blue-soft); color: var(--blue); font: 800 11px var(--mono); }
+    .guard h3 { margin: 0 0 6px; font-size: 13px; }
+    .guard p { margin: 0; color: var(--ink-soft); font-size: 11px; }
+
+    .file-map { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .file-item { display: grid; grid-template-columns: 34px 1fr; gap: 11px; padding: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; }
+    .file-item .n { display: grid; place-items: center; width: 28px; height: 28px; color: var(--blue); background: var(--blue-soft); border-radius: 50%; font: 750 9px var(--mono); }
+    .file-item code { display: block; color: var(--ink); font: 650 10px var(--mono); overflow-wrap: anywhere; }
+    .file-item p { margin: 5px 0 0; color: var(--ink-soft); font-size: 11px; }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .chip { padding: 4px 8px; border-radius: 999px; font-size: 10px; font-weight: 650; }
+    .chip.blue { color: var(--blue-deep); background: var(--blue-soft); }
+    .chip.green { color: var(--green); background: var(--green-soft); }
+    .chip.amber { color: var(--amber); background: var(--amber-soft); }
+    .chip.red { color: var(--red); background: var(--red-soft); }
+
+    .closing { padding-bottom: 20px; border-bottom: 0; }
+    .closing-card { display: grid; grid-template-columns: 1.25fr .75fr; gap: 22px; padding: 25px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+    .closing blockquote { margin: 0; font-size: 20px; line-height: 1.45; font-weight: 650; letter-spacing: -.015em; }
+    .closing p { margin: 10px 0 0; color: var(--ink-soft); }
+    .not-box { padding: 14px; color: var(--red); background: var(--red-soft); border-radius: 7px; font-size: 11px; }
+    .not-box b { display: block; margin-bottom: 6px; }
+    footer { max-width: 1180px; margin: 0 auto; padding-top: 22px; color: var(--muted); font: 10px var(--mono); }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      aside { position: static; width: 100%; height: auto; padding: 14px 18px; border-right: 0; border-bottom: 1px solid var(--line); }
+      .brand { margin-bottom: 10px; }
+      nav { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; }
+      nav a span, .rail-note { display: none; }
+      main { padding: 0 20px 60px; }
+      .hero { padding-top: 42px; }
+      .one-line { grid-template-columns: 1fr 1fr; }
+      .one-line > div { border-bottom: 1px solid var(--line); }
+      .one-line > div::after { display: none !important; }
+      .architecture { grid-template-columns: 1fr; gap: 12px; }
+      .arch-arrow { transform: rotate(90deg); height: 30px; }
+      .stage-detail, .truth-layout, .closing-card { grid-template-columns: 1fr; }
+      .guard-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 620px) {
+      main { padding-inline: 14px; }
+      h1 { font-size: 38px; }
+      .section-head { grid-template-columns: 1fr; gap: 2px; }
+      .one-line, .guard-grid, .file-map { grid-template-columns: 1fr; }
+      .one-line > div { min-height: auto; border-right: 0; }
+      .sequence { grid-template-columns: 1fr; }
+      .sequence-tabs { display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .seq-tab { width: auto; white-space: nowrap; }
+      .call-row { grid-template-columns: 120px 24px 1fr; }
+      .fact-grid { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand"><div class="brand-mark">P</div><div><strong>Product Agent Workbench</strong><small>PROJECT EXPLAINER</small></div></div>
+      <nav aria-label="页面目录">
+        <a href="#overview"><span>01</span>一句话总览</a>
+        <a href="#lifecycle"><span>02</span>十阶段主流程</a>
+        <a href="#architecture"><span>03</span>系统边界</a>
+        <a href="#runtime"><span>04</span>一次操作如何穿透</a>
+        <a href="#truth"><span>05</span>状态与恢复</a>
+        <a href="#guards"><span>06</span>安全门禁</a>
+        <a href="#files"><span>07</span>代码阅读地图</a>
+      </nav>
+      <div class="rail-note"><b>阅读提示</b>先看“产品意图如何变成可验收代码”，再看框架、SSE、Git 和进程等实现手段。</div>
+    </aside>
+
+    <main>
+      <header class="hero" id="overview">
+        <div class="eyebrow">Local · Spec-driven · Auditable</div>
+        <h1>把一句产品需求，变成一份可运行、可验证、可审查的候选实现。</h1>
+        <p>这个项目是本地规格驱动开发的控制平面。产品经理提供“想要什么”，系统负责收紧边界、组织 Codex 执行、运行真实目标页面，并把每一步变成可核查证据。</p>
+        <div class="thesis"><span class="pulse"></span>核心不是“AI 会写代码”，而是意图、约束、执行、证据与人类责任始终一致。</div>
+      </header>
+
+      <section>
+        <div class="section-head"><div class="section-index">01 / FLOW</div><div><h2>全项目可以压缩成五次交接</h2><p>每次交接都把上一步的模糊内容，变成下一步可执行或可验证的稳定对象。</p></div></div>
+        <div class="one-line">
+          <div><small>PRODUCT</small><b>产品意图</b><p>目标页面、期望结果；不允许提供命令和仓库路径。</p></div>
+          <div><small>PLANNING</small><b>共同理解与规格</b><p>Grilling 消歧，产出版本化 Spec 与验收条件。</p></div>
+          <div><small>EXECUTION</small><b>纵向执行票</b><p>按依赖串行执行；同一需求连续复用 Codex Thread。</p></div>
+          <div><small>EVIDENCE</small><b>真实页面与验证</b><p>命令、Git 范围、运行时和浏览器证据汇成矩阵。</p></div>
+          <div><small>HANDOFF</small><b>稳定交付结果</b><p>产品验收后提交固定 revision，交给前端审查；不自动合并。</p></div>
+        </div>
+      </section>
+
+      <section id="lifecycle">
+        <div class="section-head"><div class="section-index">02 / STATE</div><div><h2>十阶段状态机是整个项目的主轴</h2><p>点击任一阶段查看它的输入、关键动作和产物。失败与取消是旁路终态，不进入正常轨道。</p></div></div>
+        <div class="stage-shell">
+          <div class="stage-rail" id="stageRail"></div>
+          <div class="stage-detail">
+            <div><h3 id="stageTitle"></h3><p id="stageDescription"></p></div>
+            <div class="fact-grid">
+              <div class="fact"><small>INPUT</small><code id="stageInput"></code></div>
+              <div class="fact"><small>ACTION</small><code id="stageAction"></code></div>
+              <div class="fact"><small>OUTPUT</small><code id="stageOutput"></code></div>
+            </div>
+          </div>
+        </div>
+        <div class="legend"><span class="chip blue">蓝色：当前阶段 / 唯一主行动</span><span class="chip green">绿色：真实通过</span><span class="chip amber">琥珀：需要显式确认</span><span class="chip red">红色：失败或阻塞</span></div>
+      </section>
+
+      <section id="architecture">
+        <div class="section-head"><div class="section-index">03 / BOUNDARY</div><div><h2>三层架构：浏览器表达意图，Node 掌握能力，目标项目承载代码</h2><p>真正重要的架构决策是能力边界：浏览器永远拿不到任意文件系统、Shell、Git 或子进程权限。</p></div></div>
+        <div class="architecture">
+          <div class="arch-col browser">
+            <div class="arch-title">浏览器 · 产品可见</div>
+            <div class="arch-card"><b>三个主要界面</b><p>流程导航 / 连续 Agent 对话 / 真实页面 iframe。</p></div>
+            <div class="arch-card"><b>React Query 投影</b><p>HTTP 快照、SSE delta 与轮询最终写入同一 Query Cache。</p></div>
+            <div class="arch-card"><b>语义动作</b><p>建立需求、确认 Spec、执行、验证、验收；每次写操作带幂等键。</p></div>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col server">
+            <div class="arch-title">TanStack Start / Node · 控制平面</div>
+            <div class="arch-card"><b>Requirement 聚合 + 原子 JSON</b><p>产品契约、进度、证据和交付结果共享一套状态机。</p></div>
+            <div class="arch-card"><b>Server Functions 白名单</b><p>把 UI 意图映射为受控用例，不接受动态 Shell 命令。</p></div>
+            <div class="arch-card"><b>Codex / Git / Runtime / Preview</b><p>归一化 Agent 事件、隔离分支、持有进程组、代理本机预览。</p></div>
+          </div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-col target">
+            <div class="arch-title">目标项目 · 真实业务代码</div>
+            <div class="arch-card"><b>Mysterious-Realm-v2 / front</b><p>配置固定仓库根、修改范围、启动命令和验证命令。</p></div>
+            <div class="arch-card"><b>需求分支</b><p>候选改动留在独立 Git 分支；验收前不进入主分支。</p></div>
+            <div class="arch-card"><b>真实开发服务</b><p>健康检查通过后，经 localhost-only 网关嵌入工作台。</p></div>
+          </div>
+          <div class="boundary"><b>能力边界</b><span>产品输入只保存为领域数据或进入 Codex prompt；命令、仓库、端口、修改范围来自受信任配置。</span></div>
+        </div>
+      </section>
+
+      <section id="runtime">
+        <div class="section-head"><div class="section-index">04 / RUNTIME</div><div><h2>一次操作如何穿过系统</h2><p>这里选择四条最能代表项目设计的调用链。切换标签查看控制流。</p></div></div>
+        <div class="sequence">
+          <div class="sequence-tabs" id="sequenceTabs"></div>
+          <div class="sequence-panel" id="sequencePanel"></div>
+        </div>
+      </section>
+
+      <section id="truth">
+        <div class="section-head"><div class="section-index">05 / RECOVERY</div><div><h2>可恢复的关键：SSE 是通知，JSON 聚合才是真相</h2><p>长任务、刷新和断线都不能让浏览器内存成为唯一状态来源。实时性与可恢复性被刻意拆开。</p></div></div>
+        <div class="truth-layout">
+          <div class="truth-card">
+            <h3>三类状态，各归其位</h3>
+            <div class="truth-row"><b>持久事实</b><p><code>current-requirement.json</code> 与历史快照：阶段、Spec、Tickets、事件、验证、交付。</p></div>
+            <div class="truth-row"><b>短期实时</b><p>Node 内存中的进程句柄、后台 Promise、SSE 订阅者和 50ms 文本批次。</p></div>
+            <div class="truth-row"><b>业务代码</b><p>目标仓库中的源码、需求分支和 Git revision；不会复制进 Requirement JSON。</p></div>
+            <div class="truth-row"><b>浏览器投影</b><p>React Query 按 Requirement 隔离消息；序号缺口触发重新拉取完整快照。</p></div>
+          </div>
+          <div class="recovery">
+            <h3>断线恢复伪代码</h3>
+            <div class="code-line"><span>01</span><div><em>on</em>(SSE delta batch)</div></div>
+            <div class="code-line"><span>02</span><div>&nbsp;&nbsp;if batch.sequence ≤ lastSequence</div></div>
+            <div class="code-line"><span>03</span><div>&nbsp;&nbsp;&nbsp;&nbsp;<strong>ignore duplicate</strong></div></div>
+            <div class="code-line"><span>04</span><div>&nbsp;&nbsp;if batch.sequence &gt; lastSequence + 1</div></div>
+            <div class="code-line"><span>05</span><div>&nbsp;&nbsp;&nbsp;&nbsp;<strong>refetch Requirement snapshot</strong></div></div>
+            <div class="code-line"><span>06</span><div>&nbsp;&nbsp;else</div></div>
+            <div class="code-line"><span>07</span><div>&nbsp;&nbsp;&nbsp;&nbsp;append delta to Query Cache</div></div>
+            <div class="code-line"><span>08</span><div><em>on</em>(invalidate event)</div></div>
+            <div class="code-line"><span>09</span><div>&nbsp;&nbsp;<strong>refetch authoritative snapshot</strong></div></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="guards">
+        <div class="section-head"><div class="section-index">06 / GUARDS</div><div><h2>系统真正解决的是“错误怎么被挡住”</h2><p>每个工程机制都对应一种具体失败模式，而不是为了堆技术名词。</p></div></div>
+        <div class="guard-grid">
+          <div class="guard"><div class="icon">01</div><h3>产品输入 ≠ Shell</h3><p>页面只提交标题、站内目标路径和期望结果；命令与仓库地址来自固定配置，缩小命令注入面。</p></div>
+          <div class="guard"><div class="icon">02</div><h3>幂等键挡住双击</h3><p>“操作名 + 客户端随机 key”折叠网络重试，不重复建分支、启动进程或创建提交。</p></div>
+          <div class="guard"><div class="icon">03</div><h3>脏工作区阻断执行</h3><p>任何已有修改或 merge/rebase 等 Git 操作都会阻断；系统不 stash、不 reset，也不吞掉用户改动。</p></div>
+          <div class="guard"><div class="icon">04</div><h3>只终止自己拥有的进程</h3><p>目标服务以独立进程组启动并记录 PID；未知端口占用者不会被扫描或杀死。</p></div>
+          <div class="guard"><div class="icon">05</div><h3>修改范围二次核验</h3><p>执行后和验收提交前都重新计算 Git diff；越过 <code>apps/front</code> 的文件会阻断交付。</p></div>
+          <div class="guard"><div class="icon">06</div><h3>not-run 不能冒充通过</h3><p>验证矩阵明确区分 verified、failed 和带原因的 not-run；产品语义仍由人类在真实预览上确认。</p></div>
+        </div>
+      </section>
+
+      <section id="files">
+        <div class="section-head"><div class="section-index">07 / CODE</div><div><h2>按责任读代码，比按组件树追更快</h2><p>下面是建立项目心智模型的最短阅读路径。</p></div></div>
+        <div class="file-map">
+          <div class="file-item"><div class="n">01</div><div><code>src/domain/workbench.ts</code><p>Requirement 聚合、阶段状态机、验证与交付数据契约。</p></div></div>
+          <div class="file-item"><div class="n">02</div><div><code>src/routes/index.tsx</code><p>读取快照、订阅事件、把用户操作交给 Server Functions。</p></div></div>
+          <div class="file-item"><div class="n">03</div><div><code>src/server/functions.ts</code><p>浏览器能力白名单、输入校验和写请求幂等边界。</p></div></div>
+          <div class="file-item"><div class="n">04</div><div><code>src/server/workbench-service.ts</code><p>Grilling、Spec、Tickets、边界确认与产品验收的状态迁移。</p></div></div>
+          <div class="file-item"><div class="n">05</div><div><code>src/server/exploration.ts</code><p>发现 AGENTS.md、Skills、候选代码位置与现有行为。</p></div></div>
+          <div class="file-item"><div class="n">06</div><div><code>src/server/workbench-execution.ts</code><p>创建需求分支、串行消费票、运行 Codex、接力自动验证。</p></div></div>
+          <div class="file-item"><div class="n">07</div><div><code>src/server/codex-adapter.ts</code><p>选择 app-server / SDK 后端并归一化事件，支持 Thread 续接。</p></div></div>
+          <div class="file-item"><div class="n">08</div><div><code>src/server/verification.ts</code><p>命令、Git 范围、运行时、浏览器证据与产品判断汇成矩阵。</p></div></div>
+          <div class="file-item"><div class="n">09</div><div><code>src/server/target-runtime.ts</code><p>目标进程组所有权、健康检查和安全停止。</p></div></div>
+          <div class="file-item"><div class="n">10</div><div><code>src/server/requirement-store.ts</code><p>串行更新、临时文件 + rename 原子持久化及历史快照。</p></div></div>
+        </div>
+      </section>
+
+      <section class="closing">
+        <div class="closing-card">
+          <div><blockquote>工作台交付的不是“一段 AI 回答”，而是一条带规格、分支、真实页面、验证证据和稳定 revision 的候选实现链路。</blockquote><p>它把 Codex 放进可控工程流程，但把生产合并权和产品语义判断留给人。</p></div>
+          <div class="not-box"><b>它刻意不做什么</b>不自动 push，不创建 PR，不合并主分支，不发布上线，不替产品判断“看起来对不对”，也不替用户处理已有 Git 改动。</div>
+        </div>
+      </section>
+      <footer>Generated from the repository's current source and documentation · 2026-09-19</footer>
+    </main>
+  </div>
+
+  <script>
+    const stages = [
+      { key: 'project-adaptation', label: '项目适配', desc: '加载受信任的目标项目配置，固定仓库、修改范围、启动方式、健康地址和验证命令。', input: 'config/target-project.json', action: '加载并校验配置', output: 'TargetProjectConfig 快照' },
+      { key: 'intent-drafting', label: '需求澄清', desc: 'Grilling Agent 追问目标、边界和验收信号，直到共同理解可以被产品确认。', input: '标题 + 目标页面 + 期望结果', action: '连续规划 Thread 消歧', output: 'GrillingUnderstanding' },
+      { key: 'spec-drafting', label: '整理规格', desc: '把共同理解变成版本化 Spec；新草稿不会覆盖旧版本，只会将旧草稿标记为 superseded。', input: '已确认共同理解', action: '生成 / 修订 Spec artifact', output: 'SpecVersion(draft)' },
+      { key: 'awaiting-spec-confirmation', label: '确认规格', desc: '产品确认问题、方案、用户故事、实现决策、测试决策和明确的非目标。', input: 'SpecVersion(draft)', action: '显式确认版本', output: 'SpecVersion(confirmed)' },
+      { key: 'ticket-drafting', label: '拆执行票', desc: '将规格拆成可独立实现、验证和演示的纵向工作单元，并记录真实依赖边。', input: '已确认 Spec', action: '生成版本化 Tickets', output: 'TicketVersion + ExecutionTickets' },
+      { key: 'awaiting-boundary-confirmation', label: '边界确认', desc: '涉及数据库、认证、共享契约、公共组件或发布配置时，执行前必须显式确认工程影响范围。', input: '边界项 + 生效规则', action: '产品确认高风险边界', output: 'confirmed BoundaryItems' },
+      { key: 'implementation', label: '候选实现', desc: '检查干净工作区、建立需求分支，按依赖顺序串行执行 Tickets，并持续保存 Codex 事件。', input: 'Confirmed Spec + Tickets', action: 'Git branch → Codex turns', output: '候选代码 + changedFiles' },
+      { key: 'verification', label: '验证', desc: '执行声明式命令、检查 Git 修改范围、探测运行时，并用 agent-browser 采集真实路由证据。', input: '候选实现', action: '构建验证矩阵', output: 'verified / failed / not-run' },
+      { key: 'awaiting-product-acceptance', label: '产品验收', desc: '机器门禁通过后，产品在真实预览中确认语义结果；不把“页面能打开”冒充为产品行为正确。', input: '验证矩阵 + 真实预览', action: '产品显式接受或返修', output: '验收记录 / RefinementRound' },
+      { key: 'accepted', label: '已验收', desc: '重新核验分支和范围，只暂存允许的目录，创建稳定提交与 Frontend Delivery Handoff。', input: '产品验收', action: '受控 git add + commit', output: 'DeliveryCard + revision' },
+    ];
+
+    const rail = document.querySelector('#stageRail');
+    const renderStage = (index) => {
+      const item = stages[index];
+      document.querySelectorAll('.stage-button').forEach((el, i) => el.classList.toggle('active', i === index));
+      document.querySelector('#stageTitle').textContent = `${String(index + 1).padStart(2, '0')} · ${item.label}`;
+      document.querySelector('#stageDescription').textContent = item.desc;
+      document.querySelector('#stageInput').textContent = item.input;
+      document.querySelector('#stageAction').textContent = item.action;
+      document.querySelector('#stageOutput').textContent = item.output;
+    };
+    stages.forEach((item, index) => {
+      const button = document.createElement('button');
+      button.className = 'stage-button';
+      button.innerHTML = `<span>${String(index + 1).padStart(2, '0')}</span><b>${item.label}</b>`;
+      button.addEventListener('click', () => renderStage(index));
+      rail.appendChild(button);
+    });
+    renderStage(0);
+
+    const sequences = [
+      { label: '建立需求', rows: [
+        ['RequirementForm', '提交产品事实', '只包含标题、站内页面和期望结果。'],
+        ['submitRequirement', '校验 + 幂等', 'Server Function 拒绝缺少 idempotencyKey 的写请求。'],
+        ['createRequirement', '建立聚合', '写入初始阶段、Grilling、证据和目标配置快照。'],
+        ['RequirementStore', '原子保存', '先写 0600 临时文件，再同目录 rename。'],
+      ]},
+      { label: '执行 Tickets', rows: [
+        ['executeRequirement', '可靠启动后台队列', '按钮请求不等待整个 Codex Turn 完成。'],
+        ['prepareExecution', '检查工作区并建分支', '脏工作区或进行中的 Git 操作直接阻断。'],
+        ['executeQueue', '按依赖串行消费', '多张票复用同一个 implementation Thread。'],
+        ['codex-adapter', '归一化上游事件', 'app-server / SDK 差异不泄漏到领域模型。'],
+        ['RequirementStore', '持续落盘进度', '票状态、Agent 事件、改动文件都可刷新恢复。'],
+        ['verifyCurrentRequirement', '队列完成后自动验证', '命令、范围、运行时与浏览器证据进入矩阵。'],
+      ]},
+      { label: '实时流式', rows: [
+        ['Codex notification', '产生文字 delta / 活动事件', '原始协议先被适配为稳定 AgentEvent。'],
+        ['agent-events.ts', '50ms / 4KB 合批', '每个 Turn 使用单调 sequence，避免乱序拼接。'],
+        ['/api/events', 'SSE 推送', 'stream-batch 更新正文；invalidate 通知重新取快照。'],
+        ['workbench-query.ts', '投影到 Query Cache', '重复忽略、连续追加、缺口触发 refetch。'],
+        ['ConversationPanel', '只重绘当前流式消息', '历史消息和版本化 Spec 尽量保持引用稳定。'],
+      ]},
+      { label: '产品验收', rows: [
+        ['VerificationMatrix', '检查机器门禁', 'required 的 failed / not-run 会阻止验收。'],
+        ['Preview iframe', '确认产品语义', '真实页面由产品判断是否达到期望结果。'],
+        ['acceptCurrentRequirement', '重新核验 Git 事实', '确认仍在需求分支、没有范围外文件。'],
+        ['commitAcceptedCandidate', '创建稳定 revision', '只 add 配置允许的 modificationScope。'],
+        ['DeliveryCard', '形成前端交付', '记录分支、revision、diffStat、改动文件与 handoff。'],
+      ]},
+    ];
+    const tabs = document.querySelector('#sequenceTabs');
+    const panel = document.querySelector('#sequencePanel');
+    const renderSequence = (index) => {
+      document.querySelectorAll('.seq-tab').forEach((el, i) => el.classList.toggle('active', i === index));
+      panel.innerHTML = sequences[index].rows.map(([owner, action, detail]) => `
+        <div class="call-row"><div class="call-owner">${owner}</div><div class="call-line"></div><div class="call-copy"><b>${action}</b><p>${detail}</p></div></div>
+      `).join('');
+    };
+    sequences.forEach((item, index) => {
+      const button = document.createElement('button');
+      button.className = 'seq-tab'; button.textContent = item.label;
+      button.addEventListener('click', () => renderSequence(index));
+      tabs.appendChild(button);
+    });
+    renderSequence(1);
+
+    const links = [...document.querySelectorAll('nav a')];
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      links.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`));
+    }, { rootMargin: '-18% 0px -70% 0px', threshold: [0, .2, .6] });
+    document.querySelectorAll('header[id], section[id]').forEach(section => observer.observe(section));
+  </script>
+</body>
+</html>

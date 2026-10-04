@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Product Agent Workbench 面试速查</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Reference · 打印版</p>
+  <h1>Product Agent Workbench</h1>
+  <p class="lede">一句主线、四道门、五个难点和事实边界。面试前看这一页，不要临场背整份手册。</p>
+
+  <h2>一句主线</h2>
+  <div class="thesis">让产品直接和 Agent 对齐页面需求，但把改代码、判定完成和进入生产的权力拆开。</div>
+
+  <h2>四道门</h2>
+  <div class="grid two">
+    <article class="card"><h3>意图门</h3><p>Grilling → 结构化 understanding → 版本化 Spec → Ticket。</p></article>
+    <article class="card"><h3>执行门</h3><p>受信配置 → 干净工作区 → 需求分支 → 限定写入 → Turn 后 Git 检查。</p></article>
+    <article class="card"><h3>验证门</h3><p>宿主命令 → Runtime → 真实路由 → agent-browser → 产品判断。</p></article>
+    <article class="card"><h3>交付门</h3><p>稳定候选 commit + Handoff；前端 Review，不 push、不 merge。</p></article>
+  </div>
+
+  <h2>五个难点</h2>
+  <ol>
+    <li>结构化状态机约束自然语言 Agent。</li>
+    <li>持久 Requirement 与易失进程跨刷新、重试和重启保持一致。</li>
+    <li>用权限加 Git 事实保护真实仓库，而不是只相信 Prompt。</li>
+    <li>区分实现失败、环境失败、未验证和产品不接受。</li>
+    <li>app-server delta 走快路，Requirement 快照走稳路。</li>
+  </ol>
+
+  <h2>流式链路</h2>
+  <pre>app-server delta
+  → Adapter 累计正文
+  → 50ms / 4KB SSE batch
+  → React Query 投影
+
+  → 500ms / 32KB 持久化累计全文
+  → completed 同 ID 最终校准
+  → 断线 / gap / 旧 revision 回到快照</pre>
+
+  <h2>真实结果</h2>
+  <p>真实前端仓库跑通过完整需求：独立需求分支与稳定候选提交；当次 12 项验证为 <code>verified</code>；浏览器证据保存 68 个语义引用，没有新增 console error 或 page error。</p>
+
+  <h2>不能夸大的地方</h2>
+  <ul>
+    <li>当前不自动安装依赖，也不为陌生项目自动猜启动命令和 URL。</li>
+    <li>真实文字 delta 不等于逐字或逐 token。</li>
+    <li>EventSource 重连不等于补回断线事件。</li>
+    <li>产品验收不等于生产批准。</li>
+    <li>没有同口径基线，不报提效百分比。</li>
+  </ul>
+
+  <h2>被追问时的回答公式</h2>
+  <div class="interview"><p>“当时出现了什么具体错误 → 哪个事实不能相信 → 我把真值放在哪里 → 用什么门禁或恢复机制处理 → 测试或真实运行怎样证明。”</p></div>
+
+  <footer class="footer-nav"><a href="../lessons/0007-project-interview-mental-model.html">项目总览课程</a> · <a href="../docs/interview-master-guide.md">完整追问手册</a> · <a href="./recoverable-streaming-cheatsheet.html">流式专项速查</a></footer>
+</main>
+</body>
+</html>

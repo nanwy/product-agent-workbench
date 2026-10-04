@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>面试难点：Codex 接入为什么改了三次</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>pre code { color: inherit; background: transparent; padding: 0; }</style>
+  <script src="../assets/interview-retrieval.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0008 · 技术难点表达</p>
+  <h1>Codex 接入为什么改了三次</h1>
+  <p class="lede">这节只练一件事：把“换了几个技术方案”讲成一段有证据、有取舍的工程经历。先说用户看到的问题，再讲你怎么识别上游事件的真实粒度。</p>
+
+  <div class="thesis">面试主句：我最初以为收到事件就能实时显示正文。抓过真实日志后才发现，事件在流动，文字却可能直到 <code>item.completed</code> 才一次给全。</div>
+
+  <h2>先把事实摆正</h2>
+  <ol class="sequence">
+    <li><h3>直接启动 CLI</h3><p>第一版由 Node 启动 <code>codex exec --json</code>，逐行读取 stdout 的 JSONL，把 assistant、工具和完成事件转成页面消息。这样能看到执行进度，但 stdout 的字节块不是模型文字片段；真实日志里，一份完整 Spec 落在同一个 <code>item.completed.item.text</code>。</p></li>
+    <li><h3>换 TypeScript SDK</h3><p>我想让 Thread 恢复、取消和沙箱参数交给官方封装，于是改用 <code>@openai/codex-sdk</code> 的 <code>runStreamed()</code>。它会逐个给结构化事件，但在我们测试的 CLI/SDK 组合中，assistant 正文仍主要在 item 完成时出现。这里的“streamed”指事件流，不保证逐字输出。我用日志核对，而不是把测试夹具模拟的增长快照当成真实能力。</p></li>
+    <li><h3>下沉到 app-server</h3><p>对话需要在生成过程中显示正文，于是默认后端改成 Codex app-server。它提供 <code>item/agentMessage/delta</code>；Adapter 把文字增量和工具、文件、完成事件分开处理。同一个 item 的最终 <code>item.completed</code> 全文按 ID 覆盖临时拼接结果，避免追加两遍。</p></li>
+    <li><h3>把合批移到服务端</h3><p>早期浏览器用 Zustand 加 <code>requestAnimationFrame</code> 缓冲片段，之后服务端状态统一到 React Query。浏览器缓冲能少渲染，却不能减少每个小片段的推送，也管不了断线后的恢复。现在服务端按 50ms 或 4KB 合成 SSE 批次，并按 500ms 或 32KB 保存累计全文。React Query 仍负责投影和按消息 ID 更新，不再负责上游片段的高频合批。</p></li>
+  </ol>
+
+  <h2>面试时这样说，约两分钟</h2>
+  <div class="interview">
+    <p>“这个项目里我踩过一个比较实在的坑：页面要像聊天一样看到 Codex 正在回复，不能等 Agent 整段做完才突然出现内容。</p>
+    <p>最早我在 Node 里启动 <code>codex exec --json</code>，逐行解析 stdout。工具开始、命令完成这些事件能实时到，但我发现 assistant 的正文经常到 <code>item.completed</code> 才一整段出来。后来我接了官方 TypeScript SDK，Thread 恢复和取消好处理了，不过 <code>runStreamed()</code> 在当时我们用的版本里，给我的仍主要是事件级更新。为确认这不是前端渲染问题，我直接抓了原始 JSONL：整份 Spec 确实在一个完成事件里。</p>
+    <p>所以我把默认通道改成 Codex app-server，消费它的文字 delta。接上之后又出现另一个问题：如果每个小片段都直接推到浏览器，SSE 消息和缓存更新会很密；断线还可能漏字。早期我在前端用 RAF 合并渲染，后来把高频合批放到服务端，50ms 或 4KB 发一批；同时定期把累计全文写进 Requirement。浏览器用 React Query 投影批次，序号不连续就重取快照，完成事件再用最终全文校准。</p>
+    <p>最后得到的是按上游实际粒度渐进显示、刷新后能恢复的对话。这里我不会说‘SDK 完全不能流式’，它有事件流；我解决的是当时缺少可用的正文增量，以及增量来了以后怎样保证页面和持久状态一致。”</p>
+  </div>
+
+  <h2>三十秒版</h2>
+  <div class="talk-track"><p>“我接 Codex 时，先用 Node 解析 <code>codex exec --json</code>，再换 SDK 管 Thread。两者都有事件流，但我抓到的真实日志里，assistant 正文主要在 <code>item.completed</code> 才整段出现。为了做真正的对话式展示，我换成 app-server 的文字 delta。早期前端用 RAF 缓冲，后来把高频合批放在服务端，React Query 只做投影；断线或序号缺口就回到 Requirement 快照，最终用完成事件校准全文。难点不是选哪个 API，而是把事件粒度、显示速度和可恢复性分开处理。”</p></div>
+
+  <h2>追问时别讲虚</h2>
+  <div class="failure-grid">
+    <div class="head">面试官问</div><div class="head">危险回答</div><div class="head">你可以这样答</div>
+    <div>SDK 不是支持 streaming 吗？</div><div>“SDK 不支持流式。”</div><div>支持结构化事件流。我们当时的真实日志里，assistant 正文没有按字增量到达；我用原始事件验证过，所以换到提供文字 delta 的协议。</div>
+    <div>为什么不继续在前端 RAF 合并？</div><div>“后端性能更好。”</div><div>RAF 只降低浏览器提交频率，片段仍逐条经过传输；多个页面也会各自重复合批。服务端合批能统一节奏，前端仍做按 ID 投影。</div>
+    <div>delta 丢了怎么办？</div><div>“SSE 会自动重连。”</div><div>重连不等于补发。批次带序号，出现缺口就取持久化快照；最终全文再按 item ID 校准。</div>
+  </div>
+
+  <h2>闭卷练一次</h2>
+  <div class="checkpoint"><p>不看上面的稿子，用 60 秒说清四件事：旧方案的具体现象、你用什么证据确认、为什么移动合批边界、结果与限制。录一遍，检查有没有说出“SDK 完全不能流式”或“逐字输出”。</p>
+    <button data-reveal="answer-1">核对答案</button>
+    <p id="answer-1" hidden>合格回答会区分事件流和文字流；说出原始 JSONL 中正文在 <code>item.completed</code>；解释 RAF 只省渲染、不省传输；说明服务端合批、快照恢复和最终全文校准。不要编造延迟或提效数字。</p>
+  </div>
+
+  <h2 id="implementation">往下追问：实现细节与源码</h2>
+  <p>下面是当前仓库的关键片段，不是伪代码。面试时先解释责任边界，面试官继续问再展开代码；版本细节以链接中的完整源码为准。</p>
+
+  <h3>1. 协议层：一个 Turn 启动或恢复一个 Thread</h3>
+  <p>后端默认使用 app-server；SDK 保留为显式回退。app-server 通过 JSON-RPC 启动或恢复 Thread，再执行 Turn。Thread ID 用于继续对话，不负责补发漏掉的 SSE 片段。</p>
+  <pre><code>const backend = process.env.WORKBENCH_CODEX_BACKEND?.trim() || "app-server";
+if (backend === "sdk") return runSdkCodexTurn(input);
+return runAppServerCodexTurn(input);
+
+const threadResult = this.#input.sessionId
+  ? await this.#request("thread/resume", this.#threadParams())
+  : await this.#request("thread/start", this.#threadParams());</code></pre>
+  <p class="tiny">源码：<a href="../src/server/codex-adapter.ts">codex-adapter.ts</a>、<a href="../src/server/codex-app-server.ts">codex-app-server.ts</a></p>
+
+  <h3>2. 事件层：正文 delta 和完成事件分开走</h3>
+  <p>只有 <code>item/agentMessage/delta</code> 进入正文快路，并按 Turn 内的 item ID 累积。其他通知归一化为工具、文件、完成等事件。同一个 item 完成后，最终正文按 ID 替换临时正文，而不是再追加一遍。</p>
+  <pre><code>if (notification.method !== "item/agentMessage/delta") return null;
+const scopedItemId = [eventScope, itemId].filter(Boolean).join(":");
+const text = `${textByItem.get(scopedItemId) ?? ""}${delta}`;
+textByItem.set(scopedItemId, text);
+return { itemId: scopedItemId, turnId, delta: redact(delta), text: redact(text) };
+
+// workbench-conversation.ts：完成事件按同一 item ID 覆盖正文。
+if (textIndex &gt;= 0) segments[textIndex] = text;
+else segments.push(text);</code></pre>
+  <p class="tiny">源码：<a href="../src/server/codex-adapter.ts">codex-adapter.ts</a>、<a href="../src/server/workbench-conversation.ts">workbench-conversation.ts</a></p>
+
+  <h3>3. 传输层与持久层：两种节奏，不是一份缓冲</h3>
+  <p>短周期批次负责页面跟手；较长周期把累计全文写入 Requirement。服务端先给每条增量编号，再合并同一 item 的连续片段，保留批次起止序号。不同 item 不跨越合并。</p>
+  <pre><code>// agent-events.ts：SSE 快路。
+if (pending.size &amp;&amp; !pending.has(key)) flushAgentStreamBatches();
+if (Buffer.byteLength([...pending.values()].map((batch) =&gt; batch.delta).join(''), 'utf8') &gt;= 4_096) {
+  flushAgentStreamBatches();
+  return;
+}
+flushTimer ??= setTimeout(flushAgentStreamBatches, 50);
+
+// workbench-service.ts：Requirement 持久化慢路。
+pendingBytes += Buffer.byteLength(delta.delta, "utf8");
+if (pendingBytes &gt;= 32_768) await flush();
+else if (!timer) timer = setTimeout(() =&gt; void flush().catch(console.error), 500);</code></pre>
+  <p class="tiny">源码：<a href="../src/server/agent-events.ts">agent-events.ts</a>、<a href="../src/server/workbench-service.ts">workbench-service.ts</a></p>
+
+  <h3>4. 页面层：投影批次，缺口重取快照</h3>
+  <p>React Query 保存页面投影；旧批次跳过，序号缺口返回 <code>false</code>，调用方使快照失效并重取。SSE 重连会主动刷新；连接失败时使用三秒轮询。这是“发现缺口后校准”，不是服务端历史消息重放。</p>
+  <pre><code>const lastSequence = projection.lastSequenceByTurn[batch.turnId] ?? 0;
+if (batch.sequenceEnd &lt;= lastSequence) return true;
+if (batch.sequenceStart &gt; lastSequence + 1) return false;
+
+// index.tsx：false 表示必须回到持久化快照。
+if (!applyAgentStreamBatch(queryClient, incoming))
+  void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });</code></pre>
+  <p class="tiny">源码：<a href="../src/store/workbench-query.ts">workbench-query.ts</a>、<a href="../src/routes/index.tsx">index.tsx</a></p>
+
+  <p class="tiny">主要依据：<a href="https://github.com/openai/codex/blob/main/sdk/typescript/README.md">Codex TypeScript SDK 文档</a>、<a href="https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md">Codex app-server 文档</a>；项目证据见 <a href="../src/server/codex-adapter.ts">Adapter</a>、<a href="../src/server/agent-events.ts">服务端合批</a>、<a href="../src/store/workbench-query.ts">浏览器投影</a>和 <a href="../learning-records/0003-event-stream-is-not-text-stream.md">原始日志核对记录</a>。具体版本行为以当时日志为准，不把它说成 SDK 的永久限制。有追问答不顺，直接把原问题带回来问 Agent。</p>
+  <footer class="footer-nav"><a href="./0007-project-interview-mental-model.html">上一课：项目骨架</a> · <a href="../reference/codex-integration-interview-card.html">打印版：这一段怎么讲</a></footer>
+</main>
+</body>
+</html>

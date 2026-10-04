@@ -15,6 +15,18 @@
 - 干净工作区检查、独立需求分支、连续 Codex session、SSE 事件与串行执行票。
 - 宿主验证矩阵、显式产品验收、稳定候选提交与前端交付 Handoff。
 
+## Monorepo 结构
+
+```text
+apps/web/     React + TanStack Start 前端，以及迁移期间仍在使用的 Node MVP 模块
+apps/server/  Go 本地控制面学习骨架；核心逻辑按阶段实现
+config/       仓库级目标项目配置
+.agents/      随仓库交付的产品工作流 Skills
+docs/         架构、面试与学习文档
+```
+
+根目录使用 pnpm workspace 统一编排。当前产品仍由 `apps/web` 完整运行；`apps/server` 是渐进迁移目标，不把尚未实现的 Go 能力描述成已完成。
+
 ## 本地运行
 
 ```bash
@@ -34,6 +46,7 @@ Codex Turn 默认使用项目固定版本的 `codex app-server`。`WORKBENCH_COD
 ```bash
 pnpm typecheck
 pnpm test
+pnpm test:server
 pnpm test:e2e
 pnpm build
 ```
@@ -48,17 +61,18 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 
 ## 代码地图
 
-- `src/domain/`：Requirement 聚合、阶段和公共数据契约；
-- `src/server/`：配置、持久化、规则探索、进程和预览网关；
-- `src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
-- `src/server/codex-app-server.ts`：app-server 子进程、JSON-RPC、Thread 续接、Turn 中断与清理；
-- `src/server/codex-adapter.ts`：Codex 后端选择、应用事件归一化及显式 SDK 回退；
-- `src/server/workbench-conversation.ts`：四阶段逻辑对话、Grilling Skill 注入与门禁协议；
-- `src/store/workbench-query.ts`：React Query Key、工作台快照收敛和按 Requirement 隔离的对话投影；
-- `src/server/verification.ts`：声明式命令、修改范围和真实路由验证；
-- `src/routes/`：页面编排和 Server Function 调用；
-- `src/components/`：需求、证据与预览三个可讲解的界面模块；
-- `tests/fixtures/`：确定性目标项目和仓库规则；
-- `tests/e2e/`：浏览器级主验收流程。
+- `apps/web/src/domain/`：Requirement 聚合、阶段和公共数据契约；
+- `apps/web/src/server/`：迁移期间的 Node 配置、持久化、规则探索、进程和预览网关；
+- `apps/web/src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
+- `apps/web/src/server/codex-app-server.ts`：app-server 子进程、JSON-RPC、Thread 续接、Turn 中断与清理；
+- `apps/web/src/server/codex-adapter.ts`：Codex 后端选择、应用事件归一化及显式 SDK 回退；
+- `apps/web/src/server/workbench-conversation.ts`：四阶段逻辑对话、Grilling Skill 注入与门禁协议；
+- `apps/web/src/store/workbench-query.ts`：React Query Key、工作台快照收敛和按 Requirement 隔离的对话投影；
+- `apps/web/src/server/verification.ts`：声明式命令、修改范围和真实路由验证；
+- `apps/web/src/routes/`：页面编排和 Server Function 调用；
+- `apps/web/src/components/`：需求、证据与预览三个可讲解的界面模块；
+- `apps/web/tests/fixtures/`：确定性目标项目和仓库规则；
+- `apps/web/tests/e2e/`：浏览器级主验收流程；
+- `apps/server/internal/`：Go 领域、持久化、HTTP、Runner 与外部 adapter 的学习骨架。
 
 项目背景和领域词汇见 `CONTEXT.md`，完整需求见 `.requirements/`，面试讲解顺序见 `docs/interview-walkthrough.md`。

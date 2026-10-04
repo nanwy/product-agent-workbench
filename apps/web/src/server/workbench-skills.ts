@@ -1,6 +1,8 @@
 import { access, realpath } from 'node:fs/promises'
 import path from 'node:path'
 
+import { resolveWorkbenchRoot } from './workbench-root'
+
 /** 随工作台仓库发布的产品流程 Skill；目标仓库无需安装这些文件。 */
 export const workbenchSkillNames = [
   'grilling',
@@ -20,10 +22,10 @@ export type WorkbenchSkillName = (typeof workbenchSkillNames)[number]
  * 返回产品流程 Skill 的绝对入口路径。
  *
  * Codex turn 的 cwd 是目标仓库，所以不能把 `.agents/...` 当作目标仓库相对路径。
- * 默认以启动工作台时的 cwd 为产品根目录；部署器也可通过 WORKBENCH_ROOT 显式指定。
+ * 默认使用 monorepo 根目录；部署器也可通过 WORKBENCH_ROOT 显式指定。
  */
 export function resolveWorkbenchSkillPath(name: WorkbenchSkillName) {
-  const workbenchRoot = path.resolve(process.env.WORKBENCH_ROOT ?? process.cwd())
+  const workbenchRoot = resolveWorkbenchRoot()
   return path.join(workbenchRoot, '.agents', 'skills', name, 'SKILL.md')
 }
 

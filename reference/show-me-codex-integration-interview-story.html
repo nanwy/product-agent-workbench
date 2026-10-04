@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex 接入难点：从能跑到能实时、能恢复</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <style>
+    :root {
+      --navy: #101b2d;
+      --cyan: #2d8cff;
+      --mint: #31b77a;
+      --amber: #ed8b2c;
+      --violet: #7667ef;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 8% 0%, rgba(45, 140, 255, .17), transparent 28rem),
+        radial-gradient(circle at 92% 14%, rgba(118, 103, 239, .12), transparent 24rem),
+        var(--paper);
+    }
+
+    main { width: min(1180px, calc(100% - 32px)); }
+    .hero { display: grid; grid-template-columns: 1.45fr .75fr; gap: 28px; align-items: end; }
+    .hero h1 { max-width: 13ch; }
+    .hero-note { padding: 22px; border: 1px solid #cad7e9; border-radius: 18px; background: rgba(255, 255, 255, .72); backdrop-filter: blur(10px); }
+    .hero-note strong { display: block; color: var(--blue); font-size: 1.5rem; }
+    .hero-note p { margin-bottom: 0; color: var(--muted); }
+
+    .story-line { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 28px; }
+    .story-line::before { content: ""; position: absolute; top: 38px; left: 8%; right: 8%; height: 2px; background: linear-gradient(90deg, var(--cyan), var(--violet), var(--amber), var(--mint)); }
+    .stage { position: relative; min-height: 320px; padding: 68px 20px 20px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255, 254, 250, .94); box-shadow: 0 16px 40px rgba(16, 27, 45, .07); }
+    .stage-index { position: absolute; top: 20px; left: 20px; z-index: 1; display: grid; width: 38px; height: 38px; place-items: center; border: 4px solid var(--paper); border-radius: 50%; color: #fff; background: var(--cyan); font-weight: 900; }
+    .stage:nth-child(2) .stage-index { background: var(--violet); }
+    .stage:nth-child(3) .stage-index { background: var(--amber); }
+    .stage:nth-child(4) .stage-index { background: var(--mint); }
+    .stage h3 { font-size: 1.18rem; }
+    .stage p { margin: 8px 0; color: var(--muted); font-size: .95rem; }
+    .stage .decision { color: var(--ink); font-weight: 750; }
+    .tag { display: inline-block; margin-bottom: 10px; padding: 3px 9px; border-radius: 999px; color: #1554a6; background: #e8f2ff; font-size: .78rem; font-weight: 800; }
+
+    .hinge { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: stretch; margin-top: 22px; }
+    .hinge article { padding: 24px; border-radius: 18px; }
+    .hinge .before { color: #ffe9e5; background: #441e22; }
+    .hinge .after { color: #ddffed; background: #133e31; }
+    .hinge .before p, .hinge .after p { margin-bottom: 0; color: inherit; opacity: .86; }
+    .hinge .arrow { align-self: center; color: var(--blue); font-size: 2rem; font-weight: 900; }
+
+    .skill-map { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .skill-map article { padding: 18px; border-top: 4px solid var(--cyan); border-radius: 0 0 14px 14px; background: var(--card); }
+    .skill-map article:nth-child(2) { border-color: var(--violet); }
+    .skill-map article:nth-child(3) { border-color: var(--amber); }
+    .skill-map article:nth-child(4) { border-color: var(--mint); }
+    .skill-map p { margin-bottom: 0; color: var(--muted); font-size: .94rem; }
+
+    .star { display: grid; grid-template-columns: 140px 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--line); gap: 1px; }
+    .star > div { padding: 18px 20px; background: var(--card); }
+    .star .letter { color: var(--blue); font-size: 1.45rem; font-weight: 950; }
+    .star p { margin: 0; }
+
+    .answer-shell { overflow: hidden; border-radius: 20px; color: #eef5ff; background: var(--navy); box-shadow: 0 24px 70px rgba(16, 27, 45, .24); }
+    .answer-toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px 18px; border-bottom: 1px solid #2a3b56; }
+    .answer-toolbar span { color: #8eacd2; font-family: var(--mono); font-size: .86rem; }
+    .answer-shell button { padding: 8px 12px; background: #27405f; font-size: .88rem; }
+    .answer { padding: 12px 28px 24px; }
+    .answer p { max-width: none; }
+    .answer mark { padding: 1px 4px; color: #b9e7ff; background: rgba(45, 140, 255, .18); }
+    .copied { color: #9af0c3 !important; }
+
+    .followups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .followup-group { margin-top: 26px; }
+    .followup-group h3 { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; font-size: 1.15rem; }
+    .followup-group h3 span { display: inline-grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: #fff; background: var(--blue); font-size: .82rem; }
+    details { border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+    summary { padding: 16px 18px; cursor: pointer; font-weight: 800; }
+    details p { margin: 0; padding: 0 18px 18px; color: var(--muted); }
+    details .answer-lead { display: block; margin-bottom: 5px; color: var(--ink); font-weight: 800; }
+    .question-path { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 26px; padding: 0; list-style: none; }
+    .question-path li { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-radius: 999px; color: #294057; background: #e8f0fa; font-size: .88rem; font-weight: 750; }
+    .question-path li:not(:last-child)::after { content: "→"; margin-left: 6px; color: var(--blue); }
+
+    .guardrail { margin-top: 18px; padding: 18px 20px; border-left: 5px solid var(--amber); background: #fff4e9; }
+    .guardrail p { margin: 5px 0; }
+    .blank { display: inline-block; min-width: 8ch; border-bottom: 1px dashed currentColor; color: var(--orange); font-weight: 800; }
+
+    @media (max-width: 900px) {
+      .hero, .story-line, .skill-map, .followups { grid-template-columns: 1fr 1fr; }
+      .hero h1 { max-width: none; }
+      .story-line::before { display: none; }
+    }
+
+    @media (max-width: 620px) {
+      main { width: min(100% - 24px, 1180px); padding-top: 32px; }
+      .hero, .story-line, .skill-map, .followups, .hinge { grid-template-columns: 1fr; }
+      .stage { min-height: auto; }
+      .hinge .arrow { transform: rotate(90deg); text-align: center; }
+      .star { grid-template-columns: 72px 1fr; }
+      .answer-toolbar { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Interview explainer · Codex integration</p>
+      <h1>从“能跑”到“能实时、能恢复”</h1>
+      <p class="lede">这段经历真正有分量的地方，不是换了 CLI、SDK 和 app-server，而是我先确认事件的真实粒度，再把合批和一致性的责任放回正确的一层。</p>
+    </div>
+    <aside class="hero-note">
+      <strong>一句话结论</strong>
+      <p>我把“流式”拆成事件流、文字增量、传输合批和断线恢复四个问题，逐个验证，不再用一个模糊的 streaming 概念解释全部现象。</p>
+    </aside>
+  </header>
+
+  <section>
+    <h2>方案为什么改了三次</h2>
+    <div class="story-line" aria-label="Codex 接入方案演进">
+      <article class="stage">
+        <span class="stage-index">1</span>
+        <span class="tag">先跑起来</span>
+        <h3>Node 读取 CLI stdout</h3>
+        <p>逐行解析 <code>codex exec --json</code> 的 JSONL，工具和完成事件可以及时到达。</p>
+        <p class="decision">问题：stdout 在流动，不代表 assistant 正文也在增量输出。正文经常到完成事件才整段出现。</p>
+      </article>
+      <article class="stage">
+        <span class="stage-index">2</span>
+        <span class="tag">减少自维护协议</span>
+        <h3>接入 TypeScript SDK</h3>
+        <p>Thread 恢复、取消和结构化事件都更好管理。我原本判断 SDK 能顺手解决正文流式。</p>
+        <p class="decision">验证：抓原始事件后发现，当时的版本组合仍主要在 item 完成时给正文。事件流和文字流不是一回事。</p>
+      </article>
+      <article class="stage">
+        <span class="stage-index">3</span>
+        <span class="tag">换协议能力</span>
+        <h3>切到 Codex app-server</h3>
+        <p>消费 <code>item/agentMessage/delta</code>，终于能按上游实际粒度更新同一条 assistant 消息。</p>
+        <p class="decision">新问题：小片段直接推给浏览器会造成高频传输和缓存更新；断线还可能留下不完整文本。</p>
+      </article>
+      <article class="stage">
+        <span class="stage-index">4</span>
+        <span class="tag">重画责任边界</span>
+        <h3>合并机制下沉后端</h3>
+        <p>服务端按时间或字节数合成 SSE 批次，同时周期性保存累计全文。前端只负责按消息 ID 投影。</p>
+        <p class="decision">结果：页面保持跟手；序号缺口时可回到持久快照；完成事件再校准最终全文。</p>
+      </article>
+    </div>
+  </section>
+
+  <section>
+    <h2>最值得讲的判断</h2>
+    <div class="hinge">
+      <article class="before">
+        <h3>早期判断</h3>
+        <p>前端用 Zustand + <code>requestAnimationFrame</code> 缓冲，能少做几次渲染，所以把“流式性能”留在浏览器处理。</p>
+      </article>
+      <div class="arrow" aria-hidden="true">→</div>
+      <article class="after">
+        <h3>后来判断</h3>
+        <p>RAF 只减少浏览器提交次数，不能减少网络事件，也无法为多个客户端提供统一顺序和恢复点。合批属于传输边界，应由后端负责。</p>
+      </article>
+    </div>
+    <div class="skill-map">
+      <article><h3>问题拆解</h3><p>把“SDK 能不能 streaming”拆成事件是否连续、正文是否有 delta、前端是否平滑、断线后是否一致。</p></article>
+      <article><h3>证据意识</h3><p>直接看原始 JSONL 和事件类型，不靠方法名 <code>runStreamed()</code> 猜能力，也不把模拟数据当成真实协议。</p></article>
+      <article><h3>架构取舍</h3><p>CLI 适合快速验证，SDK 适合封装会话，app-server 提供所需正文增量；选择跟需求走。</p></article>
+      <article><h3>边界设计</h3><p>后端合批和持久化，React Query 做客户端投影，最终全文按 item ID 覆盖，避免重复追加。</p></article>
+    </div>
+  </section>
+
+  <section>
+    <h2>STAR 骨架</h2>
+    <div class="star">
+      <div class="letter">S</div><div><p>项目要把 Codex 接进 Web 工作台，用户需要在 Agent 执行时持续看到回复，而不是任务结束后突然出现整段内容。</p></div>
+      <div class="letter">T</div><div><p>我负责打通 Codex 到页面的消息链路，同时保证刷新或断线后不会丢字、重字。</p></div>
+      <div class="letter">A</div><div><p>我先后验证 CLI stdout 和 SDK 的真实事件，确认当时组合缺的是正文 delta；随后切到 app-server。拿到 delta 后，我又把前端 RAF 合并改成服务端按阈值合批，并补上序号检测、快照恢复和最终全文校准。</p></div>
+      <div class="letter">R</div><div><p>最终页面能按上游实际粒度渐进显示，断线时也有恢复路径。更重要的是，实时性、传输成本和数据一致性有了清晰的责任边界。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>面试口述稿，约 90 秒</h2>
+    <div class="answer-shell">
+      <div class="answer-toolbar">
+        <span>自然表达版 · 不编造指标 · 可直接练习</span>
+        <button id="copy-answer" type="button">复制口述稿</button>
+      </div>
+      <div class="answer" id="answer-text">
+        <p>“这个项目里比较难的一段，是把 Codex 的输出做成真正可用的实时对话。</p>
+        <p>第一版我在 Node 里启动 <code>codex exec --json</code>，逐行解析 stdout。工具开始、命令完成这些事件确实会不断到，但 assistant 正文经常等到 <code>item.completed</code> 才整段返回。后来我接了官方 TypeScript SDK，主要是想把 Thread 恢复和取消交给官方封装。我当时以为 <code>runStreamed()</code> 也能解决正文流式，结果抓了原始事件才确认：<mark>在我们当时测试的版本组合里，流动的是生命周期事件，正文还没有可用的增量。</mark></p>
+        <p>所以我没有继续在前端做假打字效果，而是把默认通道换成 Codex app-server，消费它的文字 delta。接通以后又碰到第二个问题：每个小片段都推到浏览器，会产生很密的 SSE 和缓存更新；一旦断线，页面还可能少一截。早期我们在前端用 Zustand 和 RAF 合并渲染，后来我把这个机制移到后端。服务端按时间或字节阈值合成批次，同时保存累计全文；前端用 React Query 按消息 ID 投影，发现序号缺口就重新取快照，最后再用完成事件的全文校准。</p>
+        <p>最后解决的不只是‘让字一点点出来’，而是让实时显示、传输成本和恢复一致性能够同时成立。这个过程也让我意识到，看到 streaming 这个方法名还不够，必须看协议里到底流的是什么。”</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>讲完以后，面试官会怎么追</h2>
+    <p class="lede">通常不会一上来问代码细节。面试官会先确认你的判断有没有证据，再看架构取舍，最后追异常场景和复盘。每个回答控制在 20 到 40 秒，答完停一下。</p>
+    <ol class="question-path" aria-label="追问路径">
+      <li>先证伪</li>
+      <li>再问取舍</li>
+      <li>压异常场景</li>
+      <li>看度量与复盘</li>
+    </ol>
+
+    <div class="followup-group">
+      <h3><span>1</span>先确认：你真的定位到根因了吗</h3>
+      <div class="followups">
+        <details open>
+          <summary>SDK 不是支持 streaming 吗？为什么说做不了流式？</summary>
+          <p><span class="answer-lead">我不会说 SDK 做不了流式。</span>它支持结构化事件流。问题是我们当时测试的版本组合里，assistant 正文主要在 <code>item.completed</code> 才完整出现，没有拿到能直接用于逐步渲染的正文 delta。我最后换协议，是因为页面需要的是文字增量，不是单纯知道任务还在执行。</p>
+        </details>
+        <details>
+          <summary>你怎么确认不是前端渲染慢，或者 Node 读取 stdout 有问题？</summary>
+          <p><span class="answer-lead">我绕过页面，直接保存原始 JSONL。</span>工具开始和完成事件会连续到达，但 assistant 文本集中在同一个完成事件里。换 SDK 后我又记录了一次原始事件，现象一致。这样就把问题定位到了上游事件粒度，而不是 React 渲染或 stdout 分块。</p>
+        </details>
+        <details>
+          <summary>为什么不用前端模拟打字，用户看起来也一样？</summary>
+          <p><span class="answer-lead">模拟打字只能改善动画，不能改善真实等待。</span>如果正文十秒后才整段到，前十秒用户还是看不到内容；而且动画会让监控看起来像“正在接收”，实际只是重放已有文本。我更希望页面反映真实状态，所以继续找有正文 delta 的协议。</p>
+        </details>
+        <details>
+          <summary>从 CLI 换 SDK，那次改造是不是白做了？</summary>
+          <p><span class="answer-lead">不是，SDK 解决了另一类问题。</span>Thread 恢复、取消、沙箱参数和事件类型不再由我们手写维护。它没有满足当时的正文增量需求，但帮我把“会话控制”和“文字流式”分开了。后面切 app-server 时，需求边界反而更清楚。</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="followup-group">
+      <h3><span>2</span>继续追：为什么这样划分前后端职责</h3>
+      <div class="followups">
+        <details>
+          <summary>为什么最后选 app-server，而不是继续解析 CLI？</summary>
+          <p><span class="answer-lead">因为 app-server 提供了我缺少的协议语义。</span>CLI JSONL 更适合快速集成和观察任务事件，app-server 有明确的 <code>item/agentMessage/delta</code>，还能把 Thread、Turn 和 item 关联起来。代价是接入更复杂，所以我保留了 Adapter，把协议差异隔离在服务端。</p>
+        </details>
+        <details>
+          <summary>为什么把 RAF 合并从前端移到后端？</summary>
+          <p><span class="answer-lead">因为 RAF 只省浏览器渲染，不省传输。</span>每个小片段仍会经过 SSE、事件解析和缓存更新；开两个页面还会各自做一遍。服务端合批后，所有客户端拿到统一的批次和序号，前端只做投影，恢复逻辑也只有一套。</p>
+        </details>
+        <details>
+          <summary>为什么前端从 Zustand 换成 React Query？</summary>
+          <p><span class="answer-lead">这部分状态本质上来自服务端。</span>它有快照、失效、重取和断线校准，React Query 对这套生命周期更顺手。Zustand 仍适合纯本地交互状态，但如果让它同时保存服务端真相和临时增量，很容易出现两份状态谁覆盖谁的问题。</p>
+        </details>
+        <details>
+          <summary>50ms、4KB 这些阈值是怎么定的？</summary>
+          <p><span class="answer-lead">它们是可调的工程参数，不是拍成永远正确的常量。</span>时间阈值保证低速输出时页面不会等太久，字节阈值防止高速输出时单批过大。初值先保证体感和内存可控，再根据首批延迟、每秒事件数和批次大小分布调整。</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="followup-group">
+      <h3><span>3</span>再压一层：异常和一致性怎么处理</h3>
+      <div class="followups">
+        <details>
+          <summary>SSE 断线重连，不就能继续接收了吗？</summary>
+          <p><span class="answer-lead">重连只恢复连接，不代表中间没有漏事件。</span>我给批次带连续序号。前端发现序号跳了，就停止相信本地拼接结果，重新拉持久化快照；连接恢复后再继续投影新的批次。这里做的是发现缺口后的校准，不是假设 SSE 会替我补历史消息。</p>
+        </details>
+        <details>
+          <summary>delta 重复到达，或者 completed 又带了一遍全文，会不会重复？</summary>
+          <p><span class="answer-lead">不会把 completed 当成新的文本继续追加。</span>增量按 Turn 内的 item ID 累积，旧序号直接忽略；完成事件到来后，用同一个 item ID 的最终全文覆盖临时拼接结果。这样即使中间有重复或少量缺失，最终状态也会收敛。</p>
+        </details>
+        <details>
+          <summary>多个 Turn 同时输出，顺序怎么保证？</summary>
+          <p><span class="answer-lead">顺序只在明确的作用域里保证。</span>批次至少带 Turn ID、item ID 和序号，前端按 Turn 分开记录最后序号，不拿一个全局计数器混在一起。同一 item 内顺序合并，不同 item 不跨边界拼接；跨 Turn 的展示顺序由会话时间线决定。</p>
+        </details>
+        <details>
+          <summary>服务端一直缓存累计文本，会不会占用很多内存？</summary>
+          <p><span class="answer-lead">内存只保存活跃 Turn 的短期缓冲。</span>达到时间或字节阈值就 flush，完成、取消和异常时都会清理；较长内容周期性落到持久快照，不把完整历史都留在合批器里。真要上更大并发，我还会加单 Turn 上限和活跃会话指标。</p>
+        </details>
+      </div>
+    </div>
+
+    <div class="followup-group">
+      <h3><span>4</span>最后看：你怎么证明效果、又学到了什么</h3>
+      <div class="followups">
+        <details>
+          <summary>你怎么衡量改造有效？</summary>
+          <p><span class="answer-lead">我会分体验、开销和正确性三组看。</span>体验看首段正文时间和批次间隔；开销看每个 Turn 的 SSE 事件数、平均批次大小和前端缓存更新次数；正确性看序号缺口、快照回退次数，以及最终全文和持久结果是否一致。当前没有可靠数字的部分，我不会在面试里临时编。</p>
+        </details>
+        <details>
+          <summary>如果 app-server 挂了，系统怎么降级？</summary>
+          <p><span class="answer-lead">我会保留协议 Adapter 和明确的降级能力。</span>可以退回 SDK 或 CLI 完成任务，但页面要诚实地显示为“执行中，完成后展示结果”，不能假装还有正文增量。降级保证任务可用，流式体验则作为独立能力上报。</p>
+        </details>
+        <details>
+          <summary>这个方案还有什么不足？</summary>
+          <p><span class="answer-lead">快照恢复优先保证正确，但会牺牲一点连续感。</span>出现缺口时要重新请求完整状态，长对话的快照也会变大。继续优化的话，我会增加带游标的短期事件重放；只有游标过期才回完整快照。</p>
+        </details>
+        <details>
+          <summary>如果重做一次，你会改什么？</summary>
+          <p><span class="answer-lead">我会更早定义事件契约，并先抓一份真实 trace。</span>一开始就区分生命周期事件、正文 delta 和最终快照，再为重复、乱序、断线写集成测试。这样接 SDK 时就不会因为方法名里有 streamed，默认它等于页面需要的文字流。</p>
+        </details>
+      </div>
+    </div>
+    <div class="guardrail">
+      <p><strong>面试里不要说：</strong>“SDK 无法流式输出。”</p>
+      <p><strong>准确说法：</strong>“在 <span class="blank">当时版本</span> 的实测里，SDK 有事件流，但没有拿到满足页面需求的 assistant 正文 delta。”</p>
+      <p class="tiny">结果部分不要临时编延迟或性能数字。若有线上记录，再补首字时间、SSE 事件数下降比例和断线恢复成功率。</p>
+    </div>
+  </section>
+
+  <footer class="footer-nav">
+    <a href="../lessons/0008-codex-integration-interview-story.html">查看实现细节与源码证据</a>
+    · <a href="./codex-integration-interview-card.html">查看打印版面试卡</a>
+  </footer>
+</main>
+<script>
+  const copyButton = document.querySelector('#copy-answer');
+  const answer = document.querySelector('#answer-text');
+
+  copyButton?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(answer.innerText.trim());
+      copyButton.textContent = '已复制';
+      copyButton.classList.add('copied');
+      window.setTimeout(() => {
+        copyButton.textContent = '复制口述稿';
+        copyButton.classList.remove('copied');
+      }, 1600);
+    } catch {
+      copyButton.textContent = '请手动选择文本';
+    }
+  });
+</script>
+</body>
+</html>

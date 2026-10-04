@@ -23,6 +23,7 @@ export default defineConfig({
     url: 'http://127.0.0.1:3000',
     reuseExistingServer: false,
     env: {
+      WORKBENCH_ROOT: path.resolve('../..'),
       WORKBENCH_DATA_DIR: path.join(os.tmpdir(), 'product-agent-workbench-e2e-data'),
       WORKBENCH_TARGET_CONFIG: 'tests/fixtures/target-config.json',
       WORKBENCH_CODEX_COMMAND: path.resolve('tests/fixtures/fake-codex.mjs'),

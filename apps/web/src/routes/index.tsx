@@ -93,10 +93,11 @@ function WorkbenchPage() {
   const queryClient = useQueryClient();
   const snapshotQuery = useQuery({
     queryKey: workbenchQueryKeys.snapshot,
-    queryFn: async () => applyWorkbenchSnapshot(
-      queryClient,
-      (await refresh()) as WorkbenchSnapshot,
-    ),
+    queryFn: async () =>
+      applyWorkbenchSnapshot(
+        queryClient,
+        (await refresh()) as WorkbenchSnapshot,
+      ),
     initialData: initialSnapshot,
     refetchInterval: sseConnected ? 30_000 : 3_000,
   });
@@ -107,19 +108,25 @@ function WorkbenchPage() {
   useEffect(() => {
     const events = new EventSource("/api/events");
     events.onopen = () => {
-      void queryClient.refetchQueries({ queryKey: workbenchQueryKeys.snapshot }).then(() => {
-        setSseConnected(true);
-      });
+      void queryClient
+        .refetchQueries({ queryKey: workbenchQueryKeys.snapshot })
+        .then(() => {
+          setSseConnected(true);
+        });
     };
     events.onerror = () => setSseConnected(false);
     events.onmessage = (message) => {
       const incoming = JSON.parse(message.data) as AgentSseEvent;
       if (incoming.type === "stream-batch") {
         if (!applyAgentStreamBatch(queryClient, incoming))
-          void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+          void queryClient.invalidateQueries({
+            queryKey: workbenchQueryKeys.snapshot,
+          });
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: workbenchQueryKeys.snapshot });
+      void queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.snapshot,
+      });
     };
     return () => {
       setSseConnected(false);

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { ConversationMessage, DiscoveredSkill, Requirement, TicketDraft, WorkbenchConversation, WorkflowStep } from '../domain/workbench'
 import { specArtifactPath } from './workbench-spec'
 import { renderTicketMarkdown, ticketsArtifactDirectory, type ParsedTicket } from './workbench-tickets'
+import { resolveWorkbenchRoot } from './workbench-root'
 
 export class RequirementStore {
   readonly #filePath: string
@@ -13,7 +14,7 @@ export class RequirementStore {
   readonly #ticketsDirectory: string
   #queue: Promise<unknown> = Promise.resolve()
 
-  constructor(dataDirectory = process.env.WORKBENCH_DATA_DIR ?? '.data') {
+  constructor(dataDirectory = process.env.WORKBENCH_DATA_DIR ?? path.join(resolveWorkbenchRoot(), '.data')) {
     this.#filePath = path.resolve(dataDirectory, 'current-requirement.json')
     this.#historyDirectory = path.resolve(dataDirectory, 'requirements')
     this.#specDirectory = path.resolve(dataDirectory, 'specs')

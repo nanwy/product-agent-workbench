@@ -61,7 +61,7 @@ TanStack Start / Node 控制服务
 
 ### 4. 连续会话，串行执行
 
-每个 Requirement 只保留一个 Codex session ID。第一张票使用 `codex exec --json`，后续票使用 `codex exec resume --json`；应用把不稳定的 CLI JSONL 归一化为稳定事件，再通过 SSE 推送给浏览器。取消只终止当前 turn，不删除 session。
+每个 Requirement 保存规划与实现 Thread ID。默认后端使用项目固定版本的 Codex app-server 创建或恢复 Thread，多张票沿用同一个 implementation Thread 串行执行；Adapter 把上游通知归一化为稳定事件，文字 delta 合批后通过 SSE 推送给浏览器。取消只终止当前 Turn，不删除 Thread。
 
 ### 5. 分支隔离不等于工作区安全
 

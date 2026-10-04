@@ -49,7 +49,7 @@ describe('target project exploration', () => {
 
     expect(prompt).toContain('product-copy-change')
     expect(prompt).toContain('.agents/skills/product-copy-change/SKILL.md')
-    expect(prompt).toContain(path.resolve('.agents/skills/implement/SKILL.md'))
+    expect(prompt).toContain(path.resolve('../..', '.agents/skills/implement/SKILL.md'))
     expect(prompt).not.toContain('Keep the change narrow and verify it in the browser.')
     expect(prompt).toContain('不采用 TDD')
     expect(prompt).toContain('中文多行 JSDoc')

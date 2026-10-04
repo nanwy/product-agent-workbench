@@ -2,8 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
+import { resolveWorkbenchRoot } from './workbench-root'
+
 type MutationRecord = { key: string; completedAt: string }
-const dataDirectory = path.resolve(process.env.WORKBENCH_DATA_DIR ?? '.data')
+const dataDirectory = path.resolve(
+  process.env.WORKBENCH_DATA_DIR ?? path.join(resolveWorkbenchRoot(), '.data'),
+)
 const filePath = path.join(dataDirectory, 'completed-mutations.json')
 const globalIdempotency = globalThis as typeof globalThis & {
   __workbenchMutationQueue?: Promise<unknown>

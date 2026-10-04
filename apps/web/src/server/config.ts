@@ -2,6 +2,7 @@ import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 
 import type { TargetProjectConfig } from '../domain/workbench'
+import { resolveWorkbenchRoot } from './workbench-root'
 
 type TargetProjectConfigFile = Omit<TargetProjectConfig, 'repositoryRoot'> & {
   repositoryRoot: string
@@ -11,7 +12,8 @@ type TargetProjectConfigFile = Omit<TargetProjectConfig, 'repositoryRoot'> & {
 // 测试可用环境变量指向一次性 fixture，生产默认读取 config/target-project.json。
 export async function loadTargetProjectConfig(): Promise<TargetProjectConfig> {
   const configPath = path.resolve(
-    process.env.WORKBENCH_TARGET_CONFIG ?? 'config/target-project.json',
+    process.env.WORKBENCH_TARGET_CONFIG ??
+      path.join(resolveWorkbenchRoot(), 'config/target-project.json'),
   )
   const content = await readFile(configPath, 'utf8')
   const parsed = JSON.parse(content) as TargetProjectConfigFile

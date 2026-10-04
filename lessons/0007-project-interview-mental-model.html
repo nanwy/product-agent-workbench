@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>整个项目：用四道门讲清 Product Agent Workbench</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <script src="../assets/interview-retrieval.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0007 · 项目总览</p>
+  <h1>不要背功能，记住四道门</h1>
+  <p class="lede">这节课只建立项目骨架。学完后，你应该能拿一条页面文案需求，从产品输入一路推演到候选提交，并说出每一步在防什么错误。</p>
+
+  <div class="thesis">Agent 负责生成候选结果；工作台负责授权、约束、验证和留证。这个分工就是整个项目。</div>
+
+  <h2>一条需求怎样走完</h2>
+  <div class="flow">
+    <div><strong>产品输入</strong><small>页面 + 结果</small></div>
+    <div><strong>意图门</strong><small>Grilling / Spec</small></div>
+    <div><strong>执行门</strong><small>Git / Codex</small></div>
+    <div><strong>验证门</strong><small>命令 / 页面</small></div>
+    <div><strong>交付门</strong><small>Commit / Handoff</small></div>
+  </div>
+
+  <p>例子是：“修改 <code>/competition</code> 的空状态文案，但不能影响后台和其他列表页。”不要先想组件。先问：什么结果算对，哪里不能动，用什么证据判断。</p>
+
+  <h2>四道门分别拦什么</h2>
+  <div class="grid two">
+    <article class="card">
+      <h3><span class="number">1</span>意图门</h3>
+      <p>Agent 先查事实、再问业务决策。合法 understanding、当前 Spec 版本和产品确认同时满足，才允许继续。</p>
+      <p class="wrong-output">没有它：Agent 带着错误假设开工，或者拿旧 Spec 实现。</p>
+    </article>
+    <article class="card">
+      <h3><span class="number">2</span>执行门</h3>
+      <p>固定配置、干净 working tree、需求分支、限定可写根，以及 Turn 后 Git 检查共同约束执行。</p>
+      <p class="wrong-output">没有它：用户改动被混入，未跟踪文件或范围外文件进入候选提交。</p>
+    </article>
+    <article class="card">
+      <h3><span class="number">3</span>验证门</h3>
+      <p>Agent 退出不等于需求完成。宿主命令、运行时、真实路由、浏览器证据和产品判断分别留证。</p>
+      <p class="wrong-output">没有它：环境失败被当成代码失败，没运行的检查被写成通过。</p>
+    </article>
+    <article class="card">
+      <h3><span class="number">4</span>交付门</h3>
+      <p>产品验收后冻结候选 revision，把 Spec、Tickets、验证和风险一起交给前端；不自动 push 或 merge。</p>
+      <p class="wrong-output">没有它：产品“看起来可以”被误解成代码可以上线。</p>
+    </article>
+  </div>
+
+  <h2>三份真值不要混</h2>
+  <table class="state-table">
+    <thead><tr><th>对象</th><th>保存什么</th><th>坏了怎样恢复</th></tr></thead>
+    <tbody>
+      <tr><td>Requirement</td><td>需求、Spec、Ticket、执行、验证与交付事实</td><td>从 JSON 权威快照恢复</td></tr>
+      <tr><td>目标 Git</td><td>代码、base revision、需求分支和 diff</td><td>重新检查分支、HEAD、tracked 与 untracked</td></tr>
+      <tr><td>活运行态</td><td>Codex Turn、SSE 订阅、后台 Promise、开发进程</td><td>心跳判断旧进程是否消失，重新启动或标记可重试</td></tr>
+    </tbody>
+  </table>
+
+  <p>浏览器不是第四份真值。React Query 只是 Requirement 的投影。SSE 用来快速通知和追加文字，断线或序号缺口后仍回到服务端快照。</p>
+
+  <h2>现在闭卷回答</h2>
+  <div class="checkpoint">
+    <p><strong>问题一：</strong>为什么 Spec 不能只放在聊天记录里？先用自己的话回答，再核对。</p>
+    <button data-reveal="answer-1">核对答案</button>
+    <p id="answer-1" hidden>聊天记录包含已经失效的讨论，不能表达“当前哪一版获得授权”。版本化 Spec 把有效意图冻结下来，Ticket 和验收条件都基于同一版本。</p>
+  </div>
+  <div class="checkpoint">
+    <p><strong>问题二：</strong>已经创建需求分支，为什么还要检查 working tree 和修改范围？</p>
+    <button data-reveal="answer-2">核对答案</button>
+    <p id="answer-2" hidden>分支不保护未提交改动，也不阻止 Agent 写到其他目录。干净工作区保护用户现场，可写根与 Git diff 保护确认范围。</p>
+  </div>
+  <div class="checkpoint">
+    <p><strong>问题三：</strong>Agent 返回 0，为什么还不能开放产品验收？</p>
+    <button data-reveal="answer-3">核对答案</button>
+    <p id="answer-3" hidden>返回 0 只证明 Turn 正常结束。代码是否通过检查、服务是否可运行、页面是否可访问、业务结果是否正确，都需要独立证据。</p>
+  </div>
+  <div class="checkpoint">
+    <p><strong>问题四：</strong>SSE 已经实时推送，为什么还需要 Requirement 快照？</p>
+    <button data-reveal="answer-4">核对答案</button>
+    <p id="answer-4" hidden>SSE batch 是瞬时快路，刷新和断线会漏。Requirement 保存累计全文和最终状态，是客户端发现缺口后重新收敛的依据。</p>
+  </div>
+
+  <h2>面试开场只说这一段</h2>
+  <div class="interview"><p>“我做了一个本地 AI 研发工作台，解决产品需求要先解释给前端、再由前端转述给 Agent 的重复沟通。产品先和 Agent 对齐目标、边界和验收信号，确认版本化 Spec 和 Ticket 后，Codex 才能在真实仓库的独立分支和限定目录里工作。工作台负责项目运行、Git 越界检查、构建和真实页面证据，产品负责页面验收，前端决定是否合并。它的核心不是让 Agent 多写代码，而是用四道门把不确定的生成过程变成可以审查的候选交付。”</p></div>
+
+  <p class="tiny">主资料：<a href="../docs/interview-master-guide.md">面试作战手册</a>。协议依据：<a href="https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md">Codex app-server README</a>、<a href="https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events">MDN SSE</a>、<a href="https://tanstack.com/query/latest/docs/framework/react/reference/classes/QueryClient">TanStack QueryClient</a>。有任何一处不能从失败结果反推设计，请直接问 Agent，不要先背答案。</p>
+
+  <footer class="footer-nav"><a href="./0006-streaming-interview-talk.html">上一课：流式面试表达</a> · <a href="../reference/project-interview-cheatsheet.html">下一份：项目速查表</a></footer>
+</main>
+</body>
+</html>

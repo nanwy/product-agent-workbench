@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Codex → 屏幕：源码级时间推演</title>
+  <style>
+    :root {
+      --paper:#f1f2f4; --surface:#fbfbfc; --raised:#fff; --ink:#1c2029;
+      --soft:#596171; --muted:#88909d; --line:#d8dce3; --line2:#c6cbd4;
+      --blue:#315fda; --blue2:#e8eeff; --green:#21815b; --green2:#e4f4eb;
+      --amber:#a0650e; --amber2:#fff0d2; --red:#b83f3a; --red2:#fde9e7;
+      --code:#151c27; --code2:#1d2634; --codeLine:#303b4d; --codeInk:#dbe2ec;
+      --violet:#9479e8; --cyan:#76cddd; --mint:#85deb1; --orange:#e6ad72;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+      --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+    }
+    *{box-sizing:border-box} html{scroll-behavior:smooth} body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55}
+    button{font:inherit} button:focus-visible{outline:3px solid #315fda42;outline-offset:2px}
+    .shell{max-width:1480px;margin:auto;padding:26px 28px 70px}
+    .mast{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:28px;align-items:end;padding:13px 0 24px;border-bottom:1px solid var(--line)}
+    .kicker{font:750 10px var(--mono);letter-spacing:.13em;color:var(--blue)}
+    h1{margin:8px 0 7px;font-size:clamp(28px,4vw,50px);line-height:1.05;letter-spacing:-.04em}
+    .mast p{max-width:760px;margin:0;color:var(--soft);font-size:15px}
+    .truth{display:grid;grid-template-columns:auto auto;gap:5px 12px;padding:13px 15px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:11px}
+    .truth span{color:var(--muted);font:700 9px var(--mono);letter-spacing:.08em}.truth b{font-weight:650}
+
+    .sticky{position:sticky;z-index:20;top:0;margin:18px 0 0;padding:10px;background:#f1f2f4ee;border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(15px)}
+    .chapters{display:grid;grid-template-columns:7fr 11fr 3fr;gap:5px;margin-bottom:8px}
+    .chapter{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;background:var(--surface);font-size:10px;font-weight:700;color:var(--soft)}
+    .chapter span{font:750 9px var(--mono);color:var(--muted)} .chapter.active{background:var(--blue2);color:var(--blue)} .chapter.active span{color:var(--blue)}
+    .timeline{display:grid;grid-template-columns:repeat(21,minmax(76px,1fr));gap:4px;overflow-x:auto;padding-bottom:2px}
+    .tick{position:relative;min-width:64px;padding:8px 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;text-align:left}
+    .tick:hover{background:var(--surface);border-color:var(--line)} .tick.active{background:var(--raised);border-color:var(--blue);color:var(--blue);box-shadow:0 3px 12px #24304a12}
+    .tick.done{color:var(--green)} .tick small{display:block;font:750 8px var(--mono);letter-spacing:.08em}.tick b{display:block;margin-top:3px;font-size:10px;white-space:nowrap}
+    .progress{height:2px;margin-top:8px;background:var(--line);overflow:hidden;border-radius:2px}.progress>i{display:block;width:0;height:100%;background:var(--blue);transition:width .25s ease}
+
+    .controls{display:flex;align-items:center;gap:7px;margin:16px 0 10px}
+    .control{border:1px solid var(--line2);border-radius:6px;background:var(--raised);color:var(--ink);padding:7px 11px;cursor:pointer;font-size:11px;font-weight:650}
+    .control.primary{border-color:var(--blue);background:var(--blue);color:white;min-width:76px}.control:disabled{opacity:.38;cursor:not-allowed}
+    .timecode{margin-left:4px;color:var(--muted);font:700 10px var(--mono)} .speed{margin-left:auto;display:flex;gap:4px}.speed button{padding:5px 8px;border:0;border-radius:5px;background:transparent;color:var(--muted);font:700 9px var(--mono);cursor:pointer}.speed button.active{color:var(--blue);background:var(--blue2)}
+
+    .stage{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(310px,.55fr);min-height:620px;border:1px solid var(--line2);border-radius:11px;overflow:hidden;background:var(--raised);box-shadow:0 18px 50px #1c273612}
+    .source{min-width:0;background:var(--code);color:var(--codeInk);display:grid;grid-template-rows:auto auto 1fr}
+    .sourcebar{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--codeLine);background:#111822}
+    .lights{display:flex;gap:5px}.lights i{width:8px;height:8px;border-radius:50%;background:#3b4658}.lights i:first-child{background:#d76258}.lights i:nth-child(2){background:#d9a84f}.lights i:nth-child(3){background:#4daa72}
+    .path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#aab5c5;font:600 10px var(--mono)}.lines{margin-left:auto;color:#687589;font:600 9px var(--mono)}
+    .stephead{display:grid;grid-template-columns:1fr auto;gap:16px;padding:22px 22px 13px}.stephead h2{margin:0;font-size:21px;color:#fff;letter-spacing:-.02em}.stephead p{margin:6px 0 0;color:#9eabba;font-size:12px}.stepno{font:800 36px var(--mono);color:#293548;line-height:1}
+    .codewrap{overflow:auto;padding:5px 0 24px}.code{margin:0;padding:0 22px 0 0;font:12px/1.72 var(--mono);tab-size:2;white-space:pre}.code .row{display:block;min-height:20px;padding-left:18px;border-left:3px solid transparent}.code .row.hot{background:#27344a;border-left-color:#6f98ff}.code .ln{display:inline-block;width:36px;margin-right:14px;text-align:right;color:#536075;user-select:none}.kw{color:var(--violet)}.fn{color:var(--cyan)}.str{color:var(--mint)}.num{color:var(--orange)}.cm{color:#66758a}.op{color:#9bb3d4}.prop{color:#d8b8f0}
+
+    .inspector{min-width:0;background:var(--surface);display:flex;flex-direction:column}
+    .inspecthead{padding:16px 17px 12px;border-bottom:1px solid var(--line)}.inspecthead small{font:750 9px var(--mono);letter-spacing:.1em;color:var(--blue)}.inspecthead h3{margin:5px 0 3px;font-size:16px}.inspecthead p{margin:0;color:var(--soft);font-size:11px}
+    .flow{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:12px;border-bottom:1px solid var(--line);background:var(--raised)}
+    .node{position:relative;padding:7px 3px;text-align:center;color:var(--muted);font:700 8px var(--mono);border-radius:5px;background:var(--paper)}.node.on{color:white;background:var(--blue)}.node.past{color:var(--green);background:var(--green2)}.node:not(:last-child)::after{content:'›';position:absolute;right:-4px;color:var(--line2);z-index:2}
+    .state{padding:13px 15px;border-bottom:1px solid var(--line)}.state-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.state-title b{font-size:11px}.state-title span{font:700 8px var(--mono);color:var(--muted)}
+    .json{min-height:100px;margin:0;padding:11px;border-radius:6px;background:#eef0f4;color:#465064;font:10px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+    .screen{margin:13px 15px;border:1px solid var(--line2);border-radius:8px;background:white;overflow:hidden}.screenbar{display:flex;align-items:center;gap:6px;padding:7px 9px;background:#eef0f3;border-bottom:1px solid var(--line);font:700 8px var(--mono);color:var(--muted)}.screenbar i{width:6px;height:6px;border-radius:50%;background:var(--green)}
+    .chat{min-height:110px;padding:13px}.bubble{max-width:94%;padding:10px 11px;border-radius:7px;background:#f0f3fa;color:#2d3645;font-size:11px;white-space:pre-wrap}.caret{display:inline-block;width:2px;height:12px;margin-left:2px;vertical-align:-2px;background:var(--blue);animation:blink .8s steps(1) infinite}.codepreview{display:block;margin-top:8px;padding:8px;background:#19212d;color:#d9e1eb;border-radius:5px;font:9px/1.5 var(--mono)}
+    @keyframes blink{50%{opacity:0}}
+    .why{margin-top:auto;padding:13px 15px;background:var(--blue2);color:var(--blue);font-size:11px}.why b{display:block;margin-bottom:3px}
+
+    .faults{margin-top:42px;padding-top:34px;border-top:1px solid var(--line)}
+    .sectionhead{display:flex;align-items:end;justify-content:space-between;gap:24px;margin-bottom:15px}.sectionhead h2{margin:0;font-size:24px;letter-spacing:-.02em}.sectionhead p{margin:5px 0 0;color:var(--soft);font-size:12px}.sectionhead code{font:700 10px var(--mono);color:var(--blue)}
+    .faultgrid{display:grid;grid-template-columns:240px minmax(0,1fr);border:1px solid var(--line2);border-radius:10px;overflow:hidden;background:var(--raised)}
+    .faulttabs{padding:10px;background:var(--surface);border-right:1px solid var(--line)}.faulttab{width:100%;padding:11px;text-align:left;border:0;border-radius:6px;background:transparent;color:var(--soft);cursor:pointer;font-size:11px}.faulttab span{display:block;margin-bottom:2px;font:750 8px var(--mono);color:var(--muted)}.faulttab.active{background:var(--amber2);color:var(--amber);font-weight:700}
+    .faultbody{display:grid;grid-template-columns:1.15fr .85fr;min-height:330px}.faultcode{background:var(--code);padding:19px;overflow:auto}.faultcode pre{margin:0;color:var(--codeInk);font:11px/1.7 var(--mono);white-space:pre-wrap}.faultresult{padding:20px}.faultresult small{font:750 9px var(--mono);letter-spacing:.09em;color:var(--amber)}.faultresult h3{margin:6px 0 12px;font-size:18px}.faultresult dl{margin:0}.faultresult div{display:grid;grid-template-columns:92px 1fr;gap:9px;padding:9px 0;border-top:1px solid var(--line);font-size:11px}.faultresult dt{color:var(--muted)}.faultresult dd{margin:0}.faultresult .verdict{margin-top:15px;padding:10px;border-radius:6px;background:var(--green2);color:var(--green);font-size:11px;font-weight:650}
+    .map{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:34px}.mapitem{padding:13px;border:1px solid var(--line);border-radius:7px;background:var(--surface)}.mapitem code{display:block;color:var(--blue);font:650 9px var(--mono);overflow-wrap:anywhere}.mapitem p{margin:5px 0 0;color:var(--soft);font-size:10px}
+    footer{margin-top:28px;color:var(--muted);font:9px var(--mono);text-align:right}
+    @media(max-width:980px){.shell{padding:18px}.mast{grid-template-columns:1fr}.truth{display:none}.stage{grid-template-columns:1fr}.source{min-height:570px}.inspector{min-height:540px}.sticky{position:relative}.faultbody{grid-template-columns:1fr}.map{grid-template-columns:1fr 1fr}}
+    @media(max-width:640px){.shell{padding:11px}.mast{padding-top:8px}.chapters{grid-template-columns:1fr}.chapter:not(.active){display:none}.stage{min-height:0}.source{min-height:620px}.stephead{grid-template-columns:1fr}.stepno{display:none}.code{font-size:10px}.code .ln{width:27px;margin-right:8px}.flow{grid-template-columns:repeat(3,1fr)}.faultgrid{grid-template-columns:1fr}.faulttabs{display:flex;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.faulttab{min-width:140px}.map{grid-template-columns:1fr}.sectionhead{display:block}}
+    @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}.caret{animation:none}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="mast">
+      <div><div class="kicker">SOURCE-LEVEL EVENT TRACE · 起点：Spec 与 Tickets 已确认</div><h1>Codex 的一段文字，如何走到屏幕？</h1><p>从用户点击“创建分支并执行”开始，沿真实源码推进时间：激活首张 Ticket、创建或恢复 Codex Thread、接收 delta、服务端合批、SSE 传输、Query Cache 更新、React 局部重绘，以及断线后的权威快照恢复。</p></div>
+      <div class="truth"><span>快速路径</span><b>delta → SSE → Query Cache</b><span>可靠路径</span><b>Requirement JSON → HTTP snapshot</b></div>
+    </header>
+
+    <div class="sticky">
+      <div class="chapters"><div class="chapter" data-chapter="0"><span>01</span>调用 Codex</div><div class="chapter" data-chapter="1"><span>02</span>流式到前端</div><div class="chapter" data-chapter="2"><span>03</span>完成与恢复</div></div>
+      <div class="timeline" id="timeline"></div><div class="progress"><i id="progress"></i></div>
+    </div>
+
+    <div class="controls">
+      <button class="control" id="prev">← 上一步</button><button class="control primary" id="play">播放</button><button class="control" id="next">下一步 →</button>
+      <span class="timecode" id="timecode">T+000ms</span>
+      <div class="speed"><button data-speed="1800">0.75×</button><button class="active" data-speed="1200">1×</button><button data-speed="700">1.5×</button></div>
+    </div>
+
+    <main class="stage">
+      <section class="source">
+        <div class="sourcebar"><div class="lights"><i></i><i></i><i></i></div><span class="path" id="path"></span><span class="lines" id="lines"></span></div>
+        <div class="stephead"><div><h2 id="title"></h2><p id="description"></p></div><div class="stepno" id="stepno"></div></div>
+        <div class="codewrap"><pre class="code" id="code"></pre></div>
+      </section>
+      <aside class="inspector">
+        <div class="inspecthead"><small>AT THIS INSTANT</small><h3 id="momentTitle"></h3><p id="momentCopy"></p></div>
+        <div class="flow" id="flow"></div>
+        <div class="state"><div class="state-title"><b>当前传输对象</b><span id="payloadType"></span></div><pre class="json" id="payload"></pre></div>
+        <div class="state"><div class="state-title"><b>Query Cache</b><span>conversation / turn-7</span></div><pre class="json" id="cache"></pre></div>
+        <div class="screen"><div class="screenbar"><i></i>ConversationMessageRow · assistant-2</div><div class="chat"><div class="bubble" id="bubble"></div></div></div>
+        <div class="why"><b id="whyTitle"></b><span id="why"></span></div>
+      </aside>
+    </main>
+
+    <section class="faults">
+      <div class="sectionhead"><div><h2>故障时间线：快速路径可以丢，事实不能丢</h2><p>选择一个故障，看源码如何收敛回可恢复状态。</p></div><code>SSE = progress, JSON = truth</code></div>
+      <div class="faultgrid"><div class="faulttabs" id="faultTabs"></div><div class="faultbody"><div class="faultcode"><pre id="faultCode"></pre></div><div class="faultresult"><small id="faultTag"></small><h3 id="faultTitle"></h3><dl id="faultFacts"></dl><div class="verdict" id="faultVerdict"></div></div></div></div>
+    </section>
+
+    <section class="map">
+      <div class="mapitem"><code>workbench-execution.ts</code><p>启动后台队列、串行 Tickets、连接 delta 快速路径与 JSON 持久化。</p></div>
+      <div class="mapitem"><code>codex-adapter.ts</code><p>选择 app-server / SDK，并统一 Thread、Turn、delta 与结构化事件。</p></div>
+      <div class="mapitem"><code>codex-app-server.ts</code><p>管理子进程、JSON-RPC 握手、请求超时、Turn 中断与强制清理。</p></div>
+      <div class="mapitem"><code>agent-events.ts · api.events.ts</code><p>为 delta 编号、50ms 合批并写入 SSE ReadableStream。</p></div>
+      <div class="mapitem"><code>workbench-query.ts · index.tsx</code><p>拒绝重复和序号缺口，把流与快照收敛进同一 Query Cache。</p></div>
+      <div class="mapitem"><code>workbench-panels.tsx</code><p>消息行按 ID 订阅，只有当前流式消息更新；代码围栏稳定后再解析。</p></div>
+    </section>
+    <footer>基于当前仓库源码提炼；代码为真实核心摘录，省略与本链路无关的类型和错误分支。</footer>
+  </div>
+
+  <script>
+    const esc = value => value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+    const tint = code => esc(code)
+      .replace(/(\/\/.*)$/gm,'<span class="cm">$1</span>')
+      .replace(/(&#39;.*?&#39;|&quot;.*?&quot;|`[^`]*`)/g,'<span class="str">$1</span>')
+      .replace(/\b(async|await|const|let|if|else|return|new|for|of|function|export|try|finally|throw)\b/g,'<span class="kw">$1</span>')
+      .replace(/\b(true|false|null|undefined|\d[\d_]*)\b/g,'<span class="num">$1</span>');
+    const codeRows = (code, start, hot=[]) => tint(code).split('\n').map((line,i)=>`<span class="row ${hot.includes(i)?'hot':''}"><span class="ln">${start+i}</span>${line||' '}</span>`).join('');
+
+    const baseCache = { lastSequenceByTurn:{'turn-7':0}, messagesById:{'assistant-2':{status:'streaming',segments:[]}} };
+    const steps = [
+      {t:'T+000ms',c:0,label:'点击执行',path:'src/routes/index.tsx → src/server/functions.ts',line:'139–156 · 200–204',start:139,hot:[5,11,14],title:'UI 意图先穿过幂等 Server Function',desc:'浏览器生成 idempotencyKey；服务端只暴露“执行当前需求”这一项受控能力。',code:`async function runAction(name, action) {
+  setBusyAction(name)
+  setError(null)
+  try {
+    const nextSnapshot = await action(crypto.randomUUID())
+    applyWorkbenchSnapshot(queryClient, nextSnapshot)
+  } finally {
+    setBusyAction(null)
+  }
+}
+
+export const executeRequirement = createServerFn({ method: 'POST' })
+  .validator(mutationInput)
+  .handler(({ data }) => runIdempotentMutation(
+    'execute-requirement',
+    data.idempotencyKey,
+    getWorkbenchSnapshot,
+    async () => {
+      await startRequirementExecution()
+      return getWorkbenchSnapshot()
+    },
+  ))`,moment:'用户点击“创建分支并执行”',copy:'重复点击或网络重试使用同一个业务键去重。',type:'Server Function input',payload:{operation:'execute-requirement',idempotencyKey:'6f2…',body:'无动态命令或路径'},cache:baseCache,screen:'',whyTitle:'第一道能力边界',why:'页面不能直接调用 Git、Shell 或 Codex；它只能表达一个经过校验和幂等处理的业务动作。'},
+      {t:'T+006ms',c:0,label:'启动队列',path:'src/server/workbench-execution.ts',line:'34–43',start:34,hot:[4,5,8],title:'按钮请求只等“可靠启动”',desc:'start promise 折叠双击；长时间执行进入后台 Promise。',code:`export function startRequirementExecution() {
+  if (globalExecution.__workbenchExecutionStart)
+    return globalExecution.__workbenchExecutionStart
+
+  const start = (async () => {
+    await globalExecution.__workbenchExecution?.catch(() => undefined)
+    return prepareExecution()
+  })()
+  globalExecution.__workbenchExecutionStart = start
+  return start.finally(() => {
+    globalExecution.__workbenchExecutionStart = null
+  })
+}`,moment:'执行被接管',copy:'Server Function 很快返回，但后台队列继续工作。',type:'Requirement',payload:{stage:'implementation',ticket:'TICKET-01',codex:{status:'idle',sessionId:null}},cache:baseCache,screen:'',whyTitle:'为什么不等待？',why:'一次 Codex Turn 可能运行几十分钟。HTTP 请求负责可靠启动，进度交给 SSE 与持久化快照。'},
+      {t:'T+012ms',c:0,label:'准备执行',path:'src/server/workbench-execution.ts',line:'83–153',start:83,hot:[2,3,12,23,46,49,61,66,70],title:'确认门禁、分支和唯一 active Ticket',desc:'真正调用 Codex 前，prepareExecution 把产品状态和 Git 状态收敛成一个可执行起点。',code:`async function prepareExecution() {
+  if (globalExecution.__workbenchExecution) return
+  let requirement = await requireRequirement()
+  if (requirement.stage !== 'implementation')
+    throw new Error('只有已确认规格与边界的需求可以执行')
+
+  await assertWorkbenchSkillBundle()
+  const target = await loadTargetProjectConfig()
+
+  if (!requirement.branch?.requirementBranch) {
+    const branch = await createRequirementBranch(requirement, target)
+    if (branch.blockedReason) return
+    requirement = await requirementStore.update(current => ({
+      ...current, branch, updatedAt: new Date().toISOString(),
+    }))
+  }
+
+  const activeIndex = requirement.tickets.findIndex(
+    ticket => ticket.status === 'active'
+  )
+  const blockedIndex = requirement.tickets.findIndex(
+    ticket => ticket.status === 'blocked'
+  )
+  const queuedIndex = requirement.tickets.findIndex(
+    ticket => ticket.status === 'queued'
+  )
+  const nextIndex = activeIndex >= 0
+    ? activeIndex
+    : blockedIndex >= 0 ? blockedIndex : queuedIndex
+
+  await requirementStore.update(current => ({
+    ...current,
+    tickets: current.tickets.map((ticket, index) =>
+      index === nextIndex
+        ? { ...ticket, status: 'active' }
+        : ticket.status === 'active'
+          ? { ...ticket, status: 'queued' }
+          : ticket
+    ),
+    codex: {
+      ...current.codex,
+      status: 'running',
+      activeTicketId: current.tickets[nextIndex].id,
+    },
+  }))
+
+  const abortController = new AbortController()
+  startExecutionHeartbeat(abortController.signal)
+  globalExecution.__workbenchExecution =
+    executeQueue(abortController.signal)
+}`,moment:'首张 Ticket 成为 active',copy:'此时才从 idle 进入 running，并启动跨模块可见的持久化心跳。',type:'prepared Requirement',payload:{stage:'implementation',branch:'product/spec-17-login-button',ticket:{id:'TICKET-01',status:'active'},codex:{status:'running',sessionId:null}},cache:baseCache,screen:'',whyTitle:'Ticket 并非在这里生成',why:'Tickets 在更早的规划阶段已经确认；这里仅从 queued / blocked 中选择下一张并激活。'},
+      {t:'T+018ms',c:0,label:'调用适配器',path:'src/server/workbench-execution.ts',line:'235–267',start:235,hot:[20,21,22,23,27,31],title:'首张 Ticket 创建 Session，后续 Ticket 复用',desc:'执行前 Tickets 已经生成并确认。每轮从 Store 取当前 active Ticket；首轮 sessionId 为 null，后续轮次传入已持久化的 Session ID。',code:`async function executeQueue(signal: AbortSignal) {
+  const target = await loadTargetProjectConfig()
+  while (true) {
+    const requirement = await requireRequirement()
+    const ticket = requirement.tickets.find(
+      candidate => candidate.status === 'active'
+    )
+    if (!ticket) return
+
+    const deltaSink = createExecutionDeltaSink(requirement)
+    const result = await runCodexTurn({
+      workspaceRoot: executionWritableRoot(target),
+      prompt: buildExecutionPrompt(requirement, ticket),
+      sessionId: requirement.codex.sessionId,
+      signal,
+      onEvent: async (event, sessionId) => {
+        await deltaSink.flush()
+        await persistAgentEvent(event, sessionId)
+      },
+      onTextDelta: deltaSink.push,
+    })
+  }
+}`,moment:'两个出口建立',copy:'onTextDelta 走低延迟显示；onEvent 先 flush，再保存完整事件。',type:'CodexTurnInput',payload:{workspaceRoot:'…/apps/front',sessionId:null,onTextDelta:'deltaSink.push',onEvent:'persistAgentEvent'},cache:baseCache,screen:'',whyTitle:'快与稳分开',why:'delta 可以瞬时更新 UI；完成事件必须先把尚未持久化的文字 flush，避免最终快照缺尾巴。'},
+      {t:'T+024ms',c:0,label:'选择后端',path:'src/server/codex-adapter.ts',line:'42–55',start:42,hot:[8,9,13],title:'默认 app-server，SDK 只做显式回退',desc:'调用方只依赖 runCodexTurn，不感知底层协议差异。',code:`export async function runCodexTurn(input: CodexTurnInput) {
+  if (globalCodex.__workbenchCodexTurn)
+    throw new Error("已有 Codex turn 正在运行")
+  if (input.signal?.aborted)
+    return { exitCode: 130, sessionId: input.sessionId }
+
+  const backend =
+    process.env.WORKBENCH_CODEX_BACKEND?.trim() || "app-server"
+  if (backend === "sdk") return runSdkCodexTurn(input)
+  if (backend !== "app-server")
+    throw new Error(\`未知的 Codex 后端：\${backend}\`)
+
+  return runAppServerCodexTurn(input)
+}`,moment:'协议边界被收窄',copy:'一次只允许一个活动 Turn；默认走项目固定版本的 app-server。',type:'backend',payload:{selected:'app-server',activeTurn:true,sandbox:'workspace-write'},cache:baseCache,screen:'',whyTitle:'Adapter 的价值',why:'上层永远只看 sessionId、exitCode、onEvent 和 onTextDelta，Codex 协议升级不会扩散到 UI。'},
+      {t:'T+030ms',c:0,label:'接好回调',path:'src/server/codex-adapter.ts',line:'58–98',start:58,hot:[6,15,19,21,22,29,32,39],title:'Adapter 把 Session、delta 和结构化事件接回执行层',desc:'CodexAppServerTurn 只懂 JSON-RPC；上层通过三个回调获得稳定的应用语义。',code:`async function runAppServerCodexTurn(input: CodexTurnInput) {
+  let sessionId = input.sessionId
+  const turnEventScope = crypto.randomUUID()
+  const textByItem = new Map()
+
+  const turn = new CodexAppServerTurn({
+    workspaceRoot: input.workspaceRoot,
+    prompt: input.prompt,
+    sessionId,
+    signal: input.signal,
+    sandboxMode: input.sandboxMode ?? 'workspace-write',
+
+    onSession: async nextSessionId => {
+      sessionId = nextSessionId
+      await input.onEvent(
+        event('session', nextSessionId), sessionId,
+      )
+    },
+
+    onNotification: async notification => {
+      const textDelta = appServerTextDelta(
+        notification, turnEventScope, textByItem,
+      )
+      if (textDelta) {
+        await input.onTextDelta?.(textDelta, sessionId)
+        return
+      }
+      const normalized = normalizeAppServerNotification(
+        notification, turnEventScope,
+      )
+      if (normalized)
+        await input.onEvent(normalized, sessionId)
+    },
+  })
+
+  const result = await turn.run()
+  return { exitCode: result.exitCode, sessionId }
+}`,moment:'三个触发点就位',copy:'onSession 建立上下文；onTextDelta 走快速路径；onEvent 处理工具、文件和 Turn 终态。',type:'callback wiring',payload:{onSession:'thread/start|resume 返回后',onTextDelta:'item/agentMessage/delta',onEvent:'session | tool | file | message | completed | failed'},cache:baseCache,screen:'',whyTitle:'结构化事件前先 flush',why:'执行层的 onEvent 会先等待 deltaSink.flush，再保存事件，保证文字与工具事件的持久化顺序。'},
+      {t:'T+041ms',c:0,label:'握手 Turn',path:'src/server/codex-app-server.ts',line:'68–118',start:68,hot:[14,23,28,37],title:'启动临时 app-server 并恢复 Thread',desc:'一个子进程服务一个 Turn；Thread ID 可跨 Turn 持久化。',code:`await this.#launch()
+await this.#request("initialize", {
+  clientInfo: {
+    name: "product-agent-workbench",
+    version: "0.1.0",
+  },
+  capabilities: { experimentalApi: true },
+})
+this.#notify("initialized")
+
+const threadResult = this.#input.sessionId
+  ? await this.#request("thread/resume", this.#threadParams())
+  : await this.#request("thread/start", this.#threadParams())
+this.#threadId = extractThreadId(threadResult)
+await this.#input.onSession(this.#threadId)
+
+const turnResult = await this.#request("turn/start", {
+  threadId: this.#threadId,
+  input: [{ type: "text", text: this.#input.prompt }],
+  cwd: this.#input.workspaceRoot,
+  approvalPolicy: "never",
+  sandboxPolicy: sandboxPolicy(
+    this.#input.sandboxMode,
+    this.#input.workspaceRoot,
+  ),
+})
+this.#turnId = extractTurnId(turnResult)`,moment:'Thread 与 Turn 分离',copy:'Thread 保存上下文；Turn 是本次可取消执行。',type:'JSON-RPC',payload:{requests:['initialize','thread/start','turn/start'],threadId:'thread-42',turnId:'turn-7'},cache:baseCache,screen:'',whyTitle:'取消不会丢上下文',why:'停止只 interrupt 当前 Turn，持久化的 thread-42 仍可在下一张 Ticket 或重试时 resume。'},
+      {t:'T+638ms',c:1,label:'解析通知',path:'src/server/codex-app-server.ts',line:'226–270',start:226,hot:[1,5,10,24,30,34,40,43],title:'stdout 行先被识别为 JSON-RPC notification',desc:'请求响应按 id 唤醒 pending Promise；没有 id 的 method 才进入 onNotification。',code:`async #handleLine(line: string) {
+  const trimmed = line.trim()
+  if (!trimmed) return
+  const value = JSON.parse(trimmed)
+
+  if (typeof value.id === 'number' && !('method' in value)) {
+    const pending = this.#pending.get(value.id)
+    if (!pending) return
+    this.#pending.delete(value.id)
+    clearTimeout(pending.timer)
+    value.error
+      ? pending.reject(new Error(value.error.message))
+      : pending.resolve(value.result)
+    return
+  }
+
+  if (typeof value.method !== 'string') return
+  if (typeof value.id === 'number') {
+    this.#respond(value.id, approvalResponse(value.method))
+    return
+  }
+
+  const params = isObject(value.params) ? value.params : {}
+  if (value.method === 'turn/started')
+    this.#turnId = nestedString(params, 'turn', 'id')
+
+  await this.#input.onNotification({
+    method: value.method,
+    params,
+    raw: trimmed,
+  })
+
+  if (value.method !== 'turn/completed') return
+  const status = nestedString(params, 'turn', 'status')
+  this.#settled = true
+  this.#resolveTurn({ status })
+}`,moment:'原始 stdout 进入应用',copy:'本次 method 是 item/agentMessage/delta，因此转交 Adapter 的 onNotification。',type:'AppServerNotification',payload:{method:'item/agentMessage/delta',params:{threadId:'thread-42',turnId:'turn-7',itemId:'item-9',delta:'已完成'}},cache:baseCache,screen:'',whyTitle:'这是协议解析边界',why:'从这里开始，上层不再处理 JSON 字符串，只处理有类型含义的 notification 和 AgentEvent。'},
+      {t:'T+640ms',c:1,label:'收到 delta',path:'src/server/codex-adapter.ts',line:'105–121',start:105,hot:[3,4,8,11,12],title:'JSON-RPC delta 被转成稳定对象',desc:'同一 item 的累计全文保存在 Adapter 内，单次增量和权威全文同时向上提供。',code:`function appServerTextDelta(
+  notification: AppServerNotification,
+  eventScope: string,
+  textByItem: Map<string, string>,
+) {
+  if (notification.method !== "item/agentMessage/delta")
+    return null
+
+  const itemId = String(notification.params.itemId ?? "")
+  const turnId = String(notification.params.turnId ?? eventScope)
+  const delta = String(notification.params.delta ?? "")
+  if (!itemId || !delta) return null
+
+  const scopedItemId = [eventScope, itemId].join(":")
+  const text = \`\${textByItem.get(scopedItemId) ?? ""}\${delta}\`
+  textByItem.set(scopedItemId, text)
+  return { itemId: scopedItemId, turnId, delta, text }
+}`,moment:'第一个文字片段到达',copy:'原始 item ID 加上 Turn scope，避免不同 Turn 的同名 item 相撞。',type:'CodexTextDelta',payload:{itemId:'scope:item-9',turnId:'turn-7',delta:'已完成',text:'已完成'},cache:baseCache,screen:'',whyTitle:'为什么同时保存 delta 与 text？',why:'delta 用于低延迟追加；text 用于 500ms 持久化时覆盖成当前完整消息。'},
+      {t:'T+644ms',c:1,label:'双路径分流',path:'src/server/workbench-execution.ts',line:'316–350',start:316,hot:[19,20,22,31,32],title:'先推给 SSE，再异步落盘完整文本',desc:'快速路径立即 publish；可靠路径每 500ms 或累计 32KB 写入 Requirement。',code:`function createExecutionDeltaSink(requirement: Requirement) {
+  let pending = null
+  let pendingBytes = 0
+  let timer = null
+
+  const flush = async () => {
+    if (timer) clearTimeout(timer)
+    const current = pending
+    pending = null
+    pendingBytes = 0
+    if (!current) return
+    await persistAgentEvent(
+      event('message', current.text, current.itemId),
+      current.sessionId,
+    )
+  }
+
+  return {
+    push: async (delta, sessionId) => {
+      pending = { ...delta, sessionId }
+      pendingBytes += Buffer.byteLength(delta.delta, 'utf8')
+      publishAgentTextDelta({
+        requirementId: requirement.id,
+        target: 'conversation',
+        targetId: requirement.conversation.messages.at(-1).id,
+        turnId: delta.turnId,
+        itemId: delta.itemId,
+        revision: new Date().toISOString(),
+        delta: delta.delta,
+      })
+      if (pendingBytes >= 32_768) await flush()
+      else timer ??= setTimeout(flush, 500)
+    },
+  }
+}`,moment:'一份输入，两种时效',copy:'SSE 不等磁盘；JSON 不保存每个微小 token。',type:'AgentStreamBatch input',payload:{requirementId:'REQ-17',target:'conversation',turnId:'turn-7',itemId:'scope:item-9',delta:'已完成'},cache:baseCache,screen:'',whyTitle:'这是核心权衡',why:'如果每个 delta 都原子写 JSON，I/O 会压住生成速度；只走 SSE 又无法刷新恢复。'},
+      {t:'T+694ms',c:1,label:'50ms 合批',path:'src/server/agent-events.ts',line:'32–57',start:32,hot:[1,2,8,9,15,19,23,24],title:'多个微小 delta 合成有序批次',desc:'每个 Requirement + Turn 使用单调序号；跨 item 前先 flush，保住真实顺序。',code:`export function publishAgentTextDelta(input) {
+  const sequenceKey = \`\${input.requirementId}:\${input.turnId}\`
+  const sequence = (sequences.get(sequenceKey) ?? 0) + 1
+  sequences.set(sequenceKey, sequence)
+
+  const key = \`\${sequenceKey}:\${input.itemId}\`
+  if (pending.size && !pending.has(key))
+    flushAgentStreamBatches()
+
+  const current = pending.get(key)
+  pending.set(key, current
+    ? { ...current, sequenceEnd: sequence,
+        delta: \`\${current.delta}\${input.delta}\` }
+    : { type: 'stream-batch', ...input,
+        sequenceStart: sequence, sequenceEnd: sequence })
+
+  if (Buffer.byteLength(input.delta, 'utf8') >= 4_096)
+    flushAgentStreamBatches()
+  else
+    flushTimer ??= setTimeout(flushAgentStreamBatches, 50)
+}`,moment:'三段文字变成一批',copy:'“已完成” + “登录按钮” + “状态”在一次浏览器更新中送达。',type:'AgentStreamBatch',payload:{type:'stream-batch',sequenceStart:1,sequenceEnd:3,delta:'已完成登录按钮状态'},cache:baseCache,screen:'',whyTitle:'为什么是 50ms / 4KB？',why:'减少 SSE、JSON 解析和 React 更新频率，同时仍保持人眼可感知的实时性。'},
+      {t:'T+695ms',c:1,label:'通知订阅者',path:'src/server/agent-events.ts',line:'51–72',start:51,hot:[1,3,4,5,6,9,10,12,19,20],title:'flush 取出批次，publish 同步通知全部 SSE 订阅者',desc:'定时器本身不写网络；它只调用 flush，真正的订阅回调由 publish 逐个执行。',code:`export function flushAgentStreamBatches() {
+  if (flushTimer) clearTimeout(flushTimer)
+  flushTimer = null
+  const batches = [...pending.values()].sort(
+    (left, right) => left.sequenceStart - right.sequenceStart
+  )
+  pending.clear()
+  for (const batch of batches) publish(batch)
+}
+
+function publish(event: AgentSseEvent) {
+  for (const subscriber of subscribers) {
+    try {
+      subscriber(event)
+    } catch {
+      subscribers.delete(subscriber)
+    }
+  }
+}
+
+export function subscribeAgentEvents(subscriber) {
+  subscribers.add(subscriber)
+  return () => subscribers.delete(subscriber)
+}`,moment:'内存事件总线发出 batch',copy:'当前页面对应的 SSE handler 已经在 subscribers 集合中。',type:'subscriber invocation',payload:{subscriberCount:1,event:{type:'stream-batch',sequenceStart:1,sequenceEnd:3}},cache:baseCache,screen:'',whyTitle:'断开的订阅者不会阻断执行',why:'一个回调抛错时只移除该 subscriber；Codex Turn 和其他浏览器连接继续运行。'},
+      {t:'T+697ms',c:1,label:'写入 SSE',path:'src/routes/api.events.ts',line:'10–40',start:10,hot:[3,6,7,10,11,24,28],title:'SSE 只传进度，不承载命令',desc:'ReadableStream 把批次编码成 data 行；15 秒心跳只用于保持连接。',code:`GET: () => {
+  const encoder = new TextEncoder()
+  let unsubscribe = () => undefined
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(': connected\\n\\n'))
+      const heartbeat = setInterval(() => {
+        controller.enqueue(encoder.encode(': heartbeat\\n\\n'))
+      }, 15_000)
+      unsubscribe = subscribeAgentEvents(event => {
+        controller.enqueue(encoder.encode(
+          \`data: \${JSON.stringify(event)}\\n\\n\`
+        ))
+      })
+    },
+    cancel() { unsubscribe() },
+  })
+  return new Response(stream, {
+    headers: {
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'Content-Type': 'text/event-stream',
+    },
+  })
+}`,moment:'批次离开服务端',copy:'此时磁盘快照可能仍停在上一个 500ms 刷新点。',type:'SSE frame',payload:'data: {"type":"stream-batch","sequenceStart":1,"sequenceEnd":3,"delta":"已完成登录按钮状态"}\n\n',cache:baseCache,screen:'',whyTitle:'SSE 不是命令总线',why:'浏览器断线重连不会重放“执行”“取消”等副作用；所有写操作仍走带幂等键的 Server Function。'},
+      {t:'T+701ms',c:1,label:'前端接收',path:'src/routes/index.tsx',line:'94–135',start:94,hot:[8,15,23,26,27,33],title:'EventSource 与低频轮询互为后备',desc:'SSE 健康时每 30 秒校准；断线时自动退化为每 3 秒拉取快照。',code:`const snapshotQuery = useQuery({
+  queryKey: workbenchQueryKeys.snapshot,
+  queryFn: async () => applyWorkbenchSnapshot(
+    queryClient,
+    await refresh(),
+  ),
+  initialData: initialSnapshot,
+  refetchInterval: sseConnected ? 30_000 : 3_000,
+})
+
+useEffect(() => {
+  const events = new EventSource('/api/events')
+  events.onopen = () => {
+    void queryClient.refetchQueries({
+      queryKey: workbenchQueryKeys.snapshot,
+    }).then(() => setSseConnected(true))
+  }
+  events.onerror = () => setSseConnected(false)
+  events.onmessage = message => {
+    const incoming = JSON.parse(message.data)
+    if (incoming.type === 'stream-batch') {
+      if (!applyAgentStreamBatch(queryClient, incoming))
+        void queryClient.invalidateQueries({
+          queryKey: workbenchQueryKeys.snapshot,
+        })
+      return
+    }
+    void queryClient.invalidateQueries({
+      queryKey: workbenchQueryKeys.snapshot,
+    })
+  }
+  return () => events.close()
+}, [queryClient])`,moment:'浏览器拿到 sequence 1–3',copy:'前端先尝试直接应用增量；无法安全应用时改走快照。',type:'parsed AgentSseEvent',payload:{type:'stream-batch',turnId:'turn-7',sequenceStart:1,sequenceEnd:3,delta:'已完成登录按钮状态'},cache:baseCache,screen:'',whyTitle:'连接成功先 refetch',why:'建立 SSE 之前可能已经错过事件；先读一次权威快照，再开始消费后续增量。'},
+      {t:'T+703ms',c:1,label:'更新缓存',path:'src/store/workbench-query.ts',line:'117–153',start:117,hot:[4,5,6,8,21,23,31,33],title:'序号连续才允许追加到 Query Cache',desc:'重复批次直接忽略；序号缺口返回 false，让调用方重新拉取快照。',code:`export function applyAgentStreamBatch(queryClient, batch) {
+  const key = workbenchQueryKeys.conversation(batch.requirementId)
+  const projection = queryClient.getQueryData(key)
+  if (!projection) return false
+
+  const lastSequence =
+    projection.lastSequenceByTurn[batch.turnId] ?? 0
+  if (batch.sequenceEnd <= lastSequence) return true
+  if (batch.sequenceStart > lastSequence + 1) return false
+
+  queryClient.setQueryData(key, current => {
+    const message = current.messagesById[batch.targetId]
+    const segments = [...message.segments]
+    const index = segments.findIndex(segment =>
+      segment.type === 'text' && segment.id === batch.itemId
+    )
+    if (index >= 0) {
+      const text = segments[index]
+      segments[index] = {
+        ...text,
+        content: \`\${text.content}\${batch.delta}\`,
+      }
+    } else {
+      segments.push({
+        id: batch.itemId, type: 'text', content: batch.delta,
+      })
+    }
+    return {
+      ...current,
+      lastSequenceByTurn: {
+        ...current.lastSequenceByTurn,
+        [batch.turnId]: batch.sequenceEnd,
+      },
+      messagesById: {
+        ...current.messagesById,
+        [batch.targetId]: { ...message, segments },
+      },
+    }
+  })
+  return true
+}`,moment:'唯一一条消息引用变化',copy:'历史消息对象保持原引用，只有 assistant-2 被替换。',type:'ConversationProjection',payload:{lastSequenceByTurn:{'turn-7':3},changedReference:'messagesById.assistant-2'},cache:{lastSequenceByTurn:{'turn-7':3},messagesById:{'assistant-2':{status:'streaming',segments:[{id:'scope:item-9',type:'text',content:'已完成登录按钮状态'}]}}},screen:'已完成登录按钮状态',whyTitle:'避免全列表重绘',why:'缓存是规范化结构；messagesById 只替换目标消息，messageIds 和历史消息可以继续复用引用。'},
+      {t:'T+707ms',c:1,label:'组件承接',path:'src/components/workbench-panels.tsx',line:'480–532 · 594–606',start:480,hot:[2,3,11,13,16,18,25,29],title:'ConversationTimeline 定位消息，SegmentView 选择渲染器',desc:'列表订阅 conversation projection；文本 segment 才进入 StreamingMarkdown，工具活动和 Spec 使用其他组件。',code:`function ConversationTimeline({ requirement }) {
+  const queryClient = useQueryClient()
+  const conversationQuery = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirement.id),
+    queryFn: () => Promise.resolve(projectConversation(requirement)),
+    initialData: () => projectConversation(
+      requirement,
+      queryClient.getQueryData(
+        workbenchQueryKeys.conversation(requirement.id)
+      ),
+    ),
+    enabled: false,
+  })
+
+  const messageIds = conversationQuery.data.messageIds
+  return messageIds.map(id => (
+    <ConversationMessageRow
+      id={id}
+      key={id}
+      requirementId={requirement.id}
+    />
+  ))
+}
+
+function ConversationSegmentView({ segment, streaming }) {
+  if (segment.type === 'text')
+    return (
+      <StreamingMarkdown
+        content={segment.content}
+        streaming={streaming}
+      />
+    )
+  // gate / spec / tickets / activity 使用各自组件
+}`,moment:'Cache 更新唤醒订阅树',copy:'messageIds 没变；目标消息 selector 的返回引用变了，因此只有对应行继续向下渲染。',type:'component path',payload:{path:['ConversationTimeline','ConversationMessageRow(assistant-2)','ConversationSegmentView(text)','StreamingMarkdown']},cache:{lastSequenceByTurn:{'turn-7':3},changedReference:'assistant-2'},screen:'已完成登录按钮状态',whyTitle:'数据类型决定 UI 边界',why:'正文、工具活动、工作流门禁和版本化 artifact 不会混进同一个 Markdown 字符串。'},
+      {t:'T+710ms',c:1,label:'局部渲染',path:'src/components/workbench-panels.tsx',line:'548–589',start:548,hot:[1,8,12,31,36,39],title:'每行按消息 ID 独立订阅',desc:'memo + Query selector 让流式消息更新时，已完成的历史行保持不动。',code:`const ConversationMessageRow = memo(function MessageRow({
+  id,
+  requirementId,
+}) {
+  const { data: message } = useQuery({
+    queryKey: workbenchQueryKeys.conversation(requirementId),
+    queryFn: disabledConversationQuery,
+    enabled: false,
+    select: conversation => conversation.messagesById[id],
+  })
+  if (!message) return null
+
+  return (
+    <article
+      className="conversation-message"
+      data-role={message.role}
+      data-status={message.status}
+    >
+      {message.segments.map(segment => (
+        <ConversationSegmentView
+          key={segment.id}
+          requirementId={requirementId}
+          segment={segment}
+          streaming={message.status === 'streaming'}
+        />
+      ))}
+      {message.status === 'streaming'
+        ? <span className="streaming-caret" />
+        : null}
+    </article>
+  )
+})`,moment:'文字第一次出现在屏幕',copy:'assistant-2 重绘；user-1 和 assistant-1 不重绘。',type:'React render',payload:{rendered:['assistant-2'],skipped:['user-1','assistant-1'],status:'streaming'},cache:{lastSequenceByTurn:{'turn-7':3},messagesById:{'assistant-2':{status:'streaming',content:'已完成登录按钮状态'}}},screen:'已完成登录按钮状态',whyTitle:'滚动也不会被每个 delta 拖走',why:'是否跟随底部保存在 ref；用户主动上滚后停止自动跟随，只显示“回到底部”。'},
+      {t:'T+882ms',c:1,label:'稳定 Markdown',path:'src/store/streaming-markdown.ts',line:'2–7',start:2,hot:[1,2,3,4,5],title:'未闭合代码围栏不进入 Markdown 解析器',desc:'稳定正文继续渲染；正在生成的代码块暂时以纯文本 pre 展示。',code:`export function partitionStreamingMarkdown(
+  content: string,
+  streaming: boolean,
+) {
+  if (!streaming)
+    return { stable: content, streamingCode: null }
+
+  const fenceCount = content.match(/\`\`\`/g)?.length ?? 0
+  if (fenceCount % 2 === 0)
+    return { stable: content, streamingCode: null }
+
+  const boundary = content.lastIndexOf('\`\`\`')
+  return {
+    stable: content.slice(0, boundary),
+    streamingCode: content.slice(boundary),
+  }
+}`,moment:'代码块仍在生成',copy:'避免每个 token 都让代码块重新解析、重排。',type:'partition result',payload:{stable:'已完成登录按钮状态\n\n',streamingCode:'```ts\nconst disabled = '},cache:{lastSequenceByTurn:{'turn-7':4},content:'已完成登录按钮状态\n\n```ts\nconst disabled = '},screen:'已完成登录按钮状态',codePreview:'```ts\nconst disabled = ',whyTitle:'完成后会自动切换',why:'第二个 ``` 到达后 fenceCount 变成偶数，整段内容才交给 ReactMarkdown。'},
+      {t:'T+1.14s',c:2,label:'合并完整事件',path:'src/server/workbench-execution.ts',line:'354–364',start:354,hot:[1,2,4,5,7,9],title:'完整消息先合并进 Requirement 聚合',desc:'相同事件 ID 使用完整 text 覆盖流式中间态；工具、文件和终态也统一进入 codex.events。',code:`async function persistAgentEvent(
+  agentEvent: AgentEvent,
+  sessionId: string | null,
+) {
+  await requirementStore.update(current => {
+    const index = current.codex.events.findIndex(
+      event => event.id === agentEvent.id
+    )
+    const events = [...current.codex.events]
+    if (index >= 0) events[index] = agentEvent
+    else events.push(agentEvent)
+
+    return {
+      ...current,
+      conversation: applyImplementationEvent(
+        current.conversation, agentEvent, sessionId,
+      ),
+      codex: { ...current.codex, sessionId, events },
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  publishAgentEvent(agentEvent)
+}`,moment:'最终全文覆盖流式中间态',copy:'requirementStore.update 完成后，内存领域状态与磁盘 JSON 都已经更新。',type:'AgentEvent',payload:{id:'scope:item-9',type:'message',message:'已完成登录按钮状态\n\n```ts\nconst disabled = true\n```',sessionId:'thread-42'},cache:{lastSequenceByTurn:{'turn-7':4},messagesById:{'assistant-2':{status:'streaming',content:'已完成登录按钮状态\n\n```ts\nconst disabled = true\n```'}}},screen:'已完成登录按钮状态',codePreview:'const disabled = true',whyTitle:'完整事件是持久化基准',why:'SSE delta 只负责及时显示；完成 item 的完整正文负责覆盖并校准可能缺失的中间增量。'},
+      {t:'T+1.15s',c:2,label:'原子写 JSON',path:'src/server/requirement-store.ts',line:'82–122',start:82,hot:[1,2,3,7,12,13,27,35,39,40],title:'Store 串行更新并用 rename 原子落盘',desc:'读当前值、计算新值和写文件进入同一队列，读取方只会看到旧完整 JSON 或新完整 JSON。',code:`update(mutator) {
+  return this.#enqueue(async () => {
+    const current = await this.#loadDirect()
+    const next = await mutator(current)
+    if (current && current.id !== next.id)
+      await this.#writeHistoryDirect(current)
+    await this.#writeDirect(next)
+    return next
+  })
+}
+
+#enqueue(operation) {
+  const result = this.#queue.then(operation, operation)
+  this.#queue = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  return result
+}
+
+async #writeJson(filePath, requirement) {
+  await mkdir(path.dirname(filePath), { recursive: true })
+  const temporaryPath =
+    filePath + '.' + process.pid + '.' + randomUUID() + '.tmp'
+  await writeFile(
+    temporaryPath,
+    JSON.stringify(requirement, null, 2) + '\\n',
+    { mode: 0o600 },
+  )
+  await rename(temporaryPath, filePath)
+}`,moment:'权威快照已经安全落盘',copy:'此刻浏览器即使刷新，也能从 current-requirement.json 恢复完整消息。',type:'durable snapshot',payload:{path:'.data/current-requirement.json',write:'temporary file → rename',mode:'0600',revision:'2026-09-20T…'},cache:{lastSequenceByTurn:{'turn-7':4},note:'浏览器缓存尚未做最终校准'},screen:'已完成登录按钮状态',codePreview:'const disabled = true',whyTitle:'为什么不能直接覆盖原文件？',why:'进程若在 write 中途退出，直接覆盖可能留下半截 JSON；同目录 rename 保证原子替换。'},
+      {t:'T+1.24s',c:2,label:'invalidate 校准',path:'src/server/agent-events.ts → src/routes/index.tsx → src/store/workbench-query.ts',line:'27–29 · 118–129 · 40–53',start:27,hot:[1,2,3,8,12,16,23,26,32],title:'invalidate 让浏览器重新读取权威快照',desc:'结构化事件先清空尚未发送的文字 batch，再通知前端失效 snapshot query；新快照投影回同一个 Cache。',code:`export function publishAgentEvent(event: AgentEvent) {
+  flushAgentStreamBatches()
+  publish({ type: 'invalidate', event })
+}
+
+events.onmessage = message => {
+  const incoming = JSON.parse(message.data)
+  if (incoming.type === 'stream-batch') {
+    if (!applyAgentStreamBatch(queryClient, incoming))
+      void queryClient.invalidateQueries({
+        queryKey: workbenchQueryKeys.snapshot,
+      })
+    return
+  }
+  void queryClient.invalidateQueries({
+    queryKey: workbenchQueryKeys.snapshot,
+  })
+}
+
+export function applyWorkbenchSnapshot(queryClient, snapshot) {
+  const previous = queryClient.getQueryData(
+    workbenchQueryKeys.snapshot
+  )
+  const accepted = previous
+    ? rejectStaleRequirements(previous, snapshot)
+    : snapshot
+  queryClient.setQueryData(workbenchQueryKeys.snapshot, accepted)
+  for (const requirement of [accepted.requirement, ...accepted.history]) {
+    queryClient.setQueryData(
+      workbenchQueryKeys.conversation(requirement.id),
+      previous => projectConversation(requirement, previous),
+    )
+  }
+  return accepted
+}`,moment:'快速路径与可靠路径会合',copy:'最终快照确认 assistant-2 已 completed，并保留比 HTTP 响应更新的本地 revision。',type:'invalidate → snapshot',payload:{event:'completed',http:'GET WorkbenchSnapshot',merge:['reject stale requirement','project conversation','set query data']},cache:{lastSequenceByTurn:{'turn-7':4},messagesById:{'assistant-2':{status:'completed',content:'已完成登录按钮状态\n\n```ts\nconst disabled = true\n```'}}},screen:'已完成登录按钮状态',codePreview:'const disabled = true',whyTitle:'最终以快照为准',why:'即使某个 SSE batch 丢失，invalidate 或轮询仍会把 Query Cache 校准到 Requirement JSON。'},
+    ];
+
+    const flowNames=['UI','SERVER','QUEUE','CODEX','BATCH','SSE','CACHE','REACT','JSON'];
+    const timeline=document.querySelector('#timeline');
+    steps.forEach((s,i)=>{const b=document.createElement('button');b.className='tick';b.innerHTML=`<small>${s.t.replace('T+','')}</small><b>${s.label}</b>`;b.onclick=()=>show(i);timeline.appendChild(b)});
+    document.querySelector('#flow').innerHTML=flowNames.map(n=>`<div class="node">${n}</div>`).join('');
+    let active=0,timer=null,delay=1200;
+    function flowIndex(i){return i===0?0:i<4?2:i<9?3:i<12?4:i<14?5:i<15?6:i<18?7:8}
+    function show(i){active=Math.max(0,Math.min(steps.length-1,i));const s=steps[active];
+      [...document.querySelectorAll('.tick')].forEach((el,n)=>{el.classList.toggle('active',n===active);el.classList.toggle('done',n<active)});
+      [...document.querySelectorAll('.chapter')].forEach((el,n)=>el.classList.toggle('active',n===s.c));
+      document.querySelector('#progress').style.width=`${(active/(steps.length-1))*100}%`;
+      document.querySelector('#path').textContent=s.path;document.querySelector('#lines').textContent=`L${s.line}`;
+      document.querySelector('#title').textContent=s.title;document.querySelector('#description').textContent=s.desc;document.querySelector('#stepno').textContent=String(active+1).padStart(2,'0');
+      document.querySelector('#code').innerHTML=codeRows(s.code,s.start,s.hot);document.querySelector('#timecode').textContent=s.t;
+      document.querySelector('#momentTitle').textContent=s.moment;document.querySelector('#momentCopy').textContent=s.copy;document.querySelector('#payloadType').textContent=s.type;
+      document.querySelector('#payload').textContent=typeof s.payload==='string'?s.payload:JSON.stringify(s.payload,null,2);document.querySelector('#cache').textContent=JSON.stringify(s.cache,null,2);
+      document.querySelector('#bubble').innerHTML=`${esc(s.screen||'等待 Agent 输出…')}${s.codePreview?`<span class="codepreview">${esc(s.codePreview)}</span>`:''}${active<steps.length-1?'<span class="caret"></span>':''}`;
+      document.querySelector('#whyTitle').textContent=s.whyTitle;document.querySelector('#why').textContent=s.why;
+      const fi=flowIndex(active);[...document.querySelectorAll('.node')].forEach((el,n)=>{el.classList.toggle('on',n===fi);el.classList.toggle('past',n<fi)});
+      document.querySelector('#prev').disabled=active===0;document.querySelector('#next').disabled=active===steps.length-1;
+      document.querySelector('#play').textContent=timer?'暂停':active===steps.length-1?'重播':'播放';
+      document.querySelectorAll('.tick')[active].scrollIntoView({block:'nearest',inline:'nearest'});
+    }
+    function play(){if(timer){clearInterval(timer);timer=null;show(active);return}if(active===steps.length-1)active=-1;timer=setInterval(()=>{if(active>=steps.length-1){clearInterval(timer);timer=null;show(active);return}show(active+1)},delay);show(active+1)}
+    document.querySelector('#play').onclick=play;document.querySelector('#prev').onclick=()=>show(active-1);document.querySelector('#next').onclick=()=>show(active+1);
+    document.querySelectorAll('.speed button').forEach(b=>b.onclick=()=>{delay=Number(b.dataset.speed);document.querySelectorAll('.speed button').forEach(x=>x.classList.toggle('active',x===b));if(timer){clearInterval(timer);timer=setInterval(()=>active<steps.length-1?show(active+1):play(),delay)}});
+
+    const faults=[
+      {tag:'SEQUENCE ≤ LAST',tab:'重复批次',title:'相同 batch 不会追加两次',code:`const lastSequence = projection.lastSequenceByTurn[batch.turnId] ?? 0
+
+if (batch.sequenceEnd <= lastSequence)
+  return true`,facts:[['输入','sequence 3，再次收到 1–3'],['判断','sequenceEnd <= lastSequence'],['结果','直接返回 true，缓存不变']],verdict:'页面不会出现“已完成已完成”这样的重复文字。'},
+      {tag:'SEQUENCE GAP',tab:'序号缺口',title:'发现丢包后放弃增量，拉快照',code:`if (batch.sequenceStart > lastSequence + 1)
+  return false
+
+if (!applyAgentStreamBatch(queryClient, incoming))
+  void queryClient.invalidateQueries({
+    queryKey: workbenchQueryKeys.snapshot,
+  })`,facts:[['输入','last = 3，却收到 sequence 5'],['判断','5 > 3 + 1'],['结果','invalidate snapshot query']],verdict:'不猜测丢失的 delta，直接回到 Requirement JSON。'},
+      {tag:'EVENTSOURCE ERROR',tab:'SSE 断线',title:'轮询从 30 秒自动降为 3 秒',code:`events.onopen = () => {
+  void queryClient.refetchQueries({
+    queryKey: workbenchQueryKeys.snapshot,
+  }).then(() => setSseConnected(true))
+}
+
+events.onerror = () => setSseConnected(false)
+
+const snapshotQuery = useQuery({
+  refetchInterval: sseConnected ? 30_000 : 3_000,
+})`,facts:[['连接状态','sseConnected = false'],['实时通路','暂时不可用'],['可靠通路','每 3 秒读取完整快照']],verdict:'流式体验会变慢，但任务进度不会只存在浏览器内存里。'},
+      {tag:'NODE RESTART',tab:'Node 重启',title:'遗留 running 被降级成可重试失败态',code:`const requirement = await requirementStore.load()
+if (!requirement || requirement.codex.status !== 'running')
+  return requirement
+if (globalExecution.__workbenchExecution || hasActiveCodexTurn())
+  return requirement
+
+const recovered = await requirementStore.update(current =>
+  recoverInterruptedRequirement(current, reason, interrupted)
+)
+publishAgentEvent(interrupted)`,facts:[['丢失','内存 Promise、AbortController、子进程'],['保留','需求分支、Session ID、已完成 Tickets'],['恢复','活动 Ticket → blocked，Codex → failed']],verdict:'用户可以从原分支与原 Session 继续，不需要重建整条需求。'},
+    ];
+    const faultTabs=document.querySelector('#faultTabs');faults.forEach((f,i)=>{const b=document.createElement('button');b.className='faulttab';b.innerHTML=`<span>0${i+1}</span>${f.tab}`;b.onclick=()=>showFault(i);faultTabs.appendChild(b)});
+    function showFault(i){const f=faults[i];document.querySelectorAll('.faulttab').forEach((b,n)=>b.classList.toggle('active',n===i));document.querySelector('#faultCode').innerHTML=tint(f.code);document.querySelector('#faultTag').textContent=f.tag;document.querySelector('#faultTitle').textContent=f.title;document.querySelector('#faultFacts').innerHTML=f.facts.map(([a,b])=>`<div><dt>${a}</dt><dd>${b}</dd></div>`).join('');document.querySelector('#faultVerdict').textContent=f.verdict}
+    show(0);showFault(0);
+  </script>
+</body>
+</html>
