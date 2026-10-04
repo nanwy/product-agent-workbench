@@ -8,6 +8,14 @@ const (
 	PathEvents       = "/api/v1/events"
 )
 
+// HealthResponse 是健康检查成功时返回的稳定 JSON 结构。
+//
+// 第一版只表达进程已经启动并能处理 HTTP。数据库连通性、Codex 可用性等属于 readiness
+// 或环境预检，不要把昂贵检查塞进每一次轻量健康探测。
+type HealthResponse struct {
+	Status string `json:"status"`
+}
+
 // ErrorResponse 是所有 HTTP 错误使用的稳定 JSON 结构。
 //
 // Code 给前端程序判断，Message 给本地用户阅读；不要把原始 SQL、文件路径或秘密直接放入
@@ -24,5 +32,5 @@ type MutationMeta struct {
 	ExpectedRevision int64  `json:"expectedRevision"`
 }
 
-// TODO(学习者):领域状态机和内存 Store 完成后，新增 server.go。
-// 先用 httptest 实现 GET /health，再实现 Requirement 的创建和读取；不要先写 SSE。
+// 当前学习顺序：先完成 server.go 的 GET /health，再实现 Requirement 创建和读取；
+// 不要提前写 SSE。

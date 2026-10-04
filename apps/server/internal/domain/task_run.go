@@ -2,20 +2,16 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
-
-// ErrNotImplemented 表示学习脚手架中的方法还没有由你实现。
-//
-// 完成某个方法后，应删除该方法返回此错误的占位代码，而不是在业务逻辑中判断这个错误。
-var ErrNotImplemented = errors.New("学习任务尚未实现")
 
 var (
 	// ErrInvalidInput 表示调用方提供的数据缺少必需字段或不满足基本格式。
 	ErrInvalidInput = errors.New("输入无效")
 	// ErrInvalidTransition 表示当前状态不允许执行请求的迁移。
 	ErrInvalidTransition = errors.New("状态迁移无效")
-	// ErrInvalidTime 表示迁移时间早于已经发生的领域事实。
+	// ErrInvalidTime 表示必需的阶段时间缺失、为零值或发生倒流。
 	ErrInvalidTime = errors.New("时间顺序无效")
 )
 
@@ -76,14 +72,8 @@ type TaskRun struct {
 }
 
 // NewTaskRun 校验创建输入，并返回 queued 状态的新执行尝试。
-//
-// TODO(学习者):
-//   - 拒绝空 ID、空 RequirementID、空 TicketID；
-//   - 拒绝小于 1 的 Attempt；
-//   - 拒绝零值 now；
-//   - 初始化 Status 和 CreatedAt，其余阶段字段保持未发生状态。
 func NewTaskRun(input NewTaskRunInput, now time.Time) (TaskRun, error) {
-	if input.ID == "" || input.RequirementID == "" || input.TicketID == "" {
+	if isBlank(input.ID) || isBlank(input.RequirementID) || isBlank(input.TicketID) {
 		return TaskRun{}, ErrInvalidInput
 	}
 	if now.IsZero() {
@@ -103,8 +93,6 @@ func NewTaskRun(input NewTaskRunInput, now time.Time) (TaskRun, error) {
 }
 
 // Claim 把 queued 任务迁移为 claimed，并记录领取时间。
-//
-// TODO(学习者):只允许 queued → claimed；失败时返回原 TaskRun，不能产生部分修改。
 func (run TaskRun) Claim(now time.Time) (TaskRun, error) {
 	if run.Status != TaskStatusQueued {
 		return run, ErrInvalidTransition
@@ -118,13 +106,11 @@ func (run TaskRun) Claim(now time.Time) (TaskRun, error) {
 }
 
 // Start 把 claimed 任务迁移为 running，并记录真正的执行开始时间。
-//
-// TODO(学习者):只允许 claimed → running，并检查 now 不早于 ClaimedAt。
 func (run TaskRun) Start(now time.Time) (TaskRun, error) {
 	if run.Status != TaskStatusClaimed {
 		return run, ErrInvalidTransition
 	}
-	if run.ClaimedAt == nil || now.IsZero() || now.Before(*run.ClaimedAt) {
+	if run.ClaimedAt == nil || run.ClaimedAt.IsZero() || now.IsZero() || now.Before(*run.ClaimedAt) {
 		return run, ErrInvalidTime
 	}
 	run.Status = TaskStatusRunning
@@ -133,16 +119,14 @@ func (run TaskRun) Start(now time.Time) (TaskRun, error) {
 }
 
 // Complete 把 running 任务迁移为 completed，并保存可审计结果。
-//
-// TODO(学习者):只允许 running → completed；拒绝空 Summary；清空失败原因。
 func (run TaskRun) Complete(result TaskResult, now time.Time) (TaskRun, error) {
 	if run.Status != TaskStatusRunning {
 		return run, ErrInvalidTransition
 	}
-	if result.Summary == "" {
+	if isBlank(result.Summary) {
 		return run, ErrInvalidInput
 	}
-	if run.StartedAt == nil || now.IsZero() || now.Before(*run.StartedAt) {
+	if run.StartedAt == nil || run.StartedAt.IsZero() || now.IsZero() || now.Before(*run.StartedAt) {
 		return run, ErrInvalidTime
 	}
 	run.Status = TaskStatusCompleted
@@ -153,32 +137,31 @@ func (run TaskRun) Complete(result TaskResult, now time.Time) (TaskRun, error) {
 }
 
 // Fail 把 claimed 或 running 任务迁移为 failed，并保存失败原因。
-//
-// TODO(学习者):拒绝空白失败原因；终态不能再次失败或被覆盖。
 func (run TaskRun) Fail(reason string, now time.Time) (TaskRun, error) {
 	if run.Status != TaskStatusClaimed && run.Status != TaskStatusRunning {
 		return run, ErrInvalidTransition
 	}
-	if reason == "" {
+	baseline, err := run.activeTimeBaseline()
+	if isBlank(reason) {
 		return run, ErrInvalidInput
 	}
-	if run.StartedAt == nil || now.IsZero() || now.Before(*run.StartedAt) {
+	if err != nil || now.IsZero() || now.Before(baseline) {
 		return run, ErrInvalidTime
 	}
 	run.Status = TaskStatusFailed
 	run.FinishedAt = &now
+	run.Result = nil
 	run.FailureReason = reason
 	return run, nil
 }
 
 // Cancel 把 queued、claimed 或 running 任务迁移为 cancelled。
-//
-// TODO(学习者):终态不能取消；取消不能伪造成功结果或失败原因。
 func (run TaskRun) Cancel(now time.Time) (TaskRun, error) {
-	if run.Status != TaskStatusQueued && run.Status != TaskStatusClaimed && run.Status != TaskStatusRunning {
+	baseline, err := run.activeTimeBaseline()
+	if errors.Is(err, ErrInvalidTransition) {
 		return run, ErrInvalidTransition
 	}
-	if run.StartedAt == nil || now.IsZero() || now.Before(*run.StartedAt) {
+	if err != nil || now.IsZero() || now.Before(baseline) {
 		return run, ErrInvalidTime
 	}
 	run.Status = TaskStatusCancelled
@@ -186,4 +169,31 @@ func (run TaskRun) Cancel(now time.Time) (TaskRun, error) {
 	run.Result = nil
 	run.FailureReason = ""
 	return run, nil
+}
+
+// activeTimeBaseline 返回活动状态最近一次已经发生的时间事实。
+func (run TaskRun) activeTimeBaseline() (time.Time, error) {
+	switch run.Status {
+	case TaskStatusQueued:
+		if run.CreatedAt.IsZero() {
+			return time.Time{}, ErrInvalidTime
+		}
+		return run.CreatedAt, nil
+	case TaskStatusClaimed:
+		if run.ClaimedAt == nil || run.ClaimedAt.IsZero() {
+			return time.Time{}, ErrInvalidTime
+		}
+		return *run.ClaimedAt, nil
+	case TaskStatusRunning:
+		if run.StartedAt == nil || run.StartedAt.IsZero() {
+			return time.Time{}, ErrInvalidTime
+		}
+		return *run.StartedAt, nil
+	default:
+		return time.Time{}, ErrInvalidTransition
+	}
+}
+
+func isBlank(value string) bool {
+	return strings.TrimSpace(value) == ""
 }
