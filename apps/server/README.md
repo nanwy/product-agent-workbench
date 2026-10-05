@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～8 已完成
+## 当前进度：练习 1～11 已完成，练习 12 进行中
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -207,7 +207,7 @@ verification 与事件模块负责，不能塞进这个 Application 用例。
 
 ## 后续学习骨架：已经铺到最小 Worker
 
-下面的文件已经存在。练习 7～8 已完成；下一步从练习 9 开始。后续仍然一次只解锁一个公开
+下面的文件已经存在。练习 7～10 已完成；下一步从练习 11 开始。后续仍然一次只解锁一个公开
 seam 的测试，保持 red → green。
 
 ### 练习 7：FailTaskRun
@@ -255,6 +255,7 @@ UPDATE task_runs SET ... WHERE id = ? AND status = ?;
 
 ### 练习 9～10：TaskRun HTTP
 
+- 状态：已完成。
 - 文件：`internal/httpapi/task_run_handler.go`、`contracts.go`、`server.go`
 - 练习 9：实现 DTO 映射与 `POST /api/v1/task-runs`。
 - 练习 10：实现 `GET /api/v1/task-runs/{id}` 与
@@ -272,14 +273,30 @@ go test ./apps/server/internal/httpapi -run TestServer_GetAndCancelTaskRun -v
 ### 练习 11～12：SQLite Store
 
 - 入口：`internal/store/sqlite/` 与 `migrations/README.md`。
-- 练习 11：先回答 migration 的设计问题，选定 driver、UTC 编码、稳定入队顺序和原子
-  claim 策略；再由你手写并评审 migration。
-- 练习 12：把 Memory Store 契约提取为可复用 factory，让 SQLite 跑同一套契约；随后按
-  Requirement → TaskRun → claim → TaskEvent 的顺序实现参数化 SQL。
+- 练习 11（已完成）：选定 driver、UTC 编码、稳定入队顺序和原子 claim 策略；
+  手写的 `000001_initial.up.sql` 已通过 SQLite 执行、外键和索引验证。
+- 练习 12 Requirement（已完成）：Create/Get/Save 通过公共契约、20 次重复运行和
+  `go test -race`；revision 条件 UPDATE 能阻止旧快照覆盖。
+- 练习 12 TaskRun 基础（已完成）：`EnqueueTask`、`GetTask`、`SaveTask` 与 `scanTaskRun`
+  已通过公共契约、20 次重复运行、race detector 和 vet；状态 CAS 会拒绝旧快照覆盖。
+- 练习 12 原子 claim（当前）：事务 API 学习说明、公共顺序/并发/context 契约和中文实现
+  步骤已解锁，核心 `ClaimNextTask` 由你实现。TaskEvent 尚未解锁。
+- 使用数据库 API 前先读 `internal/store/sqlite/README.md`，分清 `ExecContext`、
+  `QueryRowContext`、`QueryContext`、`Scan` 和项目自定义的 `scanTaskRun`。
 - 对应旧代码：`requirement-store.ts` 的 JSON 快照、临时文件 rename 和 Promise 写队列。
 
 SQLite Adapter 接收 `*sql.DB`，不锁死 driver、不在构造函数迁移，也不使用 ORM。旧 JSON
 Store 与 SQLite 在正式切流前不双写。
+
+当前 Red 测试（现在应当失败在 `ClaimNextTask` 尚未实现）：
+
+```bash
+go test ./apps/server/internal/store -run TestSQLiteClaimStoreContract -v
+```
+
+TaskRun 对应原 TypeScript `prepareExecution` 中把 queued Ticket 放入 JSON 聚合，以及
+`executeQueue`/`recordExecutionFailure` 把后续状态覆盖回文件。SQLite 改为每次执行独立一行，
+并用 `WHERE id = ? AND status = ?` 代替进程内旧快照写回。
 
 ### 练习 13：最小同步 Worker
 
@@ -300,10 +317,13 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 ```text
 7 FailTaskRun（已完成）
 → 8 CancelTaskRun（已完成）
-→ 9 TaskRun enqueue HTTP（当前）
-→ 10 TaskRun get/cancel HTTP
-→ 11 migration 设计
-→ 12 SQLite 公共 Store 契约
+→ 9 TaskRun enqueue HTTP（已完成）
+→ 10 TaskRun get/cancel HTTP（已完成）
+→ 11 migration 设计（已完成）
+→ 12 SQLite Requirement 契约（已完成）
+→ 12 SQLite TaskRun 入队/读取/CAS（已完成）
+→ 12 SQLite 原子 claim（当前）
+→ 12 SQLite TaskEvent 契约
 → 13 fake executor Worker
 ```
 
@@ -323,12 +343,12 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | claim/start 动作（已完成） | 调度器原子领取最早任务，再标记 Runner 真正启动 | `prepareExecution` 的 queued 领取部分，随后 `executeQueue` 调用 `runCodexTurn` | 拆开“已被调度器占有”和“子进程已经开始”，便于恢复与排障 |
 | complete 动作（已完成） | 保存成功结果和完成时间 | `executeQueue` 中当前 Ticket 成功收尾 | 状态迁移统一经过领域状态机；调度下一票与验证仍留给 Runner |
 | fail/cancel 动作（已完成） | 保存失败原因或取消终态 | `recordExecutionFailure`、`cancelRequirementExecution` | 失败与取消不再通过对象展开手写状态；状态 CAS 防止旧快照覆盖并发终态 |
-| TaskRun HTTP（骨架） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
-| SQLite Store（骨架） | 事务、重启恢复、多 Requirement 历史 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | JSON 聚合替换为可查询、可原子 claim 的关系数据 |
+| TaskRun HTTP（已完成） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
+| SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；当前实现原子 claim | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | JSON 聚合替换为可查询、可原子 claim 的关系数据 |
 | 最小 Worker（骨架） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 
-当前实际完成到 fail/cancel；学习骨架已铺到最小 Worker。不要提前调用真实 Codex；先让
-HTTP、SQLite 契约和 fake executor 闭环稳定。
+当前实际完成到 SQLite TaskRun 基础；学习骨架已铺到最小 Worker。不要提前调用真实 Codex；
+先让 SQLite claim、TaskEvent 契约和 fake executor 闭环稳定。
 
 ### 学习目标
 
@@ -402,5 +422,6 @@ internal/httpapi/
 - request 被取消后，Store 调用能收到 context cancellation。
 - `go test -race ./apps/server/internal/app/... ./apps/server/internal/httpapi/...` 通过。
 
-TaskRun HTTP 完成前不要接前端。SQLite 和最小 fake Worker 已有后续骨架；SSE replay、真实
-Codex 子进程、Git Worktree 和前端迁移仍然留到这些基础契约完成之后。
+TaskRun HTTP 已完成，但暂不切换前端：Memory Store 无法跨重启保存数据，执行也还没有 Worker
+消费。SQLite 和最小 fake Worker 已有后续骨架；SSE replay、真实 Codex 子进程、Git Worktree
+和前端迁移仍然留到这些基础契约完成之后。

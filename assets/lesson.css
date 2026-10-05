@@ -50,6 +50,14 @@ a { color: var(--blue); }
 code, pre { font-family: var(--mono); }
 code { padding: .1em .35em; border-radius: 5px; background: #edf0f4; }
 pre { margin: 12px 0 0; padding: 16px; overflow: auto; border-radius: 12px; color: #e8eef8; background: #172131; line-height: 1.55; }
+/* 行内 code 使用浅色标签；代码块中的 code 必须继承 pre 的深色主题，避免白底浅字。 */
+pre code { padding: 0; border-radius: 0; color: inherit; background: transparent; }
+/* 深色教学卡片中的行内 code 不能沿用正文区域的浅灰底，否则会形成白底浅字。 */
+.simulator code,
+.interview code {
+  color: inherit;
+  background: rgba(255, 255, 255, .1);
+}
 .output { min-height: 76px; color: var(--ink); background: white; border: 1px dashed #9aa6b7; }
 .wrong-output { color: var(--red); font-weight: 700; }
 .right-output { color: var(--green); font-weight: 700; }

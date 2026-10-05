@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Migration 第一课：让数据库拒绝错误事实</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <link rel="stylesheet" href="../assets/sql-lab.css">
+  <script src="../assets/sql-migration-lab.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0009 · SQLite Migration</p>
+  <h1>让数据库拒绝错误事实</h1>
+  <p class="lede">这节只完成一张表：把 Go 的 <code>Requirement</code> 翻译成 SQLite 的 <code>requirements</code>。完成后，你能亲手写出 migration 练习纸的第一段，并解释每条约束防住什么错误。</p>
+
+  <div class="thesis">Migration 不是“把 struct 搬进数据库”。它是在声明：服务重启以后，哪些事实仍然允许存在。</div>
+
+  <h2>先看三个世界</h2>
+  <div class="sql-map">
+    <article>
+      <h3>Go 领域对象</h3>
+      <pre><code>Requirement{
+  ID
+  ProjectID
+  Title
+  Stage
+  Revision
+}</code></pre>
+      <p class="tiny">表达程序运行时需要什么。</p>
+    </article>
+    <article class="arrow-card">
+      <div><strong>Migration</strong><br>字段 + 类型 + 约束<br>↓<br>把不变量交给数据库守门</div>
+    </article>
+    <article>
+      <h3>SQLite 持久事实</h3>
+      <pre><code>requirements
+├─ 身份不能重复
+├─ 必填值不能缺失
+├─ stage 不能拼错
+└─ revision 不能倒退到 0</code></pre>
+      <p class="tiny">表达磁盘上允许长期存在什么。</p>
+    </article>
+  </div>
+
+  <h2>五个字段，五个问题</h2>
+  <div class="schema-grid">
+    <article class="field-card"><strong>id</strong><p>这条 Requirement 是谁？</p><small>TEXT · NOT NULL · PRIMARY KEY</small></article>
+    <article class="field-card"><strong>project_id</strong><p>它属于哪个目标项目？</p><small>TEXT · NOT NULL</small></article>
+    <article class="field-card"><strong>title</strong><p>用户提出的变化叫什么？</p><small>TEXT · NOT NULL</small></article>
+    <article class="field-card"><strong>stage</strong><p>它现在位于 SDD 哪一步？</p><small>TEXT · NOT NULL · CHECK 枚举</small></article>
+    <article class="field-card"><strong>revision</strong><p>调用方看到的是第几个版本？</p><small>INTEGER · NOT NULL · CHECK ≥ 1</small></article>
+  </div>
+  <p class="code-note">为什么 <code>id TEXT PRIMARY KEY</code> 还显式写 <code>NOT NULL</code>？SQLite 为兼容旧行为，普通非 INTEGER 主键存在允许 NULL 的历史特例。显式写出约束，意图和行为都更清楚。依据：<a href="https://www.sqlite.org/lang_createtable.html#the_primary_key">SQLite PRIMARY KEY</a>。</p>
+
+  <h2>约束实验：数据库应该接受谁？</h2>
+  <div class="constraint-lab">
+    <p>依次点击五条输入。不要先背语法，先判断哪条业务规则应该负责拒绝它。</p>
+    <div class="scenario-buttons">
+      <button data-scenario="valid">合法记录</button>
+      <button data-scenario="blank">项目缺失</button>
+      <button data-scenario="revision">版本为零</button>
+      <button data-scenario="stage">阶段拼错</button>
+      <button data-scenario="duplicate">身份重复</button>
+    </div>
+    <div class="database-gate" data-database-gate>
+      <strong>数据库守门员</strong>
+      <p>点击一条输入，查看 PRIMARY KEY、NOT NULL 或 CHECK 如何保护持久化事实。</p>
+    </div>
+  </div>
+
+  <h2>语法只需要这五块</h2>
+  <div class="card">
+    <div class="syntax-token"><code>CREATE TABLE</code><span>声明一张表，以及列和表级约束。</span></div>
+    <div class="syntax-token"><code>TEXT / INTEGER</code><span>本课分别承载文本事实和 revision 整数。</span></div>
+    <div class="syntax-token"><code>NOT NULL</code><span>拒绝“这个事实根本没提供”的记录。</span></div>
+    <div class="syntax-token"><code>PRIMARY KEY</code><span>给每条记录唯一身份，并建立按 ID 查找的入口。</span></div>
+    <div class="syntax-token"><code>CHECK (...)</code><span>每次 INSERT/UPDATE 时检查值是否满足业务边界。</span></div>
+  </div>
+  <p class="code-note">逗号、括号、单引号或关键词仍然陌生时，先看 <a href="../reference/sqlite-syntax-glossary.html">Migration 零基础语法表</a>，再回来做本页练习。</p>
+  <p class="tiny">SQLite 官方说明，CREATE TABLE 可以声明列、类型、主键和 UNIQUE / NOT NULL / CHECK / FOREIGN KEY 等约束；SQLite 使用动态类型系统，所以约束尤其重要。来源：<a href="https://www.sqlite.org/lang_createtable.html">CREATE TABLE</a>、<a href="https://www.sqlite.org/datatype3.html">Datatypes In SQLite</a>。</p>
+
+  <h2>先照着一个完整例子写</h2>
+  <p>下面创建的是文章表，不是本项目的答案，但结构和 <code>requirements</code> 完全同类：</p>
+  <pre><code>CREATE TABLE articles (
+    id TEXT NOT NULL PRIMARY KEY,
+    author_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    version INTEGER NOT NULL,
+
+    CHECK (version &gt;= 1),
+    CHECK (status IN ('draft', 'review', 'published'))
+);</code></pre>
+  <div class="module-map">
+    <div class="module-name">id TEXT NOT NULL PRIMARY KEY</div><div>文本身份；不能为空，也不能和已有文章重复。</div>
+    <div class="module-name">author_id / title</div><div>普通必填文本：<code>TEXT NOT NULL</code>。</div>
+    <div class="module-name">version INTEGER NOT NULL</div><div>必填整数；允许范围由后面的 CHECK 负责。</div>
+    <div class="module-name">CHECK (version &gt;= 1)</div><div>插入或更新时，0 和负数都会被数据库拒绝。</div>
+    <div class="module-name">CHECK (status IN (...))</div><div>status 只能从括号里的字符串中选择；SQL 字符串使用单引号。</div>
+  </div>
+  <div class="why card" style="margin-top: 16px">
+    <h3>把示例翻译成 Requirement</h3>
+    <p><code>articles → requirements</code>，<code>author_id → project_id</code>，<code>status → stage</code>，<code>version → revision</code>。然后把三个文章状态换成 <code>domain/requirement.go</code> 中的六个 RequirementStage 字符串。</p>
+  </div>
+
+  <h2>动手：完成 requirements</h2>
+  <p>下面不是选择题。请把下划线替换成 SQL。点击检查只会告诉你缺哪条规则，不会直接填答案。</p>
+  <textarea class="sql-editor" data-sql-editor spellcheck="false">CREATE TABLE requirements (
+    id ____,
+    project_id ____,
+    title ____,
+    stage ____,
+    revision ____,
+
+    -- 在这里补两个 CHECK
+);</textarea>
+  <div class="sim-controls">
+    <button data-check-sql>检查我的 migration</button>
+    <button class="secondary" data-reset-sql>恢复练习纸</button>
+  </div>
+  <div class="check-results" data-check-results hidden></div>
+  <p class="code-note" data-progressive-hint hidden></p>
+
+  <div class="checkpoint">
+    <h3>闭卷复述</h3>
+    <p>完成以后，不看页面说出三句话：</p>
+    <ol>
+      <li><code>NOT NULL</code> 防的是哪类错误？</li>
+      <li><code>CHECK</code> 为什么不能只留在 Go 代码里？</li>
+      <li><code>PRIMARY KEY</code> 在这个项目里保护了什么身份？</li>
+    </ol>
+    <p>能回答再把 SQL复制到 <a href="../apps/server/migrations/000001_initial.up.sql.todo">migration 练习纸</a> 的第 1 步。答不顺就把具体问题带回来问 Agent。</p>
+  </div>
+
+  <h2>面试时的一句话</h2>
+  <div class="interview"><p>“我没有把 Go struct 机械映射成表，而是从 Store 的真实查询和领域不变量反推 migration。第一张 Requirement 表先用主键、非空和 CHECK 约束，保证进程重启后磁盘里也不会出现重复身份、缺失项目、非法阶段或 revision 为零的状态。”</p></div>
+
+  <p class="tiny">主参考：<a href="https://www.sqlite.org/lang_createtable.html">SQLite CREATE TABLE 官方文档</a>。本课只覆盖 Requirement；外键、稳定队列顺序、部分唯一索引和原子 claim 留给后续短课。</p>
+  <footer class="footer-nav"><a href="./0010-sqlite-task-runs-table.html">下一课：TaskRun 表</a> · <a href="../reference/sqlite-migration-first-table.html">打印版速查卡</a> · <a href="./0008-codex-integration-interview-story.html">上一课</a></footer>
+</main>
+</body>
+</html>

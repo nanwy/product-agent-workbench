@@ -1,0 +1,134 @@
+.sql-map {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) 1.4fr minmax(180px, .8fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.sql-map article {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.sql-map .arrow-card {
+  display: grid;
+  place-items: center;
+  color: white;
+  background: linear-gradient(135deg, #1769e0, #17498e);
+  text-align: center;
+}
+
+.schema-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.field-card strong {
+  color: var(--blue);
+  font-family: var(--mono);
+}
+
+.field-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.constraint-lab {
+  padding: 24px;
+  border-radius: 20px;
+  color: #ecf3ff;
+  background: #111b2b;
+}
+
+.scenario-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.scenario-buttons button {
+  background: #34445e;
+}
+
+.scenario-buttons button.active {
+  background: var(--blue);
+}
+
+.database-gate {
+  min-height: 112px;
+  padding: 18px;
+  border: 1px solid #33425a;
+  border-radius: 12px;
+  background: #172438;
+}
+
+.database-gate code {
+  display: block;
+  padding: 12px;
+  border: 1px solid #2c3c55;
+  color: #dce9ff;
+  background: #0d1521;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.database-gate .accepted { color: #83e0ae; }
+.database-gate .rejected { color: #ffaaa3; }
+
+.sql-editor {
+  width: 100%;
+  min-height: 300px;
+  padding: 18px;
+  border: 2px solid #33425a;
+  border-radius: 14px;
+  color: #e8eef8;
+  background: #172131;
+  font: 15px/1.65 var(--mono);
+  tab-size: 2;
+  resize: vertical;
+}
+
+.sql-editor:focus {
+  border-color: #68a7ff;
+  outline: 3px solid rgba(104, 167, 255, .2);
+}
+
+.check-results {
+  margin: 16px 0 0;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.check-results ul { margin: 8px 0 0; padding-left: 22px; }
+.check-results .pass { color: var(--green); }
+.check-results .fail { color: var(--red); }
+
+.syntax-token {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.syntax-token:last-child { border-bottom: 0; }
+.syntax-token code { color: var(--blue); font-weight: 800; }
+
+@media (max-width: 800px) {
+  .sql-map, .schema-grid { grid-template-columns: 1fr; }
+  .syntax-token { grid-template-columns: 1fr; gap: 4px; }
+}

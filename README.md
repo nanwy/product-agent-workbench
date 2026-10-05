@@ -29,8 +29,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **35%**；学习脚手架已经铺到最小 Worker，约覆盖
-后端迁移路线的 **55%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **48%**；学习脚手架已经铺到最小 Worker，约覆盖
+后端迁移路线的 **65%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -40,8 +40,8 @@ docs/         架构、面试与学习文档
 | Requirement HTTP | 已完成 | Requirement Server Functions 的创建与读取 |
 | TaskRun enqueue/claim/start/complete | 已完成（状态 CAS 已接入） | `prepareExecution` 与 `executeQueue` 的主成功路径 |
 | TaskRun fail/cancel | 已完成（状态 CAS 已接入） | `recordExecutionFailure`、`cancelRequirementExecution` |
-| TaskRun HTTP | 已搭骨架，待实现 | 浏览器执行/查询/取消 Server Functions |
-| SQLite Adapter | 已搭骨架，待设计 migration 与实现 | JSON Store + Promise 写队列 |
+| TaskRun HTTP | 已完成 | 浏览器执行/查询/取消 Server Functions |
+| SQLite Adapter | migration、Requirement、TaskRun 基础已完成；原子 claim 进行中 | JSON Store + Promise 写队列 |
 | 最小同步 Worker + fake executor | 已搭骨架，待实现 | `prepareExecution + executeQueue` 的最小纵向切片 |
 | Codex、Worktree、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
 

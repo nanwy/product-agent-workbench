@@ -1,4 +1,4 @@
-# 可恢复流式对话 Resources
+# Product Agent Workbench 学习资源
 
 ## Knowledge
 
@@ -25,9 +25,28 @@
 - [`tests/workbench-query.test.ts`](./tests/workbench-query.test.ts)
   可执行证据：引用复用、Requirement 隔离、批次去重、缺口拒绝和 Markdown 围栏处理。
 
+### SQLite 与 Go 持久化
+
+- [SQLite: CREATE TABLE](https://www.sqlite.org/lang_createtable.html)
+  表、列、PRIMARY KEY、UNIQUE、NOT NULL 和 CHECK 的官方语义。用于 migration 语法与约束核对。
+- [SQLite: Datatypes](https://www.sqlite.org/datatype3.html)
+  SQLite 动态类型、五种存储类别和时间保存选择。用于判断 TEXT、INTEGER 与 BLOB。
+- [SQLite: Foreign Keys](https://www.sqlite.org/foreignkeys.html)
+  外键启用方式和删除行为。用于 TaskRun 与 Requirement、Event 与 TaskRun 的关系设计。
+- [SQLite: Partial Indexes](https://www.sqlite.org/partialindex.html)
+  部分索引语义。用于约束同一 Requirement 最多一个活动 TaskRun。
+- [SQLite: Transactions](https://www.sqlite.org/lang_transaction.html)
+  DEFERRED、IMMEDIATE、EXCLUSIVE 和单 writer 行为。用于原子 claim 设计。
+- [Go: Executing transactions](https://go.dev/doc/database/execute-transactions)
+  `database/sql` 的 Begin、Commit、Rollback 与 context 用法。用于练习 12 的事务实现。
+- [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)
+  本项目选择的无 CGO `database/sql` driver 文档。用于连接参数和 driver 行为核对。
+
 ## Wisdom (Communities)
 
 - [OpenAI Codex Discussions](https://github.com/openai/codex/discussions)
   与 SDK 使用者和维护者核对事件语义、恢复策略及实际集成问题。
 - [React Discussions](https://github.com/reactjs/react.dev/discussions)
   核对渲染性能、组件边界和外部状态订阅的工程取舍。
+- [SQLite Forum](https://sqlite.org/forum/)
+  由 SQLite 社区与维护者讨论边缘行为。用于事务、锁和查询计划等需要真实工程经验的问题。

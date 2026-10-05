@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SQLite Migration 第一张表速查卡</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <link rel="stylesheet" href="../assets/sql-lab.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Reference · SQLite Migration</p>
+  <h1>第一张表速查卡</h1>
+  <p class="lede">从领域字段到数据库约束。用于复习和打印，不代替亲手完成练习。</p>
+
+  <div class="thesis">字段回答“保存什么”；约束回答“什么绝不能被保存”。</div>
+
+  <h2>通用形状</h2>
+  <pre><code>CREATE TABLE 表名 (
+    字段名 类型 列约束,
+    字段名 类型 列约束,
+    CHECK (表级条件)
+);</code></pre>
+
+  <h2>同构示例：文章表</h2>
+  <pre><code>CREATE TABLE articles (
+    id TEXT NOT NULL PRIMARY KEY,
+    author_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    CHECK (version &gt;= 1),
+    CHECK (status IN ('draft', 'review', 'published'))
+);</code></pre>
+
+  <h2>Requirement 映射</h2>
+  <table class="state-table">
+    <thead><tr><th>领域字段</th><th>SQLite 类型</th><th>必须保护的不变量</th></tr></thead>
+    <tbody>
+      <tr><td>ID</td><td>TEXT</td><td>非空、唯一身份</td></tr>
+      <tr><td>ProjectID</td><td>TEXT</td><td>不能为空</td></tr>
+      <tr><td>Title</td><td>TEXT</td><td>不能为空</td></tr>
+      <tr><td>Stage</td><td>TEXT</td><td>非空、只能取六个领域值</td></tr>
+      <tr><td>Revision</td><td>INTEGER</td><td>非空、至少为 1</td></tr>
+    </tbody>
+  </table>
+
+  <h2>约束与错误</h2>
+  <div class="grid">
+    <article class="card"><h3>PRIMARY KEY</h3><p>拒绝第二条记录冒用同一个 Requirement ID。</p></article>
+    <article class="card"><h3>NOT NULL</h3><p>拒绝缺失项目、标题、阶段或版本的残缺事实。</p></article>
+    <article class="card"><h3>CHECK</h3><p>拒绝 revision=0，以及拼错或越界的 stage。</p></article>
+  </div>
+
+  <h2>提交前四问</h2>
+  <ol class="sequence">
+    <li><h3>每个字段有明确类型吗？</h3><p>本课只需要 TEXT 和 INTEGER。</p></li>
+    <li><h3>必填字段都显式 NOT NULL 吗？</h3><p>不要依赖调用方永远正确。</p></li>
+    <li><h3>非法枚举和数值会被 CHECK 拒绝吗？</h3><p>用一条错误 INSERT 反向验证。</p></li>
+    <li><h3>每条约束都能解释防了什么错误吗？</h3><p>解释不出来的约束先不要添加。</p></li>
+  </ol>
+
+  <h2>继续学习前</h2>
+  <p>TaskRun 会增加外键、组合唯一约束和部分索引。遇到陌生语法先查 <a href="./sqlite-syntax-glossary.html">Migration 零基础语法表</a>，不要靠猜。</p>
+
+  <p class="tiny">依据：<a href="https://www.sqlite.org/lang_createtable.html">SQLite CREATE TABLE</a>、<a href="https://www.sqlite.org/datatype3.html">SQLite 数据类型</a>。返回 <a href="../lessons/0009-sqlite-migration-first-table.html">交互课程</a>。</p>
+</main>
+</body>
+</html>

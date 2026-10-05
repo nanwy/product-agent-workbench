@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SQLite Migration 零基础语法表</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <link rel="stylesheet" href="../assets/sql-lab.css">
+</head>
+<body>
+<main>
+  <p class="eyebrow">Reference · SQL 从零开始</p>
+  <h1>Migration 语法逐词表</h1>
+  <p class="lede">不用背整段 SQL。先学会把每一行拆成“名字、类型、约束”，再理解表级约束和索引。</p>
+
+  <div class="thesis">列定义的固定句型：<code>字段名 数据类型 零个或多个约束</code></div>
+
+  <h2>标点先看懂</h2>
+  <table class="state-table">
+    <thead><tr><th>符号</th><th>意思</th><th>例子</th></tr></thead>
+    <tbody>
+      <tr><td><code>( ... )</code></td><td>包住表的内容，或者包住一个条件/列表</td><td><code>CHECK (attempt &gt;= 1)</code></td></tr>
+      <tr><td><code>,</code></td><td>当前这一项结束，后面还有下一项</td><td><code>id TEXT, title TEXT</code></td></tr>
+      <tr><td><code>;</code></td><td>整条 SQL 语句结束</td><td><code>CREATE TABLE ... ;</code></td></tr>
+      <tr><td><code>'文字'</code></td><td>SQL 字符串值使用单引号</td><td><code>'queued'</code></td></tr>
+      <tr><td><code>--</code></td><td>从这里到行尾都是注释，不会执行</td><td><code>-- 队列索引</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2>一行字段怎么读</h2>
+  <pre><code>id TEXT NOT NULL UNIQUE</code></pre>
+  <div class="flow">
+    <div>id<small>字段名</small></div>
+    <div>TEXT<small>保存文本</small></div>
+    <div>NOT NULL<small>不能缺失</small></div>
+    <div>UNIQUE<small>不能重复</small></div>
+    <div>逗号<small>继续下一项</small></div>
+  </div>
+
+  <h2>Migration 中会遇到的全部关键词</h2>
+  <div class="module-map">
+    <div class="module-name">CREATE TABLE name</div><div>创建名为 name 的表；后面的括号列出字段和约束。</div>
+    <div class="module-name">TEXT</div><div>文本，例如 ID、标题、状态。</div>
+    <div class="module-name">INTEGER</div><div>整数，例如 attempt、revision、Unix 时间。</div>
+    <div class="module-name">BLOB</div><div>原始字节，不替你解释内容；对应 Go 的 <code>[]byte</code>。</div>
+    <div class="module-name">NOT NULL</div><div>必须提供值。没有写 NOT NULL 的普通字段默认允许 NULL。</div>
+    <div class="module-name">PRIMARY KEY</div><div>表的主要身份，必须唯一；一张表只能有一个主键。</div>
+    <div class="module-name">UNIQUE</div><div>值或一组值不能重复；一张表可以有多个 UNIQUE。</div>
+    <div class="module-name">CHECK (条件)</div><div>INSERT 或 UPDATE 时条件必须成立，例如 <code>attempt &gt;= 1</code>。</div>
+    <div class="module-name">IN ('a', 'b')</div><div>值只能从列表中选择，常用于状态枚举。</div>
+    <div class="module-name">REFERENCES parent(id)</div><div>当前值必须能在父表 parent 的 id 中找到。</div>
+    <div class="module-name">ON DELETE RESTRICT</div><div>还有子记录引用父记录时，拒绝删除父记录。</div>
+    <div class="module-name">CREATE INDEX name</div><div>为查询建立额外查找结构；name 是索引自己的名字。</div>
+    <div class="module-name">ON table(a, b)</div><div>索引建立在哪张表、按哪些列排列；顺序很重要。</div>
+    <div class="module-name">CREATE UNIQUE INDEX</div><div>既加速查询，也拒绝索引列上的重复值。</div>
+    <div class="module-name">WHERE 条件</div><div>只让符合条件的行进入索引；这叫部分索引。</div>
+    <div class="module-name">AUTOINCREMENT</div><div>SQLite 特有；只用于 INTEGER PRIMARY KEY，保证自动 ID 不复用历史值，不保证连续。</div>
+  </div>
+
+  <h2>表级约束怎么读</h2>
+  <pre><code>UNIQUE (order_id, item_id, attempt)</code></pre>
+  <p>不是说三列分别不能重复，而是说“三个值组成的组合”不能重复。两个不同 attempt 可以拥有相同 order_id 和 item_id。</p>
+
+  <pre><code>CHECK (status IN ('waiting', 'running', 'done'))</code></pre>
+  <p>先读里面：status 必须属于括号中的三个字符串。再读外面：每次写入都检查这件事。</p>
+
+  <h2>索引语句怎么读</h2>
+  <pre><code>CREATE INDEX idx_runs_queue
+ON runs(status, queue_seq);</code></pre>
+  <p>创建一个叫 <code>idx_runs_queue</code> 的索引；它属于 runs 表，先按 status 分组，再按 queue_seq 排列。它服务“找某个状态下最早序号”这种查询。</p>
+
+  <pre><code>CREATE UNIQUE INDEX ux_one_active
+ON runs(owner_id)
+WHERE status IN ('waiting', 'running');</code></pre>
+  <p>只把 waiting/running 行放进唯一索引。因此同一个 owner 只能有一个活动 run，但 done/failed 历史可以保留多条。</p>
+
+  <h2>阅读顺序</h2>
+  <ol class="sequence">
+    <li><h3>先圈字段名</h3><p>不要先看约束，先确认这一行保存什么。</p></li>
+    <li><h3>再看类型</h3><p>TEXT、INTEGER 还是 BLOB。</p></li>
+    <li><h3>最后问约束防什么错</h3><p>不能缺失、不能重复、不能越界，还是必须有父记录。</p></li>
+    <li><h3>表写完再读索引</h3><p>每个索引必须能对应一条真实查询或业务不变量。</p></li>
+  </ol>
+
+  <p class="tiny">官方参考：<a href="https://www.sqlite.org/lang_createtable.html">CREATE TABLE</a>、<a href="https://www.sqlite.org/foreignkeys.html">Foreign Keys</a>、<a href="https://www.sqlite.org/partialindex.html">Partial Indexes</a>、<a href="https://www.sqlite.org/autoinc.html">AUTOINCREMENT</a>。</p>
+  <footer class="footer-nav"><a href="../lessons/0010-sqlite-task-runs-table.html">回到 TaskRun 课程</a> · <a href="../lessons/0009-sqlite-migration-first-table.html">Requirement 课程</a></footer>
+</main>
+</body>
+</html>
+

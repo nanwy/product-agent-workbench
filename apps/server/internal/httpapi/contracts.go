@@ -105,8 +105,26 @@ func newRequirementResponse(requirement domain.Requirement) RequirementResponse 
 // 实现时逐字段复制；Result 非 nil 时创建新的 TaskResultResponse，不能把领域结构体直接
 // 当作 JSON 合约。时间指针只读使用，不在映射函数中改写。
 func newTaskRunResponse(run domain.TaskRun) TaskRunResponse {
-	return TaskRunResponse{}
+	response := TaskRunResponse{
+		ID:            run.ID,
+		RequirementID: run.RequirementID,
+		TicketID:      run.TicketID,
+		Attempt:       run.Attempt,
+		Status:        run.Status,
+		CreatedAt:     run.CreatedAt,
+		ClaimedAt:     run.ClaimedAt,
+		StartedAt:     run.StartedAt,
+		FinishedAt:    run.FinishedAt,
+		FailureReason: run.FailureReason,
+	}
+	if run.Result != nil {
+		response.Result = &TaskResultResponse{
+			Summary:       run.Result.Summary,
+			CodexThreadID: run.Result.CodexThreadID,
+			WorktreePath:  run.Result.WorktreePath,
+		}
+	}
+	return response
 }
 
-// Requirement 创建和读取已经完成。当前实现 TaskRun HTTP；SSE 仍留到普通 JSON endpoint
-// 和持久化 Adapter 稳定之后。
+// Requirement 与 TaskRun 普通 JSON endpoint 已完成；SSE 留到持久化 Adapter 稳定之后。

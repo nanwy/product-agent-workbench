@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Migration 第二课：TaskRun 的双 ID 与活动约束</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <link rel="stylesheet" href="../assets/sql-lab.css">
+  <script src="../assets/interview-retrieval.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0010 · Migration Step 2</p>
+  <h1>TaskRun：双 ID 与活动约束</h1>
+  <p class="lede">你已经正确写出 requirements。现在只学 TaskRun 表新增的三件事：数据库入队序号、业务 ID、只约束活动状态的唯一索引。</p>
+
+  <div class="thesis">TaskRun 同时有两个身份：<code>enqueue_seq</code> 决定谁先被领取；<code>id</code> 决定业务上这次执行是谁。</div>
+
+  <h2>先理解 SQLite 的自动整数键</h2>
+  <div class="card">
+    <pre><code>queue_seq INTEGER PRIMARY KEY</code></pre>
+    <p>这是 SQLite 的特殊规则：声明为<strong>恰好</strong> <code>INTEGER PRIMARY KEY</code> 的列会成为内部 rowid 的别名。INSERT 时不提供该字段，SQLite 会自动分配整数，通常是当前最大值加一。</p>
+    <p><code>AUTOINCREMENT</code> 不是通用 SQL，也不是“自动生成整数”所必需。它额外保证自动生成的值不会复用这张表历史上用过的旧值，但会维护额外状态并增加开销。</p>
+  </div>
+  <div class="grid two" style="margin-top: 16px">
+    <article class="card good"><h3>TaskRun enqueue_seq</h3><p>使用 <code>INTEGER PRIMARY KEY</code>。我们只需要对当前队列稳定排序，TaskRun 也不提供删除用例。</p></article>
+    <article class="card why"><h3>TaskEvent 全局 id</h3><p>下一课才使用 <code>AUTOINCREMENT</code>。未来即使清理旧事件，也不能复用浏览器见过的 SSE 游标。</p></article>
+  </div>
+
+  <h2>先学会逐词读 SQL</h2>
+  <p>如果下面任意关键词陌生，先打开 <a href="../reference/sqlite-syntax-glossary.html">Migration 零基础语法表</a>。这张表解释本练习会出现的全部语法，不要求你提前学完整 SQL。</p>
+  <div class="module-map">
+    <div class="module-name">id TEXT NOT NULL UNIQUE</div><div><strong>id</strong> 是字段名；<strong>TEXT</strong> 是类型；<strong>NOT NULL</strong> 表示必填；<strong>UNIQUE</strong> 表示不能重复。</div>
+    <div class="module-name">REFERENCES orders(id)</div><div>这一列的值必须在父表 orders 的 id 列里存在。</div>
+    <div class="module-name">ON DELETE RESTRICT</div><div>还有配送任务引用订单时，数据库拒绝删除订单。</div>
+    <div class="module-name">CHECK (attempt &gt;= 1)</div><div>每次写入时检查 attempt 至少为 1。</div>
+    <div class="module-name">status IN (...)</div><div>status 只能是括号中列出的字符串；字符串用单引号。</div>
+    <div class="module-name">UNIQUE (a, b, c)</div><div>a、b、c 三个值组成的组合不能重复，不是三列各自不能重复。</div>
+    <div class="module-name">CREATE INDEX</div><div>给真实查询建立查找顺序，本身不增加业务字段。</div>
+    <div class="module-name">UNIQUE INDEX ... WHERE</div><div>只对满足 WHERE 的行检查唯一性，也叫部分唯一索引。</div>
+  </div>
+
+  <h2>为什么不能有两个 PRIMARY KEY？</h2>
+  <div class="mental-model">
+    <article class="card"><h3>enqueue_seq</h3><p>数据库生成的整数顺序。使用 <code>INTEGER PRIMARY KEY</code>，负责稳定排队。</p></article>
+    <div class="arrow">≠</div>
+    <article class="card"><h3>id</h3><p>Go 领域生成的字符串身份。使用 <code>TEXT NOT NULL UNIQUE</code>，负责查询和引用。</p></article>
+    <div class="arrow">→</div>
+    <article class="card good"><h3>一张表一个主键</h3><p>主键交给入队序号，业务 ID 用 UNIQUE 获得同样的“不重复”保护。</p></article>
+  </div>
+
+  <h2>完整同构示例：配送任务</h2>
+  <p>下面不是项目答案。它和 TaskRun 具有相同结构：一次订单只能有一个活动配送任务，每次重试保留新记录。</p>
+  <pre><code>CREATE TABLE delivery_runs (
+    queue_seq INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    order_id TEXT NOT NULL
+        REFERENCES orders(id) ON DELETE RESTRICT,
+    item_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    claimed_at INTEGER,
+    started_at INTEGER,
+    finished_at INTEGER,
+    result_summary TEXT,
+    worker_id TEXT,
+    delivery_path TEXT,
+    failure_reason TEXT,
+
+    CHECK (attempt &gt;= 1),
+    CHECK (status IN (
+        'waiting', 'claimed', 'running',
+        'succeeded', 'failed', 'cancelled'
+    )),
+    UNIQUE (order_id, item_id, attempt)
+);
+
+CREATE INDEX idx_delivery_runs_queue
+ON delivery_runs(status, queue_seq);
+
+CREATE UNIQUE INDEX ux_delivery_runs_one_active_order
+ON delivery_runs(order_id)
+WHERE status IN ('waiting', 'claimed', 'running');</code></pre>
+
+  <h2>逐块理解</h2>
+  <div class="module-map">
+    <div class="module-name">REFERENCES ... RESTRICT</div><div>子记录必须指向真实父记录；父记录还有执行历史时禁止删除。</div>
+    <div class="module-name">INTEGER / NULL</div><div>未发生的 claimed、started、finished 时间保存 NULL；不是用 0 猜状态。</div>
+    <div class="module-name">UNIQUE (三列)</div><div>同一父对象、同一工作项、同一次 attempt 不能登记两遍。</div>
+    <div class="module-name">INDEX(status, queue_seq)</div><div>服务“找最早 waiting/queued 记录”这一条真实查询。</div>
+    <div class="module-name">UNIQUE ... WHERE</div><div>只对活动状态生效；历史上的 succeeded/failed/cancelled 可以存在多条。</div>
+  </div>
+
+  <h2>翻译回本项目</h2>
+  <table class="state-table">
+    <thead><tr><th>示例</th><th>TaskRun</th><th>原因</th></tr></thead>
+    <tbody>
+      <tr><td>delivery_runs</td><td>task_runs</td><td>每行都是一次执行尝试</td></tr>
+      <tr><td>order_id</td><td>requirement_id</td><td>执行属于一个 Requirement</td></tr>
+      <tr><td>item_id</td><td>ticket_id</td><td>执行一张 Ticket</td></tr>
+      <tr><td>waiting</td><td>queued</td><td>尚未被 Runner 领取</td></tr>
+      <tr><td>succeeded</td><td>completed</td><td>成功终态</td></tr>
+      <tr><td>worker_id</td><td>codex_thread_id</td><td>结果中的执行会话身份</td></tr>
+      <tr><td>delivery_path</td><td>worktree_path</td><td>结果中的隔离工作区</td></tr>
+    </tbody>
+  </table>
+
+  <h2>先想再核对</h2>
+  <div class="checkpoint">
+    <p><strong>问题：</strong>为什么部分唯一索引不能把 failed 和 cancelled 也包含进去？</p>
+    <button data-reveal="task-run-answer-1">核对答案</button>
+    <p id="task-run-answer-1" hidden>因为失败或取消后必须允许创建 attempt 更大的重试记录。我们只禁止“同时执行两次”，不禁止“保留多次历史尝试”。</p>
+  </div>
+  <div class="checkpoint">
+    <p><strong>问题：</strong>为什么 claim 不能只按 created_at 排序？</p>
+    <button data-reveal="task-run-answer-2">核对答案</button>
+    <p id="task-run-answer-2" hidden>两个任务可以拥有相同创建时间；数据库生成的 enqueue_seq 才提供无歧义的稳定顺序。</p>
+  </div>
+
+  <div class="interview"><p>“TaskRun 表没有把业务 ID 和队列顺序混在一起。字符串 ID 用于领域引用，数据库整数序号用于稳定 claim；部分唯一索引只覆盖 queued、claimed、running，既阻止同一 Requirement 并发执行，又允许保留失败历史并创建下一次 attempt。”</p></div>
+
+  <p class="tiny">先看：<a href="../reference/sqlite-syntax-glossary.html">Migration 零基础语法表</a>。主参考：<a href="https://www.sqlite.org/lang_createtable.html#rowid">SQLite INTEGER PRIMARY KEY / rowid</a>、<a href="https://www.sqlite.org/autoinc.html">SQLite AUTOINCREMENT</a>、<a href="https://www.sqlite.org/foreignkeys.html">Foreign Keys</a>、<a href="https://www.sqlite.org/partialindex.html">Partial Indexes</a>。有任何一行看不懂，直接把那一行带回来问 Agent。</p>
+  <footer class="footer-nav"><a href="./0011-sqlite-task-events-table.html">下一课：TaskEvent 表</a> · <a href="./0009-sqlite-migration-first-table.html">上一课：Requirement 表</a></footer>
+</main>
+</body>
+</html>

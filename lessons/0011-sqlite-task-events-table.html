@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Migration 第三课：TaskEvent 的双序号</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+  <link rel="stylesheet" href="../assets/sql-lab.css">
+  <script src="../assets/interview-retrieval.js" defer></script>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Lesson 0011 · Migration Step 3</p>
+  <h1>TaskEvent：全局 ID 与局部 Sequence</h1>
+  <p class="lede">事件表只学一个核心区别：全局 ID 回答“整个系统漏了哪些事件”，Sequence 回答“某个 TaskRun 内下一条应该是多少”。</p>
+
+  <div class="thesis"><code>id</code> 是跨任务的 SSE 游标；<code>sequence</code> 是单个 TaskRun 内的连续顺序。它们不能互相替代。</div>
+
+  <h2>这里为什么才使用 AUTOINCREMENT？</h2>
+  <div class="card">
+    <p><code>AUTOINCREMENT</code> 是 SQLite 特有语法，只能跟在 <code>INTEGER PRIMARY KEY</code> 后面。它不是为了让数字连续——事务失败等情况仍可能留下空洞。</p>
+    <p>它保证自动生成的新值大于这张表历史上出现过的值，不复用删除行的旧 ID。事件 id 会成为浏览器保存的 <code>Last-Event-ID</code>；未来即使清理旧事件，也不能让新事件重新拿到浏览器见过的 id，所以这里才值得使用。</p>
+  </div>
+
+  <h2>这张表只新增一个类型：BLOB</h2>
+  <div class="module-map">
+    <div class="module-name">payload BLOB NOT NULL</div><div>payload 是字段名；BLOB 表示原始字节；NOT NULL 表示每个事件必须有 payload。</div>
+    <div class="module-name">Go []byte → SQLite BLOB</div><div>数据库原样保存字节，不把它自动解释成 JSON 或文本。</div>
+    <div class="module-name">UNIQUE (run_id, sequence)</div><div>同一次 run 内不能重复 sequence；不同 run 都可以从 sequence=1 开始。</div>
+  </div>
+  <p class="code-note">其他关键词都在 <a href="../reference/sqlite-syntax-glossary.html">Migration 零基础语法表</a> 中逐词解释。</p>
+
+  <h2>看一组真实顺序</h2>
+  <table class="state-table">
+    <thead><tr><th>全局 id</th><th>task_run_id</th><th>局部 sequence</th><th>事件</th></tr></thead>
+    <tbody>
+      <tr><td>41</td><td>run-A</td><td>1</td><td>task.claimed</td></tr>
+      <tr><td>42</td><td>run-B</td><td>1</td><td>task.claimed</td></tr>
+      <tr><td>43</td><td>run-A</td><td>2</td><td>task.started</td></tr>
+      <tr><td>44</td><td>run-B</td><td>2</td><td>task.started</td></tr>
+    </tbody>
+  </table>
+  <p class="code-note">浏览器拿着 Last-Event-ID=42，可以用全局 id 找 43、44；Store 检查 run-A 新事件时，则要求它的 sequence 接在 2 后面。</p>
+
+  <h2>完整同构示例：配送事件</h2>
+  <pre><code>CREATE TABLE delivery_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_run_id TEXT NOT NULL
+        REFERENCES delivery_runs(id) ON DELETE RESTRICT,
+    sequence INTEGER NOT NULL,
+    type TEXT NOT NULL,
+    payload BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+
+    CHECK (sequence &gt;= 1),
+    UNIQUE (delivery_run_id, sequence)
+);</code></pre>
+
+  <h2>为什么每一项都存在</h2>
+  <div class="grid two">
+    <article class="card"><h3>id</h3><p>数据库生成且不复用的全局整数。未来 SSE replay 使用它作为跨 TaskRun 游标；允许有空洞。</p></article>
+    <article class="card"><h3>sequence</h3><p>调用方提供的局部顺序。UNIQUE 防止同一 TaskRun 重复写入相同序号。</p></article>
+    <article class="card"><h3>payload BLOB</h3><p>Go 的 <code>[]byte</code> 原样保存，不依赖数据库重新编码 JSON 文本。</p></article>
+    <article class="card"><h3>外键 RESTRICT</h3><p>事件必须属于真实执行；有审计事件的执行不能被静默删除。</p></article>
+  </div>
+
+  <h2>翻译回本项目</h2>
+  <div class="module-map">
+    <div class="module-name">delivery_events</div><div><code>task_events</code></div>
+    <div class="module-name">delivery_run_id</div><div><code>task_run_id</code>，引用 <code>task_runs.id</code></div>
+    <div class="module-name">delivery_runs(id)</div><div><code>task_runs(id)</code></div>
+    <div class="module-name">其余字段</div><div>名称和类型可以直接根据练习纸映射</div>
+  </div>
+
+  <h2>事务保护的不是一行，是整批</h2>
+  <div class="flow">
+    <div>读取末尾 sequence<small>当前为 2</small></div>
+    <div>验证整批<small>必须是 3、4</small></div>
+    <div>开始事务<small>同一连接</small></div>
+    <div>写入全部事件<small>任何一条失败就回滚</small></div>
+    <div>提交后返回<small>最后的全局 id</small></div>
+  </div>
+
+  <div class="checkpoint">
+    <p><strong>问题：</strong>批次是 sequence 3、5，为什么不能先写 3，再因为 5 错误而返回？</p>
+    <button data-reveal="event-answer-1">核对答案</button>
+    <p id="event-answer-1" hidden>因为调用方收到失败后会认为整批没有发生；如果 3 已落盘，重试又会遇到重复序号，数据库事实和调用方认知分裂。必须整批提交或整批回滚。</p>
+  </div>
+  <div class="checkpoint">
+    <p><strong>问题：</strong>为什么不只保留全局 id？</p>
+    <button data-reveal="event-answer-2">核对答案</button>
+    <p id="event-answer-2" hidden>全局 id 中会穿插其他 TaskRun 的事件，不能证明 run-A 自己是否漏掉 sequence 2。局部 sequence 才表达单次执行内部的连续性。</p>
+  </div>
+
+  <div class="interview"><p>“事件表同时保存全局 ID 和 TaskRun 局部 sequence：前者给 SSE 断线 replay 使用，后者保证单次执行内部不重不漏。批量追加放在一个事务里，先验证完整批次，失败时不部分写入，也不消耗对调用方可见的事件进度。”</p></div>
+
+  <p class="tiny">主参考：<a href="https://www.sqlite.org/lang_createtable.html">SQLite CREATE TABLE</a>、<a href="https://www.sqlite.org/autoinc.html">SQLite AUTOINCREMENT</a>、<a href="https://www.sqlite.org/foreignkeys.html">SQLite Foreign Keys</a>。写不下去时，把具体字段或约束带回来问 Agent。</p>
+  <footer class="footer-nav"><a href="../apps/server/migrations/000001_initial.up.sql.todo">回到 migration 练习纸</a> · <a href="./0010-sqlite-task-runs-table.html">上一课：TaskRun 表</a></footer>
+</main>
+</body>
+</html>
