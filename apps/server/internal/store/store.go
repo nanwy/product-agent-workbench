@@ -46,8 +46,11 @@ type Store interface {
 	// 没有可领取任务时返回 ErrNotFound。
 	ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRun, error)
 
-	// SaveTask 更新已存在的 TaskRun，不允许借此创建新任务。
-	SaveTask(ctx context.Context, run domain.TaskRun) error
+	// SaveTask 在当前状态仍等于 expectedStatus 时更新 TaskRun。
+	//
+	// “比较当前状态、写入新值”必须是一个原子操作。资源不存在返回 ErrNotFound；状态已经
+	// 被其它请求改变返回 ErrTaskConflict，且不能覆盖较新的终态。它不允许借此创建新任务。
+	SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus domain.TaskStatus) error
 
 	// AppendTaskEvents 原子追加同一 TaskRun 的一批连续事件。
 	//

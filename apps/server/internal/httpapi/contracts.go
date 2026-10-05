@@ -1,6 +1,10 @@
 package httpapi
 
-import "product-agent-workbench/internal/domain"
+import (
+	"time"
+
+	"product-agent-workbench/internal/domain"
+)
 
 // 路径常量先固定浏览器与 Go 之间的语言，具体 handler 等领域用例稳定后再实现。
 const (
@@ -37,6 +41,35 @@ type RequirementResponse struct {
 	Revision  int64                   `json:"revision"`
 }
 
+// EnqueueTaskRunRequest 是浏览器请求执行一张 Ticket 的稳定 JSON 合约。
+type EnqueueTaskRunRequest struct {
+	RequirementID string `json:"requirementId"`
+	TicketID      string `json:"ticketId"`
+	Attempt       int    `json:"attempt"`
+}
+
+// TaskResultResponse 是成功 TaskRun 暴露给浏览器的结果视图。
+type TaskResultResponse struct {
+	Summary       string `json:"summary"`
+	CodexThreadID string `json:"codexThreadId,omitempty"`
+	WorktreePath  string `json:"worktreePath,omitempty"`
+}
+
+// TaskRunResponse 是 TaskRun endpoint 的稳定 JSON 视图。
+type TaskRunResponse struct {
+	ID            string              `json:"id"`
+	RequirementID string              `json:"requirementId"`
+	TicketID      string              `json:"ticketId"`
+	Attempt       int                 `json:"attempt"`
+	Status        domain.TaskStatus   `json:"status"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	ClaimedAt     *time.Time          `json:"claimedAt,omitempty"`
+	StartedAt     *time.Time          `json:"startedAt,omitempty"`
+	FinishedAt    *time.Time          `json:"finishedAt,omitempty"`
+	Result        *TaskResultResponse `json:"result,omitempty"`
+	FailureReason string              `json:"failureReason,omitempty"`
+}
+
 // ErrorResponse 是所有 HTTP 错误使用的稳定 JSON 结构。
 //
 // Code 给前端程序判断，Message 给本地用户阅读；不要把原始 SQL、文件路径或秘密直接放入
@@ -58,8 +91,22 @@ type MutationMeta struct {
 // 实现要点：逐字段复制 ID、ProjectID、Title、Stage 和 Revision。不要返回领域对象本身，
 // 也不要在映射函数中修改任何业务值。
 func newRequirementResponse(requirement domain.Requirement) RequirementResponse {
-	return RequirementResponse{}
+	return RequirementResponse{
+		ID:        requirement.ID,
+		ProjectID: requirement.ProjectID,
+		Title:     requirement.Title,
+		Stage:     requirement.Stage,
+		Revision:  requirement.Revision,
+	}
 }
 
-// 当前学习顺序：先完成 server.go 的 GET /health，再实现 Requirement 创建和读取；
-// 不要提前写 SSE。
+// newTaskRunResponse 显式把领域实体映射为 HTTP DTO。
+//
+// 实现时逐字段复制；Result 非 nil 时创建新的 TaskResultResponse，不能把领域结构体直接
+// 当作 JSON 合约。时间指针只读使用，不在映射函数中改写。
+func newTaskRunResponse(run domain.TaskRun) TaskRunResponse {
+	return TaskRunResponse{}
+}
+
+// Requirement 创建和读取已经完成。当前实现 TaskRun HTTP；SSE 仍留到普通 JSON endpoint
+// 和持久化 Adapter 稳定之后。

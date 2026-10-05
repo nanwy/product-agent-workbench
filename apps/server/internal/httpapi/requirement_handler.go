@@ -3,6 +3,8 @@ package httpapi
 import (
 	"log"
 	"net/http"
+
+	"product-agent-workbench/internal/app"
 )
 
 // handleCreateRequirement 处理 POST /api/v1/requirements。
@@ -14,7 +16,27 @@ import (
 //  4. Application 失败时统一 writeError。
 //  5. 成功时把领域对象转成 RequirementResponse，并以 201 Created 写回。
 func (s *Server) handleCreateRequirement(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	var request CreateRequirementRequest
+	err := decodeJSON(w, r, &request)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	input := app.CreateRequirementInput{
+		ProjectID: request.ProjectID,
+		Title:     request.Title,
+	}
+
+	requirement, err := s.application.CreateRequirement(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	response := newRequirementResponse(requirement)
+
+	logWriteError(writeJSON(w, http.StatusCreated, response))
 }
 
 // handleGetRequirement 处理 GET /api/v1/requirements/{id}。
@@ -25,7 +47,16 @@ func (s *Server) handleCreateRequirement(w http.ResponseWriter, r *http.Request)
 //  3. Application 错误统一交给 writeError。
 //  4. 成功时返回 200 OK 和 RequirementResponse。
 func (s *Server) handleGetRequirement(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, errNotImplemented.Error(), http.StatusNotImplemented)
+	id := r.PathValue("id")
+	requirement, err := s.application.GetRequirement(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	response := newRequirementResponse(requirement)
+
+	logWriteError(writeJSON(w, http.StatusOK, response))
 }
 
 // logWriteError 记录响应写入失败。

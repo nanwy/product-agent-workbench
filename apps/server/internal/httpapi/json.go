@@ -1,21 +1,21 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+
+	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/store"
 )
 
 const maxJSONBodyBytes int64 = 1 << 20 // 1 MiB，防止客户端用超大 body 占用本地进程内存。
 
-var (
-	// ErrInvalidRequest 表示 HTTP body 不是当前 endpoint 接受的单个 JSON 对象。
-	// 它属于传输层错误，与领域层 domain.ErrInvalidInput 的来源不同，但都会映射为 400。
-	ErrInvalidRequest = errors.New("HTTP 请求无效")
-
-	// errNotImplemented 只用于尚未完成的 HTTP 学习占位。
-	// 四组 Requirement HTTP 测试全部通过后应删除。
-	errNotImplemented = errors.New("Requirement HTTP 练习尚未实现")
-)
+// ErrInvalidRequest 表示 HTTP body 不是当前 endpoint 接受的单个 JSON 对象。
+// 它属于传输层错误，与领域层 domain.ErrInvalidInput 的来源不同，但都会映射为 400。
+var ErrInvalidRequest = errors.New("HTTP 请求无效")
 
 // decodeJSON 严格读取一个 JSON 请求对象。
 //
@@ -31,7 +31,17 @@ func decodeJSON(
 	r *http.Request,
 	destination any,
 ) error {
-	return errNotImplemented
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBodyBytes)
+
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
+	return nil
 }
 
 // writeJSON 写入一个完整 JSON 响应。
@@ -46,7 +56,18 @@ func writeJSON(
 	status int,
 	value any,
 ) error {
-	return errNotImplemented
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("编码 JSON 响应: %w", err)
+	}
+	payload = append(payload, '\n')
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	if _, err := w.Write(payload); err != nil {
+		return fmt.Errorf("写入 JSON 响应: %w", err)
+	}
+	return nil
 }
 
 // writeError 把内部错误转换为稳定、不会泄漏实现细节的 JSON 错误响应。
@@ -67,8 +88,29 @@ func writeError(w http.ResponseWriter, err error) {
 //
 // Message 使用固定中文文案，不要把 err.Error()、SQL、文件路径或秘密返回给浏览器。
 func mapError(err error) (int, ErrorResponse) {
-	return http.StatusNotImplemented, ErrorResponse{
-		Code:    "not_implemented",
-		Message: errNotImplemented.Error(),
+	if errors.Is(err, ErrInvalidRequest) || errors.Is(err, domain.ErrInvalidInput) {
+		return http.StatusBadRequest, ErrorResponse{
+			Code:    "invalid_request",
+			Message: "请求无效",
+		}
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return http.StatusNotFound, ErrorResponse{
+			Code:    "not_found",
+			Message: "资源不存在",
+		}
+	}
+	if errors.Is(err, store.ErrAlreadyExists) ||
+		errors.Is(err, store.ErrRevisionConflict) ||
+		errors.Is(err, store.ErrTaskConflict) ||
+		errors.Is(err, domain.ErrInvalidTransition) {
+		return http.StatusConflict, ErrorResponse{
+			Code:    "conflict",
+			Message: "资源冲突",
+		}
+	}
+	return http.StatusInternalServerError, ErrorResponse{
+		Code:    "internal_error",
+		Message: "服务器内部错误",
 	}
 }

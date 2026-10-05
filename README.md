@@ -27,6 +27,26 @@ docs/         架构、面试与学习文档
 
 根目录使用 pnpm workspace 统一编排。当前产品仍由 `apps/web` 完整运行；`apps/server` 是渐进迁移目标，不把尚未实现的 Go 能力描述成已完成。
 
+## Go 重构学习进度
+
+截至当前，实际可运行的 Go 重构约完成 **35%**；学习脚手架已经铺到最小 Worker，约覆盖
+后端迁移路线的 **55%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
+该能力已经替代 Node 实现。
+
+| 阶段 | 状态 | 对应旧实现 |
+| --- | --- | --- |
+| Domain 状态机 | 已完成 | `src/domain/workbench.ts` 中分散的执行状态规则 |
+| Memory Store 契约 | 已完成 | `requirement-store.ts` 的内存串行与 JSON 读写语义 |
+| Requirement HTTP | 已完成 | Requirement Server Functions 的创建与读取 |
+| TaskRun enqueue/claim/start/complete | 已完成（状态 CAS 已接入） | `prepareExecution` 与 `executeQueue` 的主成功路径 |
+| TaskRun fail/cancel | 已完成（状态 CAS 已接入） | `recordExecutionFailure`、`cancelRequirementExecution` |
+| TaskRun HTTP | 已搭骨架，待实现 | 浏览器执行/查询/取消 Server Functions |
+| SQLite Adapter | 已搭骨架，待设计 migration 与实现 | JSON Store + Promise 写队列 |
+| 最小同步 Worker + fake executor | 已搭骨架，待实现 | `prepareExecution + executeQueue` 的最小纵向切片 |
+| Codex、Worktree、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
+
+详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
+
 ## 本地运行
 
 ```bash

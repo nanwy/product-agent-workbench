@@ -19,7 +19,7 @@ import (
 type requestContextKey struct{}
 
 func TestServer_CreateRequirement(t *testing.T) {
-	t.Skip("练习 1：实现 JSON helpers 和创建 handler 成功路径后删除本行")
+	// 已完成练习 1：JSON 响应、DTO 映射和创建成功路径。
 
 	wantRequirement := requirementHTTPFixture()
 	var gotContext context.Context
@@ -59,7 +59,7 @@ func TestServer_CreateRequirement(t *testing.T) {
 }
 
 func TestServer_CreateRequirementRejectsInvalidJSON(t *testing.T) {
-	t.Skip("练习 2：实现严格 decodeJSON 后删除本行")
+	// 已完成练习 2：严格单 JSON 解码。
 
 	tests := []struct {
 		name string
@@ -69,6 +69,7 @@ func TestServer_CreateRequirementRejectsInvalidJSON(t *testing.T) {
 		{name: "非法 JSON", body: `{"projectId":`},
 		{name: "未知字段", body: `{"projectId":"project-1","title":"标题","stage":"delivered"}`},
 		{name: "多个 JSON 对象", body: `{"projectId":"project-1","title":"标题"} {"title":"第二个"}`},
+		{name: "超过 1 MiB", body: strings.Repeat(" ", 1<<20) + `{"projectId":"project-1","title":"标题"}`},
 	}
 
 	for _, tt := range tests {
@@ -96,7 +97,7 @@ func TestServer_CreateRequirementRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestServer_MapsApplicationErrors(t *testing.T) {
-	t.Skip("练习 3：实现 mapError 和 writeError 后删除本行")
+	// 已完成练习 3：集中错误映射。
 
 	tests := []struct {
 		name       string
@@ -108,6 +109,7 @@ func TestServer_MapsApplicationErrors(t *testing.T) {
 		{name: "资源不存在", appError: store.ErrNotFound, wantStatus: http.StatusNotFound, wantCode: "not_found"},
 		{name: "资源重复", appError: store.ErrAlreadyExists, wantStatus: http.StatusConflict, wantCode: "conflict"},
 		{name: "版本冲突", appError: store.ErrRevisionConflict, wantStatus: http.StatusConflict, wantCode: "conflict"},
+		{name: "任务状态冲突", appError: store.ErrTaskConflict, wantStatus: http.StatusConflict, wantCode: "conflict"},
 		{name: "状态冲突", appError: domain.ErrInvalidTransition, wantStatus: http.StatusConflict, wantCode: "conflict"},
 		{name: "未知错误", appError: errors.New("包含不能泄漏的数据库细节"), wantStatus: http.StatusInternalServerError, wantCode: "internal_error"},
 	}
@@ -139,7 +141,7 @@ func TestServer_MapsApplicationErrors(t *testing.T) {
 }
 
 func TestServer_GetRequirement(t *testing.T) {
-	t.Skip("练习 4：实现 GET Requirement handler 后删除本行")
+	// 已完成练习 4：按 ID 查询 Requirement。
 
 	wantRequirement := requirementHTTPFixture()
 	var gotContext context.Context
@@ -185,6 +187,36 @@ func TestServer_GetRequirement(t *testing.T) {
 		}
 		assertErrorResponse(t, notFoundResponse, "not_found")
 	})
+}
+
+func TestServer_RequirementRoutesRejectUnsupportedMethods(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "collection 不接受 GET", method: http.MethodGet, path: httpapi.PathRequirements},
+		{name: "collection 不接受 PUT", method: http.MethodPut, path: httpapi.PathRequirements},
+		{name: "item 不接受 POST", method: http.MethodPost, path: httpapi.PathRequirements + "/req-1"},
+		{name: "item 不接受 DELETE", method: http.MethodDelete, path: httpapi.PathRequirements + "/req-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := newHTTPServer(t, fakeRequirementApplication{})
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+
+			if response.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s status = %d, want %d", tt.method, tt.path, response.Code, http.StatusMethodNotAllowed)
+			}
+		})
+	}
 }
 
 type fakeRequirementApplication struct {

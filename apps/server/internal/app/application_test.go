@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
@@ -22,12 +23,14 @@ func TestNew(t *testing.T) {
 			dependencies: app.Dependencies{
 				Store: memory.New(),
 				NewID: func() string { return "req-1" },
+				Now:   func() time.Time { return time.Unix(1, 0) },
 			},
 		},
 		{
 			name: "缺少 Store",
 			dependencies: app.Dependencies{
 				NewID: func() string { return "req-1" },
+				Now:   func() time.Time { return time.Unix(1, 0) },
 			},
 			wantError: app.ErrInvalidDependencies,
 		},
@@ -35,6 +38,7 @@ func TestNew(t *testing.T) {
 			name: "缺少 ID 生成器",
 			dependencies: app.Dependencies{
 				Store: memory.New(),
+				Now:   func() time.Time { return time.Unix(1, 0) },
 			},
 			wantError: app.ErrInvalidDependencies,
 		},
@@ -43,12 +47,20 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			generatedIDs := 0
+			readTimes := 0
 			dependencies := tt.dependencies
 			if dependencies.NewID != nil {
 				originalNewID := dependencies.NewID
 				dependencies.NewID = func() string {
 					generatedIDs++
 					return originalNewID()
+				}
+			}
+			if dependencies.Now != nil {
+				originalNow := dependencies.Now
+				dependencies.Now = func() time.Time {
+					readTimes++
+					return originalNow()
 				}
 			}
 
@@ -64,6 +76,9 @@ func TestNew(t *testing.T) {
 			}
 			if generatedIDs != 0 {
 				t.Fatalf("New() 调用了 ID 生成器 %d 次，want 0", generatedIDs)
+			}
+			if readTimes != 0 {
+				t.Fatalf("New() 读取了时钟 %d 次，want 0", readTimes)
 			}
 		})
 	}
@@ -129,6 +144,7 @@ func TestApplication_CreateRequirement(t *testing.T) {
 						generatedIDs++
 						return "req-1"
 					},
+					Now: func() time.Time { return time.Unix(1, 0) },
 				})
 				if err != nil {
 					t.Fatalf("New() error = %v", err)
@@ -233,6 +249,7 @@ func newApplication(
 	application, err := app.New(app.Dependencies{
 		Store: storeAdapter,
 		NewID: func() string { return id },
+		Now:   func() time.Time { return time.Unix(1, 0) },
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

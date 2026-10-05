@@ -157,7 +157,7 @@ func TestMemoryStoreContract(t *testing.T) {
 		if err := subject.EnqueueTask(ctx, invalid); !errors.Is(err, domain.ErrInvalidTransition) {
 			t.Fatalf("非 queued EnqueueTask() error = %v, want ErrInvalidTransition", err)
 		}
-		if err := subject.SaveTask(ctx, run); err != nil {
+		if err := subject.SaveTask(ctx, run, domain.TaskStatusQueued); err != nil {
 			t.Fatalf("SaveTask() error = %v", err)
 		}
 
@@ -185,8 +185,57 @@ func TestMemoryStoreContract(t *testing.T) {
 		if _, err := subject.GetTask(ctx, missing.ID); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("读取不存在 TaskRun error = %v, want ErrNotFound", err)
 		}
-		if err := subject.SaveTask(ctx, missing); !errors.Is(err, store.ErrNotFound) {
+		if err := subject.SaveTask(ctx, missing, domain.TaskStatusQueued); !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("保存不存在 TaskRun error = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("TaskRun 状态 CAS 阻止旧快照覆盖并发终态", func(t *testing.T) {
+		subject := memory.New()
+		ctx := context.Background()
+		createdAt := testTime()
+		queued := queuedTaskFixture(t, "run-cas", createdAt)
+		if err := subject.EnqueueTask(ctx, queued); err != nil {
+			t.Fatalf("EnqueueTask() error = %v", err)
+		}
+		claimed, err := queued.Claim(createdAt.Add(time.Minute))
+		if err != nil {
+			t.Fatalf("Claim() fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, claimed, domain.TaskStatusQueued); err != nil {
+			t.Fatalf("SaveTask(claimed) error = %v", err)
+		}
+		running, err := claimed.Start(createdAt.Add(2 * time.Minute))
+		if err != nil {
+			t.Fatalf("Start() fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, running, domain.TaskStatusClaimed); err != nil {
+			t.Fatalf("SaveTask(running) error = %v", err)
+		}
+
+		// 模拟两个请求同时读取同一个 running 快照，各自在锁外完成合法领域迁移。
+		failed, err := running.Fail("执行失败", running.StartedAt.Add(time.Minute))
+		if err != nil {
+			t.Fatalf("Fail() fixture error = %v", err)
+		}
+		cancelled, err := running.Cancel(running.StartedAt.Add(time.Minute))
+		if err != nil {
+			t.Fatalf("Cancel() fixture error = %v", err)
+		}
+
+		if err := subject.SaveTask(ctx, cancelled, domain.TaskStatusRunning); err != nil {
+			t.Fatalf("SaveTask(cancelled) error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, failed, domain.TaskStatusRunning); !errors.Is(err, store.ErrTaskConflict) {
+			t.Fatalf("旧 failed 快照 SaveTask() error = %v, want ErrTaskConflict", err)
+		}
+
+		persisted, err := subject.GetTask(ctx, running.ID)
+		if err != nil {
+			t.Fatalf("GetTask() error = %v", err)
+		}
+		if persisted.Status != domain.TaskStatusCancelled {
+			t.Fatalf("并发旧快照覆盖了取消终态：status = %q, want cancelled", persisted.Status)
 		}
 	})
 
@@ -391,7 +440,7 @@ func TestMemoryStoreContract(t *testing.T) {
 		if _, err := subject.ClaimNextTask(cancelled, testTime()); !errors.Is(err, context.Canceled) {
 			t.Fatalf("ClaimNextTask(cancelled) error = %v, want context.Canceled", err)
 		}
-		if err := subject.SaveTask(cancelled, run); !errors.Is(err, context.Canceled) {
+		if err := subject.SaveTask(cancelled, run, run.Status); !errors.Is(err, context.Canceled) {
 			t.Fatalf("SaveTask(cancelled) error = %v, want context.Canceled", err)
 		}
 		if _, err := subject.AppendTaskEvents(cancelled, []domain.TaskEvent{{TaskRunID: run.ID, Sequence: 1}}); !errors.Is(err, context.Canceled) {

@@ -27,9 +27,20 @@ type RequirementApplication interface {
 	GetRequirement(ctx context.Context, id string) (domain.Requirement, error)
 }
 
+// TaskRunApplication 是浏览器真正需要的 TaskRun 用例 seam。
+//
+// claim/start/complete/fail 不暴露给浏览器，它们由后续 Worker 在进程内部调用。浏览器只
+// 创建、查询和请求取消，避免客户端伪造 Runner 生命周期。
+type TaskRunApplication interface {
+	EnqueueTaskRun(ctx context.Context, input app.EnqueueTaskRunInput) (domain.TaskRun, error)
+	GetTaskRun(ctx context.Context, id string) (domain.TaskRun, error)
+	CancelTaskRun(ctx context.Context, id string) (domain.TaskRun, error)
+}
+
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
 	Application RequirementApplication
+	TaskRuns    TaskRunApplication
 }
 
 // Server 把 HTTP 协议翻译为应用用例调用。
@@ -39,6 +50,7 @@ type Dependencies struct {
 type Server struct {
 	mux         *http.ServeMux
 	application RequirementApplication
+	taskRuns    TaskRunApplication
 }
 
 // NewServer 校验依赖、注册路由并返回 HTTP handler。
@@ -57,11 +69,19 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	server := &Server{
 		mux:         mux,
 		application: dependencies.Application,
+		taskRuns:    dependencies.TaskRuns,
 	}
 
 	mux.HandleFunc(http.MethodGet+" "+PathHealth, server.handleHealth)
 	mux.HandleFunc(http.MethodPost+" "+PathRequirements, server.handleCreateRequirement)
 	mux.HandleFunc(http.MethodGet+" "+PathRequirements+"/{id}", server.handleGetRequirement)
+	// TaskRuns 在渐进迁移期间允许为空，现有 Requirement HTTP 仍可独立测试。main 最终装配
+	// 完整服务时必须提供它；届时再把 nil 校验提升为启动期硬错误。
+	if server.taskRuns != nil {
+		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns, server.handleEnqueueTaskRun)
+		mux.HandleFunc(http.MethodGet+" "+PathTaskRuns+"/{id}", server.handleGetTaskRun)
+		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns+"/{id}/cancel", server.handleCancelTaskRun)
+	}
 
 	return server, nil
 }

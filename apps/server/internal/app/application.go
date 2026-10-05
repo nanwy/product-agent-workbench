@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"time"
 
 	"product-agent-workbench/internal/store"
 )
@@ -17,6 +18,12 @@ var ErrInvalidDependencies = errors.New("应用依赖无效")
 // 它不是 Store 的职责：Store 只负责拒绝重复 ID，不负责发明 ID。
 type IDGenerator func() string
 
+// Clock 返回应用用例发生时的当前时间。
+//
+// 时间和 ID 一样都是会变化的外部输入。把它放在依赖 seam 上，测试就能固定 CreatedAt，
+// 而不是依赖 time.Now() 和模糊的时间范围断言。生产装配时再传入 time.Now。
+type Clock func() time.Time
+
 // Dependencies 列出应用用例层真正依赖的模块。
 //
 // main 包负责提供具体 Adapter；Application 只依赖接口，不知道 SQLite、Codex 或 Git
@@ -25,6 +32,7 @@ type IDGenerator func() string
 type Dependencies struct {
 	Store store.Store
 	NewID IDGenerator
+	Now   Clock
 }
 
 // Application 是 HTTP 层调用的用例入口。
@@ -34,20 +42,24 @@ type Dependencies struct {
 type Application struct {
 	store store.Store
 	newID IDGenerator
+	now   Clock
 }
 
 // New 创建应用用例模块。
 //
 // 实现要点：
-//  1. Store 和 NewID 任意一个为 nil，都返回 nil, ErrInvalidDependencies。
+//  1. Store、NewID 和 Now 任意一个为 nil，都返回 nil, ErrInvalidDependencies。
 //  2. 校验通过后，把依赖保存进 Application 并返回其指针。
-//  3. 构造函数不能连接数据库、调用 NewID，也不能启动 goroutine；这些都不是“保存依赖”。
+//  3. 构造函数不能连接数据库、调用 NewID/Now，也不能启动 goroutine；这些都不是“保存依赖”。
+//
+// 已完成练习：构造函数校验并保存 Clock，但不会在构造期间读取时间。
 func New(dependencies Dependencies) (*Application, error) {
-	if dependencies.Store == nil || dependencies.NewID == nil {
+	if dependencies.Store == nil || dependencies.NewID == nil || dependencies.Now == nil {
 		return nil, ErrInvalidDependencies
 	}
 	return &Application{
 		store: dependencies.Store,
 		newID: dependencies.NewID,
+		now:   dependencies.Now,
 	}, nil
 }

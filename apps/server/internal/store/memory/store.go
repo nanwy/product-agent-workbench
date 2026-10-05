@@ -218,10 +218,11 @@ func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRu
 	return domain.TaskRun{}, storecontract.ErrNotFound
 }
 
-// SaveTask 更新已存在的 TaskRun。
-func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun) error {
-	// 实现要点：检查 context，获取写锁，确认 ID 已存在，再保存深拷贝。
-	// 这个方法不能偷偷执行状态迁移；迁移规则属于 domain.TaskRun。
+// SaveTask 使用状态 CAS 更新已存在的 TaskRun。
+func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus domain.TaskStatus) error {
+	// 实现要点：检查 context，获取写锁，在同一临界区确认 ID 和旧状态，再保存深拷贝。
+	// 这个方法不执行状态迁移；迁移规则属于 domain.TaskRun。expectedStatus 只防止旧快照
+	// 覆盖已经发生的并发迁移。
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -232,8 +233,12 @@ func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun) error {
 		return ctx.Err()
 	}
 
-	if _, exists := s.tasks[run.ID]; !exists {
+	current, exists := s.tasks[run.ID]
+	if !exists {
 		return storecontract.ErrNotFound
+	}
+	if current.Status != expectedStatus {
+		return storecontract.ErrTaskConflict
 	}
 
 	s.tasks[run.ID] = cloneTaskRun(run)
