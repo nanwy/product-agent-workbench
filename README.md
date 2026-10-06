@@ -30,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **65%**；学习脚手架已经铺到多 Worker 前，约覆盖
-后端迁移路线的 **75%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **70%**；学习脚手架已经铺到真实 Git/Codex Adapter
+之前，约覆盖后端迁移路线的 **82%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -45,7 +45,8 @@ docs/         架构、面试与学习文档
 | SQLite Adapter | migration、Requirement、TaskRun、原子 claim 与 TaskEvent 已完成 | JSON Store + Promise 写队列 |
 | Ticket DAG Scheduler | 已完成 ready 计算、TicketVersion 历史隔离与幂等 Reconcile | Ticket artifact 的 `blockedBy` 与执行队列推进 |
 | 最小同步 Worker + fake executor | 已完成同步 claim/start/execute/complete/fail 闭环 | `prepareExecution + executeQueue` 的最小纵向切片 |
-| 多 Worker、Codex、Worktree 整合、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
+| 有界多 Worker + Worktree 编排 | 已完成固定槽位、范围门禁、整合 seam 与完成后 DAG 重算 | Node 当前串行执行，无对应并行能力 |
+| 真实 Git/Codex Adapter、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 

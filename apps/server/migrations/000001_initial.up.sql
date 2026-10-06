@@ -67,6 +67,7 @@ CREATE TABLE task_runs (
     result_summary TEXT,
     codex_thread_id TEXT,
     worktree_path TEXT,
+    result_revision TEXT,
     failure_reason TEXT,
 
     CHECK (attempt >= 1),

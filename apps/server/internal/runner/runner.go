@@ -13,6 +13,19 @@ type RunRequest struct {
 	TaskRun        domain.TaskRun
 	RepositoryRoot string
 	Prompt         string
+	Workspace      WorkspacePlan
+}
+
+// WorkspacePlan 描述一张 Ticket 如何获得独立工作目录并整合回 Requirement 分支。
+//
+// TicketBranch 每次 attempt 都必须唯一；RequirementBranch 是多个无依赖 Ticket 最终汇合的
+// 分支。BaseRevision 是创建本次 Ticket Worktree 时已经确认的 Git 起点；ModificationScopes
+// 限制 Executor 允许修改的仓库相对路径。
+type WorkspacePlan struct {
+	BaseRevision       string
+	TicketBranch       string
+	RequirementBranch  string
+	ModificationScopes []string
 }
 
 // RunResult 是一次 Runner 执行完成后返回给控制面的事实。

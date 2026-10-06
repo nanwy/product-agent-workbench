@@ -16,7 +16,7 @@ import (
 //
 //   - 时间统一保存为 UTC Unix 纳秒 int64；
 //   - ClaimedAt/StartedAt/FinishedAt 如何用 sql.NullInt64 接收 NULL；
-//   - TaskResult 的三个字段如何保证“整体存在或整体不存在”；
+//   - TaskResult 的四个字段如何保证“整体存在或整体不存在”；
 //   - 从数据库读出的 status、时间组合如何再次验证领域不变量。
 //
 // 不要把同一套 Scan 参数复制到多个查询里；列顺序一旦变化会产生难发现的数据错位。
@@ -39,7 +39,7 @@ func scanTaskRun(scanner rowScanner) (domain.TaskRun, error) {
 	var status string
 	var createdAt int64
 	var claimedAt, startedAt, finishedAt sql.NullInt64
-	var resultSummary, codexThreadID, worktreePath, failureReason sql.NullString
+	var resultSummary, codexThreadID, worktreePath, resultRevision, failureReason sql.NullString
 
 	err := scanner.Scan(
 		&run.ID,
@@ -55,6 +55,7 @@ func scanTaskRun(scanner rowScanner) (domain.TaskRun, error) {
 		&resultSummary,
 		&codexThreadID,
 		&worktreePath,
+		&resultRevision,
 		&failureReason,
 	)
 	if err != nil {
@@ -68,13 +69,14 @@ func scanTaskRun(scanner rowScanner) (domain.TaskRun, error) {
 	run.FinishedAt = timeFromNullInt64(finishedAt)
 
 	switch {
-	case !resultSummary.Valid && !codexThreadID.Valid && !worktreePath.Valid:
+	case !resultSummary.Valid && !codexThreadID.Valid && !worktreePath.Valid && !resultRevision.Valid:
 		run.Result = nil
-	case resultSummary.Valid && codexThreadID.Valid && worktreePath.Valid:
+	case resultSummary.Valid && codexThreadID.Valid && worktreePath.Valid && resultRevision.Valid:
 		run.Result = &domain.TaskResult{
 			Summary:       resultSummary.String,
 			CodexThreadID: codexThreadID.String,
 			WorktreePath:  worktreePath.String,
+			Revision:      resultRevision.String,
 		}
 	default:
 		return domain.TaskRun{}, fmt.Errorf(
@@ -107,12 +109,12 @@ func nullableUnixNano(value *time.Time) any {
 	return value.UTC().UnixNano()
 }
 
-func resultColumns(result *domain.TaskResult) (any, any, any) {
+func resultColumns(result *domain.TaskResult) (any, any, any, any) {
 	if result == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
-	return result.Summary, result.CodexThreadID, result.WorktreePath
+	return result.Summary, result.CodexThreadID, result.WorktreePath, result.Revision
 }
 
 func nullableString(value string) any {

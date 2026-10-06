@@ -27,12 +27,19 @@ type TaskRunApplication interface {
 // artifact 构造。把它注入可让当前阶段使用 fake，而不提前实现 Git/Codex。
 type RequestBuilder func(ctx context.Context, run domain.TaskRun) (RunRequest, error)
 
+// CompletionHook 在 TaskRun 成功完成后执行后续调度。
+//
+// 当前主要用途是再次调用 Scheduler.Reconcile：一张 Ticket 完成后，它可能让后继 Ticket
+// 满足全部依赖并进入 queued。Hook 失败不会回滚已经落盘的 completed 事实。
+type CompletionHook func(ctx context.Context, completed domain.TaskRun) error
+
 // WorkerDependencies 是执行一条队列记录所需的最小依赖。
 type WorkerDependencies struct {
 	Application  TaskRunApplication
 	Executor     Runner
 	BuildRequest RequestBuilder
 	EventSink    EventSink
+	OnCompleted  CompletionHook
 }
 
 // Worker 串联应用状态机与真正的执行 Adapter。
@@ -44,6 +51,7 @@ type Worker struct {
 	executor     Runner
 	buildRequest RequestBuilder
 	eventSink    EventSink
+	onCompleted  CompletionHook
 }
 
 // NewWorker 校验并保存依赖，不领取任务、不启动 goroutine。
@@ -57,6 +65,7 @@ func NewWorker(dependencies WorkerDependencies) (*Worker, error) {
 		executor:     dependencies.Executor,
 		buildRequest: dependencies.BuildRequest,
 		eventSink:    dependencies.EventSink,
+		onCompleted:  dependencies.OnCompleted,
 	}, nil
 }
 
@@ -116,6 +125,14 @@ func (w *Worker) RunNext(ctx context.Context) (domain.TaskRun, error) {
 	if err != nil {
 		return running, fmt.Errorf("完成 TaskRun %q: %w", running.ID, err)
 	}
+
+	// completed 已经是持久化事实，随后再触发 DAG 重算。后处理失败时返回 completed 快照和
+	// 错误，调用方可以稍后重试 Reconcile，但绝不能把已经成功的任务改回 failed。
+	if w.onCompleted != nil {
+		if err := w.onCompleted(ctx, completed); err != nil {
+			return completed, fmt.Errorf("TaskRun %q 完成后调度后继 Ticket: %w", completed.ID, err)
+		}
+	}
 	return completed, nil
 }
 
@@ -129,7 +146,9 @@ func (w *Worker) failRunningTask(
 	cause error,
 ) (domain.TaskRun, error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return running, ctxErr
+		// context 错误说明不能继续写 Store；errors.Join 同时保留 Executor 提供的具体原因，
+		// 避免日志里只剩下笼统的 context canceled。
+		return running, errors.Join(cause, ctxErr)
 	}
 
 	reason := strings.TrimSpace(cause.Error())

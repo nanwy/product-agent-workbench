@@ -150,6 +150,18 @@ func (r *Reconciler) Reconcile(
 	return result, nil
 }
 
+// OnTaskCompleted 把 Reconciler 适配成 runner.CompletionHook 所需的函数形状。
+//
+// 只有已经持久化为 completed 的 TaskRun 才能解锁后继 Ticket；传入其他状态说明调用顺序
+// 有误，不能提前创建 queued 记录。
+func (r *Reconciler) OnTaskCompleted(ctx context.Context, completed domain.TaskRun) error {
+	if completed.Status != domain.TaskStatusCompleted {
+		return domain.ErrInvalidTransition
+	}
+	_, err := r.Reconcile(ctx, completed.RequirementID, completed.TicketVersionID)
+	return err
+}
+
 // executionSnapshot 选择每张 Ticket 最大 attempt 的状态，避免依赖查询返回顺序猜测最新记录。
 func executionSnapshot(version TicketVersion, history []domain.TaskRun) (ExecutionSnapshot, error) {
 	ticketIDs := make(map[string]struct{}, len(version.Tickets))

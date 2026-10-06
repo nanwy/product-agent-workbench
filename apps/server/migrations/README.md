@@ -58,7 +58,7 @@
 | 表 | 字段 | 约束目的 |
 | --- | --- | --- |
 | `requirements` | `id`, `project_id`, `title`, `stage`, `revision` | `id` 唯一；`revision >= 1`；stage 只能取领域枚举 |
-| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、三个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
+| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、四个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
 | `task_events` | `id`, `task_run_id`, `sequence`, `type`, `payload`, `created_at` | `id` 是全局 SSE 游标；sequence 正数 |
 
 额外业务约束：
@@ -68,7 +68,7 @@
   TaskRun；同一 Requirement 的不同 Ticket 可以同时活动；
 - `(task_run_id, sequence)` 唯一，同一个 TaskRun 的事件序号不能重复；
 - `task_runs.requirement_id` 和 `task_events.task_run_id` 使用限制删除的外键，保留审计历史；
-- result 三个字段整体表达可选结果；第一版由领域层和行扫描共同校验组合是否合法。
+- result 四个字段整体表达可选结果；第一版由领域层和行扫描共同校验组合是否合法。
 
 ### 5. 稳定入队顺序
 

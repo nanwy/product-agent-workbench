@@ -60,6 +60,7 @@ type TaskResultResponse struct {
 	Summary       string `json:"summary"`
 	CodexThreadID string `json:"codexThreadId,omitempty"`
 	WorktreePath  string `json:"worktreePath,omitempty"`
+	Revision      string `json:"revision,omitempty"`
 }
 
 // TaskRunResponse 是 TaskRun endpoint 的稳定 JSON 视图。
@@ -131,6 +132,7 @@ func newTaskRunResponse(run domain.TaskRun) TaskRunResponse {
 			Summary:       run.Result.Summary,
 			CodexThreadID: run.Result.CodexThreadID,
 			WorktreePath:  run.Result.WorktreePath,
+			Revision:      run.Result.Revision,
 		}
 	}
 	return response

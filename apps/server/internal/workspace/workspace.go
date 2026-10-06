@@ -17,6 +17,23 @@ type Workspace struct {
 	BaseRevision string
 }
 
+// Integration 是 Ticket Worktree 成功整合到 Requirement 分支后的 Git 事实。
+type Integration struct {
+	RequirementBranch string
+	Revision          string
+	ChangedFiles      []string
+}
+
+// IntegrateRequest 描述一次受控整合。
+//
+// ModificationScopes 使用仓库相对路径。Manager 在提交前必须重新读取 Git 修改并验证范围，
+// 不能只相信 Runner 之前的 ChangedFiles 快照。
+type IntegrateRequest struct {
+	Workspace          Workspace
+	RequirementBranch  string
+	ModificationScopes []string
+}
+
 // Manager 是 Runner 消费的 Git Worktree seam。
 //
 // 第一个实现只需要 fake Manager。真实 Git Adapter 必须通过 exec 参数数组调用 Git，
@@ -24,5 +41,8 @@ type Workspace struct {
 type Manager interface {
 	Prepare(ctx context.Context, request PrepareRequest) (Workspace, error)
 	ChangedFiles(ctx context.Context, workspace Workspace) ([]string, error)
+	// Integrate 必须把同一 Requirement 分支的并发写入串行化，并在发生冲突时保持目标
+	// 分支不变。具体 Git Adapter 可以使用临时整合 Worktree，而不能切换用户 checkout。
+	Integrate(ctx context.Context, request IntegrateRequest) (Integration, error)
 	Release(ctx context.Context, workspace Workspace) error
 }

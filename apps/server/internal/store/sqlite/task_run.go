@@ -90,6 +90,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (domain.TaskRun, error) 
 			result_summary,
 			codex_thread_id,
 			worktree_path,
+			result_revision,
 			failure_reason
 		FROM task_runs
 		WHERE id = ?
@@ -142,6 +143,7 @@ func (s *Store) ListTasksByTicketVersion(
 			result_summary,
 			codex_thread_id,
 			worktree_path,
+			result_revision,
 			failure_reason
 		FROM task_runs
 		WHERE requirement_id = ? AND ticket_version_id = ?
@@ -202,6 +204,7 @@ func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRu
 			result_summary,
 			codex_thread_id,
 			worktree_path,
+			result_revision,
 			failure_reason
 		FROM task_runs
 		WHERE status = 'queued'
@@ -254,7 +257,7 @@ func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRu
 // 最终 SQL 必须包含 `WHERE id = ? AND status = ?`。RowsAffected 为 0 时再区分 ErrNotFound
 // 与 ErrTaskConflict；不能先在事务外读取状态再无条件 UPDATE。
 //
-// UPDATE 需要写回状态、三个可空时间、TaskResult 三列和 failure_reason。
+// UPDATE 需要写回状态、三个可空时间、TaskResult 四列和 failure_reason。
 // timeToUnixNano 和 resultColumns 的转换集中放在 scan.go，避免 nil 语义散落在 SQL 参数中。
 func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus domain.TaskStatus) error {
 	const query = `
@@ -267,11 +270,12 @@ func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus
 			result_summary = ?,
 			codex_thread_id = ?,
 			worktree_path = ?,
+			result_revision = ?,
 			failure_reason = ?
 		WHERE id = ? AND status = ?
 	`
 
-	resultSummary, codexThreadID, worktreePath := resultColumns(run.Result)
+	resultSummary, codexThreadID, worktreePath, resultRevision := resultColumns(run.Result)
 	result, err := s.db.ExecContext(
 		ctx,
 		query,
@@ -282,6 +286,7 @@ func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus
 		resultSummary,
 		codexThreadID,
 		worktreePath,
+		resultRevision,
 		nullableString(run.FailureReason),
 		run.ID,
 		string(expectedStatus),

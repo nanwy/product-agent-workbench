@@ -208,6 +208,6 @@ tx.Commit
 串行化，但条件更新仍明确表达“只有 queued 才能被领取”，也防止以后事务配置改变时静默
 覆盖新状态。
 
-当前 `scanTaskRun` 已经能拒绝“TaskResult 三列只有一部分非 NULL”的损坏数据。SQLite Store
+当前 `scanTaskRun` 已经能拒绝“TaskResult 四列只有一部分非 NULL”的损坏数据。SQLite Store
 完成前还要补一层读取校验，拒绝数据库中与状态不一致的时间、结果和失败原因组合；这属于
 持久化边界加固，不阻塞先学习事务 claim。

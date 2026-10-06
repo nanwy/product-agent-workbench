@@ -53,6 +53,7 @@ type TaskResult struct {
 	Summary       string
 	CodexThreadID string
 	WorktreePath  string
+	Revision      string
 }
 
 // TaskRun 表示一次执行尝试，而不是执行票本身。
