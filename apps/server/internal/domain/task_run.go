@@ -38,12 +38,14 @@ const (
 
 // NewTaskRunInput 是创建一次全新执行尝试所需的最小输入。
 //
-// TicketID 暂时使用 string；等 Ticket 领域模型稳定后再决定是否引入专用 ID 类型。
+// TicketVersionID 把执行事实固定到一份不可变依赖图；不能只保存 TicketID，因为不同版本
+// 会重复使用 TICKET-01 这类局部编号。ID 暂时使用 string，模型稳定后再决定是否引入专用类型。
 type NewTaskRunInput struct {
-	ID            string
-	RequirementID string
-	TicketID      string
-	Attempt       int
+	ID              string
+	RequirementID   string
+	TicketVersionID string
+	TicketID        string
+	Attempt         int
 }
 
 // TaskResult 保存完成一次执行后，后续验证与交付需要引用的事实。
@@ -58,22 +60,23 @@ type TaskResult struct {
 // 同一张执行票失败后重试，应创建 Attempt 更大的新 TaskRun，不能覆盖旧记录。
 // 时间字段使用指针表示“这个阶段尚未发生”，而不是用零值时间猜测状态。
 type TaskRun struct {
-	ID            string
-	RequirementID string
-	TicketID      string
-	Attempt       int
-	Status        TaskStatus
-	CreatedAt     time.Time
-	ClaimedAt     *time.Time
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	Result        *TaskResult
-	FailureReason string
+	ID              string
+	RequirementID   string
+	TicketVersionID string
+	TicketID        string
+	Attempt         int
+	Status          TaskStatus
+	CreatedAt       time.Time
+	ClaimedAt       *time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	Result          *TaskResult
+	FailureReason   string
 }
 
 // NewTaskRun 校验创建输入，并返回 queued 状态的新执行尝试。
 func NewTaskRun(input NewTaskRunInput, now time.Time) (TaskRun, error) {
-	if isBlank(input.ID) || isBlank(input.RequirementID) || isBlank(input.TicketID) {
+	if isBlank(input.ID) || isBlank(input.RequirementID) || isBlank(input.TicketVersionID) || isBlank(input.TicketID) {
 		return TaskRun{}, ErrInvalidInput
 	}
 	if now.IsZero() {
@@ -83,12 +86,13 @@ func NewTaskRun(input NewTaskRunInput, now time.Time) (TaskRun, error) {
 		return TaskRun{}, ErrInvalidInput
 	}
 	return TaskRun{
-		ID:            input.ID,
-		RequirementID: input.RequirementID,
-		TicketID:      input.TicketID,
-		Attempt:       input.Attempt,
-		Status:        TaskStatusQueued,
-		CreatedAt:     now,
+		ID:              input.ID,
+		RequirementID:   input.RequirementID,
+		TicketVersionID: input.TicketVersionID,
+		TicketID:        input.TicketID,
+		Attempt:         input.Attempt,
+		Status:          TaskStatusQueued,
+		CreatedAt:       now,
 	}, nil
 }
 

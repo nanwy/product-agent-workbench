@@ -6,30 +6,30 @@ import (
 	"product-agent-workbench/internal/app"
 )
 
-// handleEnqueueTaskRun 处理 POST /api/v1/task-runs。
+// handleReconcileTaskRuns 处理 POST /api/v1/task-runs。
 //
-// 对应原 TypeScript 浏览器启动执行时创建后台执行事实的部分。实现顺序：严格解码请求、
-// 映射 EnqueueTaskRunInput、传递 r.Context()、统一处理错误、返回 201 和 TaskRunResponse。
-func (s *Server) handleEnqueueTaskRun(w http.ResponseWriter, r *http.Request) {
+// 浏览器只提交已确认版本的身份；具体执行票和 attempt 由 Scheduler 决定，不能从请求体
+// 直接构造 TaskRun。
+func (s *Server) handleReconcileTaskRuns(w http.ResponseWriter, r *http.Request) {
 	var request EnqueueTaskRunRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, err)
 		return
 	}
 
-	// HTTP DTO 只负责描述线上协议；这里显式转换，Application 不依赖 httpapi 包。
-	input := app.EnqueueTaskRunInput{
-		RequirementID: request.RequirementID,
-		TicketID:      request.TicketID,
-		Attempt:       request.Attempt,
-	}
-	run, err := s.taskRuns.EnqueueTaskRun(r.Context(), input)
+	result, err := s.scheduler.Reconcile(r.Context(), request.RequirementID, request.TicketVersionID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
-	response := newTaskRunResponse(run)
+	response := ReconcileTaskRunsResponse{
+		TicketVersionID: result.TicketVersionID,
+		Enqueued:        make([]TaskRunResponse, 0, len(result.Enqueued)),
+	}
+	for _, run := range result.Enqueued {
+		response.Enqueued = append(response.Enqueued, newTaskRunResponse(run))
+	}
 	logWriteError(writeJSON(w, http.StatusCreated, response))
 }
 

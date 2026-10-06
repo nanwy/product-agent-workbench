@@ -223,10 +223,11 @@ func enqueueTaskFixtureForTicket(
 	t.Helper()
 
 	run, err := domain.NewTaskRun(domain.NewTaskRunInput{
-		ID:            id,
-		RequirementID: "req-1",
-		TicketID:      ticketID,
-		Attempt:       1,
+		ID:              id,
+		RequirementID:   "req-1",
+		TicketVersionID: "req-1-tickets-v1",
+		TicketID:        ticketID,
+		Attempt:         1,
 	}, createdAt)
 	if err != nil {
 		t.Fatalf("NewTaskRun() fixture error = %v", err)

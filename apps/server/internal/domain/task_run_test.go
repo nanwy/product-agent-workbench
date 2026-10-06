@@ -13,10 +13,11 @@ func TestNewTaskRun(t *testing.T) {
 
 	now := time.Date(2026, time.October, 4, 10, 0, 0, 0, time.UTC)
 	input := NewTaskRunInput{
-		ID:            "RUN-001",
-		RequirementID: "REQ-001",
-		TicketID:      "TICKET-001",
-		Attempt:       1,
+		ID:              "RUN-001",
+		RequirementID:   "REQ-001",
+		TicketVersionID: "REQ-001-tickets-v1",
+		TicketID:        "TICKET-001",
+		Attempt:         1,
 	}
 	run, err := NewTaskRun(input, now)
 	if err != nil {
@@ -24,12 +25,13 @@ func TestNewTaskRun(t *testing.T) {
 	}
 
 	want := TaskRun{
-		ID:            input.ID,
-		RequirementID: input.RequirementID,
-		TicketID:      input.TicketID,
-		Attempt:       input.Attempt,
-		Status:        TaskStatusQueued,
-		CreatedAt:     now,
+		ID:              input.ID,
+		RequirementID:   input.RequirementID,
+		TicketVersionID: input.TicketVersionID,
+		TicketID:        input.TicketID,
+		Attempt:         input.Attempt,
+		Status:          TaskStatusQueued,
+		CreatedAt:       now,
 	}
 	if run != want {
 		t.Fatalf("NewTaskRun() = %#v，期望 %#v", run, want)
@@ -42,10 +44,11 @@ func TestNewTaskRun_RejectsInvalidInput(t *testing.T) {
 
 	now := time.Date(2026, time.October, 4, 10, 0, 0, 0, time.UTC)
 	valid := NewTaskRunInput{
-		ID:            "RUN-001",
-		RequirementID: "REQ-001",
-		TicketID:      "TICKET-001",
-		Attempt:       1,
+		ID:              "RUN-001",
+		RequirementID:   "REQ-001",
+		TicketVersionID: "REQ-001-tickets-v1",
+		TicketID:        "TICKET-001",
+		Attempt:         1,
 	}
 
 	tests := []struct {
@@ -513,7 +516,7 @@ func TestTaskRun_AllowsEqualTransitionTimes(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.October, 4, 10, 0, 0, 0, time.UTC)
-	run, err := NewTaskRun(NewTaskRunInput{ID: "RUN-001", RequirementID: "REQ-001", TicketID: "TICKET-001", Attempt: 1}, now)
+	run, err := NewTaskRun(NewTaskRunInput{ID: "RUN-001", RequirementID: "REQ-001", TicketVersionID: "REQ-001-tickets-v1", TicketID: "TICKET-001", Attempt: 1}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -154,11 +154,19 @@ func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 	if run.Status != domain.TaskStatusQueued {
 		return domain.ErrInvalidTransition
 	}
+	if isBlank(run.TicketVersionID) {
+		return domain.ErrInvalidInput
+	}
 	for _, existing := range s.tasks {
 		if existing.RequirementID != run.RequirementID || existing.TicketID != run.TicketID {
 			continue
 		}
-		if existing.Attempt == run.Attempt || isActiveTaskStatus(existing.Status) {
+		if existing.TicketVersionID == run.TicketVersionID && existing.Attempt == run.Attempt {
+			return storecontract.ErrAlreadyExists
+		}
+		// 同一 Requirement 的同名 Ticket 即使来自不同版本，也不能同时活动。
+		// 确认新版本前应先处理旧版本仍在执行的工作。
+		if isActiveTaskStatus(existing.Status) {
 			return storecontract.ErrAlreadyExists
 		}
 	}
@@ -188,6 +196,35 @@ func (s *Store) GetTask(ctx context.Context, id string) (domain.TaskRun, error) 
 		return domain.TaskRun{}, storecontract.ErrNotFound
 	}
 	return cloneTaskRun(run), nil
+}
+
+// ListTasksByTicketVersion 返回指定执行票版本的完整 TaskRun 历史。
+func (s *Store) ListTasksByTicketVersion(
+	ctx context.Context,
+	requirementID string,
+	ticketVersionID string,
+) ([]domain.TaskRun, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if _, exists := s.requirements[requirementID]; !exists {
+		return nil, storecontract.ErrNotFound
+	}
+
+	runs := make([]domain.TaskRun, 0)
+	for _, id := range s.taskOrder {
+		run, exists := s.tasks[id]
+		if !exists || run.RequirementID != requirementID || run.TicketVersionID != ticketVersionID {
+			continue
+		}
+		runs = append(runs, cloneTaskRun(run))
+	}
+	return runs, nil
 }
 
 // ClaimNextTask 原子领取最早入队、仍处于 queued 状态的任务。

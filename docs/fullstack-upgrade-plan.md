@@ -86,7 +86,7 @@ apps/web/                           当前 Web 应用；迁移完成后成为由
 | `spec_versions` | 不可变 Spec 历史与确认事实 | `(requirement_id, version)` 唯一 |
 | `ticket_versions` | 一次票拆分的版本头 | 只有一个版本可被 Requirement 激活 |
 | `tickets` | 有序纵向执行票 | `(ticket_version_id, position)` 唯一；依赖只能指向同版本更早位置 |
-| `task_runs` | 一次可调度执行尝试及 Codex thread/turn、worktree 事实 | 重试新增 attempt，不覆盖失败历史；同 Requirement 默认最多一个 active run |
+| `task_runs` | 一次可调度执行尝试及 TicketVersion、Codex thread/turn、worktree 事实 | 重试新增 attempt，不覆盖失败历史；同一 Ticket 最多一个 active run |
 | `events` | 可 replay 的有序领域/执行事件 | 单调 `id`；记录 requirement revision 与可公开 payload |
 | `validation_records` | `verified/failed/not-run` 证据 | 属于 task run；`not-run` 必须有 reason |
 | `delivery_artifacts` | commit、diff stat、handoff 路径 | 只在产品验收后创建；不等于 production merge |

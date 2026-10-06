@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"product-agent-workbench/internal/store"
@@ -78,12 +79,22 @@ func newSQLiteStore(t *testing.T) store.Store {
 		t.Fatalf("连接 SQLite 测试数据库：%v", err)
 	}
 
-	migrationSQL, err := migrations.Files.ReadFile("000001_initial.up.sql")
+	entries, err := migrations.Files.ReadDir(".")
 	if err != nil {
-		t.Fatalf("读取初始 migration：%v", err)
+		t.Fatalf("读取 migration 目录：%v", err)
 	}
-	if _, err := db.ExecContext(ctx, string(migrationSQL)); err != nil {
-		t.Fatalf("应用初始 migration：%v", err)
+	// embed.FS 的 ReadDir 按文件名排序，因此 000001、000002 会稳定按版本顺序执行。
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".up.sql") {
+			continue
+		}
+		migrationSQL, err := migrations.Files.ReadFile(entry.Name())
+		if err != nil {
+			t.Fatalf("读取 migration %s：%v", entry.Name(), err)
+		}
+		if _, err := db.ExecContext(ctx, string(migrationSQL)); err != nil {
+			t.Fatalf("应用 migration %s：%v", entry.Name(), err)
+		}
 	}
 
 	subject, err := storeadapter.New(db)

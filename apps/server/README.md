@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～11 已完成，练习 12 进行中
+## 当前进度：练习 1～13 已完成，练习 14 下一步
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -306,16 +306,17 @@ TaskRun 对应原 TypeScript `prepareExecution` 中把 queued Ticket 放入 JSON
 - 输出：只为“所有前置票已经 completed”的 Ticket 创建 queued TaskRun。
 - 对应旧代码：`confirmTicketVersion` 与 `executeQueue` 中散落的 Ticket 状态推进。
 
-学习顺序：
+已完成内容：
 
 1. 定义 Ticket artifact reader，读取确认版本而不是接受浏览器伪造 TicketID；
-2. 写纯函数计算 ready Ticket，覆盖两个并行根、汇合节点、失败阻塞和链式依赖；（当前）
+2. 写纯函数计算 ready Ticket，覆盖两个并行根、汇合节点、失败阻塞和链式依赖；
 3. 给 TaskRun 增加稳定的 TicketVersionID 或 artifact digest；
 4. 实现幂等 `Reconcile`，重复调用不能创建第二条活动 attempt；
 5. 在 Ticket 完成和进程重启后重新计算 ready 集合。
 
-当前只解锁第一个纯计算 seam：`scheduler.ReadyTickets`。先让下面的测试变绿，暂时不要实现
-ArtifactReader 文件 Adapter、数据库 Reconcile 或 Worker：
+`scheduler.ReadyTickets` 和幂等 `Reconciler.Reconcile` 已完成。ArtifactReader 是读取服务端
+已确认版本的 seam；具体文件 Adapter 等 Go 接管 artifact 发布时再装配，不在 Scheduler
+中解析不稳定的 Markdown。现有回归命令：
 
 ```bash
 go test ./apps/server/internal/scheduler -run TestReadyTickets_DiamondDAG -v
@@ -361,8 +362,8 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 12 SQLite TaskRun 入队/读取/CAS（已完成）
 → 12 SQLite 原子 claim（已完成）
 → 12 SQLite TaskEvent 契约（已完成）
-→ 13 Ticket DAG Scheduler：ReadyTickets 纯函数（当前 Red）
-→ 14 fake executor Worker
+→ 13 Ticket DAG Scheduler（已完成）
+→ 14 fake executor Worker（下一步）
 → 15 有界多 Worker + 独立 Worktree + Requirement 分支整合
 ```
 
@@ -384,12 +385,12 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | fail/cancel 动作（已完成） | 保存失败原因或取消终态 | `recordExecutionFailure`、`cancelRequirementExecution` | 失败与取消不再通过对象展开手写状态；状态 CAS 防止旧快照覆盖并发终态 |
 | TaskRun HTTP（已完成） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
 | SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；活动唯一约束已降到 Ticket 级 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队 |
-| Ticket DAG Scheduler（待实现） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
+| Ticket DAG Scheduler（已完成） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
 | 最小 Worker（骨架） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 
-当前实际完成到 SQLite TaskEvent；Node 侧已具备依赖感知的 pending/queued 推进，Go 侧正在
-实现 Scheduler 的 ready 纯函数。不要提前并行调用真实 Codex；先让 Scheduler 和 fake
-executor 闭环稳定。
+当前实际完成到 Ticket DAG Scheduler；Node 侧原有的 pending/queued 推进已经在 Go 中收敛
+为纯 ready 计算和幂等 Reconcile。下一步用 fake executor 完成同步 Worker 闭环，不提前
+并行调用真实 Codex。
 
 ### 学习目标
 

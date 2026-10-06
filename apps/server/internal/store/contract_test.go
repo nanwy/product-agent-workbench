@@ -86,10 +86,11 @@ func queuedTaskFixture(t *testing.T, id string, now time.Time) domain.TaskRun {
 
 	run, err := domain.NewTaskRun(
 		domain.NewTaskRunInput{
-			ID:            id,
-			RequirementID: "req-1",
-			TicketID:      "ticket-1",
-			Attempt:       1,
+			ID:              id,
+			RequirementID:   "req-1",
+			TicketVersionID: "req-1-tickets-v1",
+			TicketID:        "ticket-1",
+			Attempt:         1,
 		},
 		now,
 	)

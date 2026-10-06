@@ -41,11 +41,18 @@ type RequirementResponse struct {
 	Revision  int64                   `json:"revision"`
 }
 
-// EnqueueTaskRunRequest 是浏览器请求执行一张 Ticket 的稳定 JSON 合约。
+// EnqueueTaskRunRequest 是浏览器请求调度一个已确认 TicketVersion 的稳定 JSON 合约。
+//
+// TicketID 和 Attempt 不接受浏览器输入；Scheduler 必须从确认 artifact 与执行历史计算。
 type EnqueueTaskRunRequest struct {
-	RequirementID string `json:"requirementId"`
-	TicketID      string `json:"ticketId"`
-	Attempt       int    `json:"attempt"`
+	RequirementID   string `json:"requirementId"`
+	TicketVersionID string `json:"ticketVersionId"`
+}
+
+// ReconcileTaskRunsResponse 返回本次 Reconcile 真正新建的 queued TaskRun。
+type ReconcileTaskRunsResponse struct {
+	TicketVersionID string            `json:"ticketVersionId"`
+	Enqueued        []TaskRunResponse `json:"enqueued"`
 }
 
 // TaskResultResponse 是成功 TaskRun 暴露给浏览器的结果视图。
@@ -57,17 +64,18 @@ type TaskResultResponse struct {
 
 // TaskRunResponse 是 TaskRun endpoint 的稳定 JSON 视图。
 type TaskRunResponse struct {
-	ID            string              `json:"id"`
-	RequirementID string              `json:"requirementId"`
-	TicketID      string              `json:"ticketId"`
-	Attempt       int                 `json:"attempt"`
-	Status        domain.TaskStatus   `json:"status"`
-	CreatedAt     time.Time           `json:"createdAt"`
-	ClaimedAt     *time.Time          `json:"claimedAt,omitempty"`
-	StartedAt     *time.Time          `json:"startedAt,omitempty"`
-	FinishedAt    *time.Time          `json:"finishedAt,omitempty"`
-	Result        *TaskResultResponse `json:"result,omitempty"`
-	FailureReason string              `json:"failureReason,omitempty"`
+	ID              string              `json:"id"`
+	RequirementID   string              `json:"requirementId"`
+	TicketVersionID string              `json:"ticketVersionId"`
+	TicketID        string              `json:"ticketId"`
+	Attempt         int                 `json:"attempt"`
+	Status          domain.TaskStatus   `json:"status"`
+	CreatedAt       time.Time           `json:"createdAt"`
+	ClaimedAt       *time.Time          `json:"claimedAt,omitempty"`
+	StartedAt       *time.Time          `json:"startedAt,omitempty"`
+	FinishedAt      *time.Time          `json:"finishedAt,omitempty"`
+	Result          *TaskResultResponse `json:"result,omitempty"`
+	FailureReason   string              `json:"failureReason,omitempty"`
 }
 
 // ErrorResponse 是所有 HTTP 错误使用的稳定 JSON 结构。
@@ -106,16 +114,17 @@ func newRequirementResponse(requirement domain.Requirement) RequirementResponse 
 // 当作 JSON 合约。时间指针只读使用，不在映射函数中改写。
 func newTaskRunResponse(run domain.TaskRun) TaskRunResponse {
 	response := TaskRunResponse{
-		ID:            run.ID,
-		RequirementID: run.RequirementID,
-		TicketID:      run.TicketID,
-		Attempt:       run.Attempt,
-		Status:        run.Status,
-		CreatedAt:     run.CreatedAt,
-		ClaimedAt:     run.ClaimedAt,
-		StartedAt:     run.StartedAt,
-		FinishedAt:    run.FinishedAt,
-		FailureReason: run.FailureReason,
+		ID:              run.ID,
+		RequirementID:   run.RequirementID,
+		TicketVersionID: run.TicketVersionID,
+		TicketID:        run.TicketID,
+		Attempt:         run.Attempt,
+		Status:          run.Status,
+		CreatedAt:       run.CreatedAt,
+		ClaimedAt:       run.ClaimedAt,
+		StartedAt:       run.StartedAt,
+		FinishedAt:      run.FinishedAt,
+		FailureReason:   run.FailureReason,
 	}
 	if run.Result != nil {
 		response.Result = &TaskResultResponse{

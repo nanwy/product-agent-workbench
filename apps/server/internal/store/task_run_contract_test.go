@@ -70,10 +70,11 @@ func runTaskRunStoreContract(t *testing.T, factory storeFactory) {
 
 		queued, err := domain.NewTaskRun(
 			domain.NewTaskRunInput{
-				ID:            run.ID,
-				RequirementID: run.RequirementID,
-				TicketID:      run.TicketID,
-				Attempt:       run.Attempt,
+				ID:              run.ID,
+				RequirementID:   run.RequirementID,
+				TicketVersionID: run.TicketVersionID,
+				TicketID:        run.TicketID,
+				Attempt:         run.Attempt,
 			},
 			run.CreatedAt,
 		)

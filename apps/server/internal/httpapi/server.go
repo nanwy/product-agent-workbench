@@ -9,6 +9,7 @@ import (
 
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/scheduler"
 )
 
 // ErrInvalidDependencies 表示 HTTP Server 缺少必需的应用用例依赖。
@@ -27,20 +28,32 @@ type RequirementApplication interface {
 	GetRequirement(ctx context.Context, id string) (domain.Requirement, error)
 }
 
-// TaskRunApplication 是浏览器真正需要的 TaskRun 用例 seam。
+// TaskRunApplication 是浏览器查询和取消 TaskRun 使用的用例 seam。
 //
-// claim/start/complete/fail 不暴露给浏览器，它们由后续 Worker 在进程内部调用。浏览器只
-// 创建、查询和请求取消，避免客户端伪造 Runner 生命周期。
+// claim/start/complete/fail 和原始 EnqueueTaskRun 不暴露给浏览器，避免客户端伪造
+// Ticket、依赖状态或 Runner 生命周期。
 type TaskRunApplication interface {
-	EnqueueTaskRun(ctx context.Context, input app.EnqueueTaskRunInput) (domain.TaskRun, error)
 	GetTaskRun(ctx context.Context, id string) (domain.TaskRun, error)
 	CancelTaskRun(ctx context.Context, id string) (domain.TaskRun, error)
+}
+
+// TaskScheduler 是浏览器启动一个已确认 TicketVersion 时调用的 seam。
+//
+// 浏览器只提供 Requirement 和版本身份；具体 TicketID、Attempt 及 ready 判断全部来自
+// Reconciler 读取的确认 artifact 和持久化执行历史。
+type TaskScheduler interface {
+	Reconcile(
+		ctx context.Context,
+		requirementID string,
+		ticketVersionID string,
+	) (scheduler.ReconcileResult, error)
 }
 
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
 	Application RequirementApplication
 	TaskRuns    TaskRunApplication
+	Scheduler   TaskScheduler
 }
 
 // Server 把 HTTP 协议翻译为应用用例调用。
@@ -51,6 +64,7 @@ type Server struct {
 	mux         *http.ServeMux
 	application RequirementApplication
 	taskRuns    TaskRunApplication
+	scheduler   TaskScheduler
 }
 
 // NewServer 校验依赖、注册路由并返回 HTTP handler。
@@ -70,17 +84,19 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 		mux:         mux,
 		application: dependencies.Application,
 		taskRuns:    dependencies.TaskRuns,
+		scheduler:   dependencies.Scheduler,
 	}
 
 	mux.HandleFunc(http.MethodGet+" "+PathHealth, server.handleHealth)
 	mux.HandleFunc(http.MethodPost+" "+PathRequirements, server.handleCreateRequirement)
 	mux.HandleFunc(http.MethodGet+" "+PathRequirements+"/{id}", server.handleGetRequirement)
-	// TaskRuns 在渐进迁移期间允许为空，现有 Requirement HTTP 仍可独立测试。main 最终装配
-	// 完整服务时必须提供它；届时再把 nil 校验提升为启动期硬错误。
+	// TaskRuns 与 Scheduler 在渐进迁移期间允许为空，现有 Requirement HTTP 仍可独立测试。
 	if server.taskRuns != nil {
-		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns, server.handleEnqueueTaskRun)
 		mux.HandleFunc(http.MethodGet+" "+PathTaskRuns+"/{id}", server.handleGetTaskRun)
 		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns+"/{id}/cancel", server.handleCancelTaskRun)
+	}
+	if server.scheduler != nil {
+		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns, server.handleReconcileTaskRuns)
 	}
 
 	return server, nil

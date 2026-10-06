@@ -61,9 +61,10 @@ func TestApplication_EnqueueTaskRun(t *testing.T) {
 		got, err := application.EnqueueTaskRun(
 			context.Background(),
 			app.EnqueueTaskRunInput{
-				RequirementID: "  req-1  ",
-				TicketID:      "  ticket-1  ",
-				Attempt:       1,
+				RequirementID:   "  req-1  ",
+				TicketVersionID: "  req-1-tickets-v1  ",
+				TicketID:        "  ticket-1  ",
+				Attempt:         1,
 			},
 		)
 		if err != nil {
@@ -71,12 +72,13 @@ func TestApplication_EnqueueTaskRun(t *testing.T) {
 		}
 
 		want := domain.TaskRun{
-			ID:            "run-1",
-			RequirementID: "req-1",
-			TicketID:      "ticket-1",
-			Attempt:       1,
-			Status:        domain.TaskStatusQueued,
-			CreatedAt:     taskRunTestTime,
+			ID:              "run-1",
+			RequirementID:   "req-1",
+			TicketVersionID: "req-1-tickets-v1",
+			TicketID:        "ticket-1",
+			Attempt:         1,
+			Status:          domain.TaskStatusQueued,
+			CreatedAt:       taskRunTestTime,
 		}
 		if got != want {
 			t.Fatalf("EnqueueTaskRun() = %#v, want %#v", got, want)
@@ -151,7 +153,7 @@ func TestApplication_EnqueueTaskRun(t *testing.T) {
 
 		_, err := application.EnqueueTaskRun(
 			context.Background(),
-			app.EnqueueTaskRunInput{RequirementID: "req-missing", TicketID: "ticket-1", Attempt: 1},
+			app.EnqueueTaskRunInput{RequirementID: "req-missing", TicketVersionID: "req-missing-tickets-v1", TicketID: "ticket-1", Attempt: 1},
 		)
 		if !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("EnqueueTaskRun() error = %v, want ErrNotFound", err)
@@ -173,7 +175,7 @@ func TestApplication_EnqueueTaskRun(t *testing.T) {
 
 		got, err := application.EnqueueTaskRun(
 			context.Background(),
-			app.EnqueueTaskRunInput{RequirementID: "req-1", TicketID: "ticket-1", Attempt: 1},
+			app.EnqueueTaskRunInput{RequirementID: "req-1", TicketVersionID: "req-1-tickets-v1", TicketID: "ticket-1", Attempt: 1},
 		)
 		if err != nil {
 			t.Fatalf("EnqueueTaskRun() error = %v", err)
@@ -223,10 +225,11 @@ func TestApplication_GetTaskRun(t *testing.T) {
 	storeAdapter := memory.New()
 	createRequirementFixture(t, storeAdapter, "req-1")
 	want, err := domain.NewTaskRun(domain.NewTaskRunInput{
-		ID:            "run-1",
-		RequirementID: "req-1",
-		TicketID:      "ticket-1",
-		Attempt:       1,
+		ID:              "run-1",
+		RequirementID:   "req-1",
+		TicketVersionID: "req-1-tickets-v1",
+		TicketID:        "ticket-1",
+		Attempt:         1,
 	}, taskRunTestTime)
 	if err != nil {
 		t.Fatalf("NewTaskRun() fixture error = %v", err)

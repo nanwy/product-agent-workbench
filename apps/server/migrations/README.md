@@ -51,19 +51,19 @@
 - 可空时间在 Go 中用 `sql.NullInt64` 扫描；
 - 不依赖 driver 自动解析日期字符串。
 
-### 4. 第一份 migration 的逻辑模型
+### 4. 当前 migration 后的逻辑模型
 
 只创建当前 Store 契约已经使用的三张表，不提前创建 Project、Ticket、Validation 等未来表。
 
 | 表 | 字段 | 约束目的 |
 | --- | --- | --- |
 | `requirements` | `id`, `project_id`, `title`, `stage`, `revision` | `id` 唯一；`revision >= 1`；stage 只能取领域枚举 |
-| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_id`, `attempt`, `status`, 四个时间、三个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
+| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、三个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举；000002 为旧记录回填 `legacy` 版本 |
 | `task_events` | `id`, `task_run_id`, `sequence`, `type`, `payload`, `created_at` | `id` 是全局 SSE 游标；sequence 正数 |
 
 额外业务约束：
 
-- `(requirement_id, ticket_id, attempt)` 唯一，同一次重试不能重复创建；
+- `(requirement_id, ticket_version_id, ticket_id, attempt)` 唯一，同一版本内的同一次重试不能重复创建；
 - 同一个 `(requirement_id, ticket_id)` 最多存在一个 `queued`、`claimed` 或 `running`
   TaskRun；同一 Requirement 的不同 Ticket 可以同时活动；
 - `(task_run_id, sequence)` 唯一，同一个 TaskRun 的事件序号不能重复；
@@ -142,7 +142,7 @@ SQLite 没有 `SELECT FOR UPDATE`。claim 使用一个 immediate 写事务：
 4. 完成 TaskRun 行还原，并把活动唯一约束固定为 Requirement + Ticket。（已完成）
 5. 用至少两个物理连接验证原子 claim 和 revision 并发，不只依赖 `go test -race`。（已完成）
 6. 实现 TaskEvent 整批事务契约。（已完成）
-7. Store 稳定后再实现 Ticket DAG Scheduler；依赖图仍来自版本化 artifact，不提前建 Ticket 表。（当前）
+7. Store 稳定后再实现 Ticket DAG Scheduler；依赖图仍来自版本化 artifact，不提前建 Ticket 表。（已完成）
 
 对应旧 TypeScript：`requirement-store.ts` 的 JSON 快照和 Promise 写队列会被事务与约束替代，
 但 Spec/Ticket Markdown 仍是文件 artifact，不迁入这些表。切流前禁止同时写 JSON 和 SQLite。

@@ -12,9 +12,10 @@ import (
 // ID 和 CreatedAt 不属于调用方输入：Application 使用注入的 NewID 和 Now 生成它们。
 // 这样 HTTP handler 不需要知道领域对象如何初始化。
 type EnqueueTaskRunInput struct {
-	RequirementID string
-	TicketID      string
-	Attempt       int
+	RequirementID   string
+	TicketVersionID string
+	TicketID        string
+	Attempt         int
 }
 
 // EnqueueTaskRun 创建并持久化 queued TaskRun。
@@ -36,10 +37,11 @@ func (app *Application) EnqueueTaskRun(
 		return domain.TaskRun{}, ctx.Err()
 	}
 	requirementID := strings.TrimSpace(input.RequirementID)
+	ticketVersionID := strings.TrimSpace(input.TicketVersionID)
 	ticketID := strings.TrimSpace(input.TicketID)
 	attempt := input.Attempt
 
-	if requirementID == "" || ticketID == "" || attempt < 1 {
+	if requirementID == "" || ticketVersionID == "" || ticketID == "" || attempt < 1 {
 		return domain.TaskRun{}, domain.ErrInvalidInput
 	}
 
@@ -52,10 +54,11 @@ func (app *Application) EnqueueTaskRun(
 	createdAt := app.now()
 
 	taskRunInput := domain.NewTaskRunInput{
-		ID:            newID,
-		RequirementID: requirementID,
-		TicketID:      ticketID,
-		Attempt:       attempt,
+		ID:              newID,
+		RequirementID:   requirementID,
+		TicketVersionID: ticketVersionID,
+		TicketID:        ticketID,
+		Attempt:         attempt,
 	}
 
 	taskRun, err := domain.NewTaskRun(taskRunInput, createdAt)

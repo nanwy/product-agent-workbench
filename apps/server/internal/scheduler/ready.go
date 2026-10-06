@@ -2,11 +2,16 @@ package scheduler
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"product-agent-workbench/internal/domain"
 )
 
-var errReadyTicketsNotImplemented = errors.New("ReadyTickets 尚未实现")
+var (
+	// ErrInvalidTicketGraph 表示已确认 artifact 的身份或依赖图不合法。
+	ErrInvalidTicketGraph = errors.New("执行票依赖图无效")
+)
 
 // Ticket 是 Scheduler 真正需要的最小执行票信息。
 //
@@ -47,5 +52,98 @@ type ExecutionSnapshot map[string]domain.TaskStatus
 // 非 completed 状态都不能解锁后继票。特别是 failed/cancelled 表示执行已经终止，
 // 但不代表依赖产物已经成功产生。
 func ReadyTickets(version TicketVersion, snapshot ExecutionSnapshot) ([]Ticket, error) {
-	return nil, errReadyTicketsNotImplemented
+	if err := validateTicketVersion(version); err != nil {
+		return nil, err
+	}
+
+	ready := make([]Ticket, 0)
+	for _, ticket := range version.Tickets {
+		// 任何历史状态都意味着这张票已经被调度过。失败/取消后的重试必须由显式用例创建，
+		// 不能由一次普通 Reconcile 偷偷触发。
+		if _, exists := snapshot[ticket.ID]; exists {
+			continue
+		}
+
+		dependenciesCompleted := true
+		for _, blockerID := range ticket.BlockedBy {
+			if snapshot[blockerID] != domain.TaskStatusCompleted {
+				dependenciesCompleted = false
+				break
+			}
+		}
+		if !dependenciesCompleted {
+			continue
+		}
+
+		copyTicket := ticket
+		copyTicket.BlockedBy = append([]string(nil), ticket.BlockedBy...)
+		ready = append(ready, copyTicket)
+	}
+	return ready, nil
+}
+
+// validateTicketVersion 在产生任何入队结果前验证完整依赖图。
+//
+// 使用 Kahn 拓扑排序检测环：每移除一个入度为零的节点，就降低它所有后继节点的入度；
+// 最终没能移除全部节点，说明剩余节点互相依赖成环。
+func validateTicketVersion(version TicketVersion) error {
+	if strings.TrimSpace(version.ID) == "" || strings.TrimSpace(version.RequirementID) == "" || len(version.Tickets) == 0 {
+		return ErrInvalidTicketGraph
+	}
+
+	byID := make(map[string]Ticket, len(version.Tickets))
+	for _, ticket := range version.Tickets {
+		id := strings.TrimSpace(ticket.ID)
+		if id == "" || id != ticket.ID {
+			return ErrInvalidTicketGraph
+		}
+		if _, exists := byID[id]; exists {
+			return fmt.Errorf("%w: 重复 Ticket %q", ErrInvalidTicketGraph, id)
+		}
+		byID[id] = ticket
+	}
+
+	indegree := make(map[string]int, len(version.Tickets))
+	dependents := make(map[string][]string, len(version.Tickets))
+	for _, ticket := range version.Tickets {
+		seenBlockers := make(map[string]struct{}, len(ticket.BlockedBy))
+		for _, rawBlockerID := range ticket.BlockedBy {
+			blockerID := strings.TrimSpace(rawBlockerID)
+			if blockerID == "" || blockerID != rawBlockerID || blockerID == ticket.ID {
+				return fmt.Errorf("%w: Ticket %q 的依赖无效", ErrInvalidTicketGraph, ticket.ID)
+			}
+			if _, exists := byID[blockerID]; !exists {
+				return fmt.Errorf("%w: Ticket %q 依赖不存在的 %q", ErrInvalidTicketGraph, ticket.ID, blockerID)
+			}
+			if _, duplicate := seenBlockers[blockerID]; duplicate {
+				return fmt.Errorf("%w: Ticket %q 重复依赖 %q", ErrInvalidTicketGraph, ticket.ID, blockerID)
+			}
+			seenBlockers[blockerID] = struct{}{}
+			indegree[ticket.ID]++
+			dependents[blockerID] = append(dependents[blockerID], ticket.ID)
+		}
+	}
+
+	queue := make([]string, 0, len(version.Tickets))
+	for _, ticket := range version.Tickets {
+		if indegree[ticket.ID] == 0 {
+			queue = append(queue, ticket.ID)
+		}
+	}
+	visited := 0
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, dependentID := range dependents[id] {
+			indegree[dependentID]--
+			if indegree[dependentID] == 0 {
+				queue = append(queue, dependentID)
+			}
+		}
+	}
+	if visited != len(version.Tickets) {
+		return fmt.Errorf("%w: blockedBy 存在循环依赖", ErrInvalidTicketGraph)
+	}
+	return nil
 }

@@ -44,6 +44,7 @@ func scanTaskRun(scanner rowScanner) (domain.TaskRun, error) {
 	err := scanner.Scan(
 		&run.ID,
 		&run.RequirementID,
+		&run.TicketVersionID,
 		&run.TicketID,
 		&run.Attempt,
 		&status,

@@ -33,7 +33,7 @@ func TestWorker_RunNextCompletesTaskWithFakeExecutor(t *testing.T) {
 	if err := storeAdapter.CreateRequirement(context.Background(), requirement); err != nil {
 		t.Fatalf("CreateRequirement() fixture error = %v", err)
 	}
-	if _, err := application.EnqueueTaskRun(context.Background(), app.EnqueueTaskRunInput{RequirementID: requirement.ID, TicketID: "ticket-1", Attempt: 1}); err != nil {
+	if _, err := application.EnqueueTaskRun(context.Background(), app.EnqueueTaskRunInput{RequirementID: requirement.ID, TicketVersionID: requirement.ID + "-tickets-v1", TicketID: "ticket-1", Attempt: 1}); err != nil {
 		t.Fatalf("EnqueueTaskRun() fixture error = %v", err)
 	}
 

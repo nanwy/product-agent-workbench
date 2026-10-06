@@ -42,6 +42,16 @@ type Store interface {
 	// TaskRun 含有时间和结果指针，只复制结构体仍会泄漏 Store 内部可变数据。
 	GetTask(ctx context.Context, id string) (domain.TaskRun, error)
 
+	// ListTasksByTicketVersion 返回一个 Requirement 在指定 TicketVersion 下的全部执行历史。
+	//
+	// 结果按稳定入队顺序排列并使用深拷贝；Requirement 不存在时返回 ErrNotFound。
+	// 空 TicketVersionID 只用于迁移期间读取旧的手动入队记录。
+	ListTasksByTicketVersion(
+		ctx context.Context,
+		requirementID string,
+		ticketVersionID string,
+	) ([]domain.TaskRun, error)
+
 	// ClaimNextTask 原子领取最早入队的 queued TaskRun。
 	//
 	// “查找候选、调用 TaskRun.Claim、写回结果”必须处于同一个写锁临界区。

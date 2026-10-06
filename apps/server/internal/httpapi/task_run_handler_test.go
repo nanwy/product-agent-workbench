@@ -28,7 +28,7 @@ func TestServer_EnqueueTaskRun(t *testing.T) {
 		},
 	})
 	request := httptest.NewRequest(http.MethodPost, httpapi.PathTaskRuns, strings.NewReader(
-		`{"requirementId":"req-1","ticketId":"ticket-1","attempt":1}`,
+		`{"requirementId":"req-1","ticketVersionId":"req-1-tickets-v1","ticketId":"ticket-1","attempt":1}`,
 	))
 	request = request.WithContext(context.WithValue(request.Context(), requestContextKey{}, "task-trace-1"))
 	response := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestServer_EnqueueTaskRun(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("POST TaskRun status = %d, want 201; body=%q", response.Code, response.Body.String())
 	}
-	wantInput := app.EnqueueTaskRunInput{RequirementID: "req-1", TicketID: "ticket-1", Attempt: 1}
+	wantInput := app.EnqueueTaskRunInput{RequirementID: "req-1", TicketVersionID: "req-1-tickets-v1", TicketID: "ticket-1", Attempt: 1}
 	if gotInput != wantInput {
 		t.Fatalf("EnqueueTaskRun input = %#v, want %#v", gotInput, wantInput)
 	}
@@ -63,7 +63,7 @@ func TestServer_EnqueueTaskRunRejectsInvalidJSON(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		httpapi.PathTaskRuns,
-		strings.NewReader(`{"requirementId":"req-1","ticketId":"ticket-1","attempt":1,"status":"completed"}`),
+		strings.NewReader(`{"requirementId":"req-1","ticketVersionId":"req-1-tickets-v1","ticketId":"ticket-1","attempt":1,"status":"completed"}`),
 	)
 	response := httptest.NewRecorder()
 	server.ServeHTTP(response, request)
@@ -249,12 +249,13 @@ func newTaskRunHTTPServer(t *testing.T, taskRuns httpapi.TaskRunApplication) *ht
 
 func taskRunHTTPFixture() domain.TaskRun {
 	return domain.TaskRun{
-		ID:            "run-1",
-		RequirementID: "req-1",
-		TicketID:      "ticket-1",
-		Attempt:       1,
-		Status:        domain.TaskStatusQueued,
-		CreatedAt:     taskRunTestHTTPTime(),
+		ID:              "run-1",
+		RequirementID:   "req-1",
+		TicketVersionID: "req-1-tickets-v1",
+		TicketID:        "ticket-1",
+		Attempt:         1,
+		Status:          domain.TaskStatusQueued,
+		CreatedAt:       taskRunTestHTTPTime(),
 	}
 }
 

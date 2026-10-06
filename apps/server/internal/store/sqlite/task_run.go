@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"product-agent-workbench/internal/domain"
@@ -30,11 +31,14 @@ func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 	if run.Status != domain.TaskStatusQueued {
 		return domain.ErrInvalidTransition
 	}
+	if strings.TrimSpace(run.TicketVersionID) == "" {
+		return domain.ErrInvalidInput
+	}
 	const query = `
 		INSERT INTO task_runs (
-			id, requirement_id, ticket_id, attempt,
+			id, requirement_id, ticket_version_id, ticket_id, attempt,
 			status, created_at
-		) VALUES (?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT DO NOTHING
 	`
 	result, err := s.db.ExecContext(
@@ -42,6 +46,7 @@ func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 		query,
 		run.ID,
 		run.RequirementID,
+		run.TicketVersionID,
 		run.TicketID,
 		run.Attempt,
 		string(run.Status),
@@ -74,6 +79,7 @@ func (s *Store) GetTask(ctx context.Context, id string) (domain.TaskRun, error) 
 		SELECT
 			id,
 			requirement_id,
+			ticket_version_id,
 			ticket_id,
 			attempt,
 			status,
@@ -97,6 +103,68 @@ func (s *Store) GetTask(ctx context.Context, id string) (domain.TaskRun, error) 
 		return domain.TaskRun{}, fmt.Errorf("查询 TaskRun: %w", err)
 	}
 	return run, nil
+}
+
+// ListTasksByTicketVersion 返回 Scheduler 计算 ready 集合所需的执行历史。
+//
+// 先区分“Requirement 不存在”和“这个版本还没有 TaskRun”：前者返回 ErrNotFound，
+// 后者返回非 nil 空切片。结果按 enqueue_seq 排序，使同一 Ticket 后出现的记录就是较新的
+// attempt；所有动态值仍通过参数传入。
+func (s *Store) ListTasksByTicketVersion(
+	ctx context.Context,
+	requirementID string,
+	ticketVersionID string,
+) ([]domain.TaskRun, error) {
+	var exists bool
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(SELECT 1 FROM requirements WHERE id = ?)`,
+		requirementID,
+	).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("检查 Requirement 是否存在: %w", err)
+	}
+	if !exists {
+		return nil, storecontract.ErrNotFound
+	}
+
+	const query = `
+		SELECT
+			id,
+			requirement_id,
+			ticket_version_id,
+			ticket_id,
+			attempt,
+			status,
+			created_at,
+			claimed_at,
+			started_at,
+			finished_at,
+			result_summary,
+			codex_thread_id,
+			worktree_path,
+			failure_reason
+		FROM task_runs
+		WHERE requirement_id = ? AND ticket_version_id = ?
+		ORDER BY enqueue_seq ASC
+	`
+	rows, err := s.db.QueryContext(ctx, query, requirementID, ticketVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("查询 TicketVersion TaskRun: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.TaskRun, 0)
+	for rows.Next() {
+		run, err := scanTaskRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("扫描 TicketVersion TaskRun: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历 TicketVersion TaskRun: %w", err)
+	}
+	return runs, nil
 }
 
 // ClaimNextTask 原子领取最早 queued TaskRun。
@@ -123,6 +191,7 @@ func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRu
 		SELECT
 			id,
 			requirement_id,
+			ticket_version_id,
 			ticket_id,
 			attempt,
 			status,
