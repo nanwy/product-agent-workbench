@@ -132,10 +132,11 @@ func (s *Store) SaveRequirement(
 func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 	// 实现要点：
 	// 1. 检查 context，并获取写锁。
-	// 2. 重复 ID 返回 ErrAlreadyExists。
-	// 3. 只接受 queued 状态；非法状态返回 domain.ErrInvalidTransition。
-	// 4. 使用 cloneTaskRun 保存深拷贝。
-	// 5. 仅在成功写入 map 后，把 ID append 到 taskOrder；失败路径不能污染顺序。
+	// 2. 重复 ID、同一 Ticket 的重复 attempt 或第二条活动记录返回 ErrAlreadyExists。
+	// 3. 不同 Ticket 即使属于同一 Requirement，也允许同时 queued。
+	// 4. 只接受 queued 状态；非法状态返回 domain.ErrInvalidTransition。
+	// 5. 使用 cloneTaskRun 保存深拷贝。
+	// 6. 仅在成功写入 map 后，把 ID append 到 taskOrder；失败路径不能污染顺序。
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -152,6 +153,14 @@ func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 	}
 	if run.Status != domain.TaskStatusQueued {
 		return domain.ErrInvalidTransition
+	}
+	for _, existing := range s.tasks {
+		if existing.RequirementID != run.RequirementID || existing.TicketID != run.TicketID {
+			continue
+		}
+		if existing.Attempt == run.Attempt || isActiveTaskStatus(existing.Status) {
+			return storecontract.ErrAlreadyExists
+		}
 	}
 
 	// map 和顺序切片由同一把锁保护，并且只在全部校验成功后一起更新。
@@ -379,4 +388,10 @@ func cloneTaskEvent(event domain.TaskEvent) domain.TaskEvent {
 
 func isBlank(value string) bool {
 	return strings.TrimSpace(value) == ""
+}
+
+func isActiveTaskStatus(status domain.TaskStatus) bool {
+	return status == domain.TaskStatusQueued ||
+		status == domain.TaskStatusClaimed ||
+		status == domain.TaskStatusRunning
 }

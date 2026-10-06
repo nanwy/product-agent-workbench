@@ -12,7 +12,8 @@
 - 可用/生效 Skill 区分及激活原因；
 - 随仓库分发的产品工作流 Skill，以及由 Codex 按路径读取的目标项目 Skill；
 - 真实代码位置探索、候选 Spec、按结果切分的执行票和高风险边界确认。
-- 干净工作区检查、独立需求分支、连续 Codex session、SSE 事件与串行执行票。
+- 干净工作区检查、独立需求分支、连续 Codex session、SSE 事件与依赖感知的 Ticket 推进；
+  当前 Node 执行循环仍一次消费一票。
 - 宿主验证矩阵、显式产品验收、稳定候选提交与前端交付 Handoff。
 
 ## Monorepo 结构
@@ -29,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **48%**；学习脚手架已经铺到最小 Worker，约覆盖
-后端迁移路线的 **65%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **52%**；学习脚手架已经铺到最小 Worker，约覆盖
+后端迁移路线的 **70%**。两者必须区分：有类型、注释和锁定测试只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -41,9 +42,10 @@ docs/         架构、面试与学习文档
 | TaskRun enqueue/claim/start/complete | 已完成（状态 CAS 已接入） | `prepareExecution` 与 `executeQueue` 的主成功路径 |
 | TaskRun fail/cancel | 已完成（状态 CAS 已接入） | `recordExecutionFailure`、`cancelRequirementExecution` |
 | TaskRun HTTP | 已完成 | 浏览器执行/查询/取消 Server Functions |
-| SQLite Adapter | migration、Requirement、TaskRun 基础已完成；原子 claim 进行中 | JSON Store + Promise 写队列 |
+| SQLite Adapter | migration、Requirement、TaskRun、原子 claim 与 TaskEvent 已完成 | JSON Store + Promise 写队列 |
+| Ticket DAG Scheduler | Node 已具备依赖推进；Go 已解锁 ReadyTickets 纯函数练习 | Ticket artifact 的 `blockedBy` 与执行队列推进 |
 | 最小同步 Worker + fake executor | 已搭骨架，待实现 | `prepareExecution + executeQueue` 的最小纵向切片 |
-| Codex、Worktree、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
+| 多 Worker、Codex、Worktree 整合、验证、SSE、前端切流 | 尚未开始 | 现有 Node 高权限模块与浏览器状态同步 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 

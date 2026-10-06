@@ -6,7 +6,7 @@ var (
 	// ErrNotFound 表示指定实体不存在，或当前没有可领取的任务。
 	ErrNotFound = errors.New("资源不存在")
 
-	// ErrAlreadyExists 表示同一 ID 的实体已经存在。
+	// ErrAlreadyExists 表示同一 ID 或受唯一业务约束保护的实体已经存在。
 	ErrAlreadyExists = errors.New("资源已存在")
 
 	// ErrRevisionConflict 表示调用方基于旧版本提交了更新。

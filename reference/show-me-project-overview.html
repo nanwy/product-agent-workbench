@@ -268,7 +268,7 @@
         <div class="one-line">
           <div><small>PRODUCT</small><b>产品意图</b><p>目标页面、期望结果；不允许提供命令和仓库路径。</p></div>
           <div><small>PLANNING</small><b>共同理解与规格</b><p>Grilling 消歧，产出版本化 Spec 与验收条件。</p></div>
-          <div><small>EXECUTION</small><b>纵向执行票</b><p>按依赖串行执行；同一需求连续复用 Codex Thread。</p></div>
+          <div><small>EXECUTION</small><b>Ticket DAG</b><p>按依赖进入 ready 队列；当前 Node executor 逐张消费。</p></div>
           <div><small>EVIDENCE</small><b>真实页面与验证</b><p>命令、Git 范围、运行时和浏览器证据汇成矩阵。</p></div>
           <div><small>HANDOFF</small><b>稳定交付结果</b><p>产品验收后提交固定 revision，交给前端审查；不自动合并。</p></div>
         </div>
@@ -370,7 +370,7 @@
           <div class="file-item"><div class="n">03</div><div><code>src/server/functions.ts</code><p>浏览器能力白名单、输入校验和写请求幂等边界。</p></div></div>
           <div class="file-item"><div class="n">04</div><div><code>src/server/workbench-service.ts</code><p>Grilling、Spec、Tickets、边界确认与产品验收的状态迁移。</p></div></div>
           <div class="file-item"><div class="n">05</div><div><code>src/server/exploration.ts</code><p>发现 AGENTS.md、Skills、候选代码位置与现有行为。</p></div></div>
-          <div class="file-item"><div class="n">06</div><div><code>src/server/workbench-execution.ts</code><p>创建需求分支、串行消费票、运行 Codex、接力自动验证。</p></div></div>
+          <div class="file-item"><div class="n">06</div><div><code>src/server/workbench-execution.ts</code><p>创建需求分支、消费 ready Ticket、解锁后继票、运行 Codex 并接力验证。</p></div></div>
           <div class="file-item"><div class="n">07</div><div><code>src/server/codex-adapter.ts</code><p>选择 app-server / SDK 后端并归一化事件，支持 Thread 续接。</p></div></div>
           <div class="file-item"><div class="n">08</div><div><code>src/server/verification.ts</code><p>命令、Git 范围、运行时、浏览器证据与产品判断汇成矩阵。</p></div></div>
           <div class="file-item"><div class="n">09</div><div><code>src/server/target-runtime.ts</code><p>目标进程组所有权、健康检查和安全停止。</p></div></div>
@@ -396,7 +396,7 @@
       { key: 'awaiting-spec-confirmation', label: '确认规格', desc: '产品确认问题、方案、用户故事、实现决策、测试决策和明确的非目标。', input: 'SpecVersion(draft)', action: '显式确认版本', output: 'SpecVersion(confirmed)' },
       { key: 'ticket-drafting', label: '拆执行票', desc: '将规格拆成可独立实现、验证和演示的纵向工作单元，并记录真实依赖边。', input: '已确认 Spec', action: '生成版本化 Tickets', output: 'TicketVersion + ExecutionTickets' },
       { key: 'awaiting-boundary-confirmation', label: '边界确认', desc: '涉及数据库、认证、共享契约、公共组件或发布配置时，执行前必须显式确认工程影响范围。', input: '边界项 + 生效规则', action: '产品确认高风险边界', output: 'confirmed BoundaryItems' },
-      { key: 'implementation', label: '候选实现', desc: '检查干净工作区、建立需求分支，按依赖顺序串行执行 Tickets，并持续保存 Codex 事件。', input: 'Confirmed Spec + Tickets', action: 'Git branch → Codex turns', output: '候选代码 + changedFiles' },
+      { key: 'implementation', label: '候选实现', desc: '检查干净工作区、建立需求分支，只让依赖满足的 Tickets 进入 ready 队列，并持续保存 Codex 事件。', input: 'Confirmed Spec + Tickets', action: 'Ticket DAG → Git branch → Codex turns', output: '候选代码 + changedFiles' },
       { key: 'verification', label: '验证', desc: '执行声明式命令、检查 Git 修改范围、探测运行时，并用 agent-browser 采集真实路由证据。', input: '候选实现', action: '构建验证矩阵', output: 'verified / failed / not-run' },
       { key: 'awaiting-product-acceptance', label: '产品验收', desc: '机器门禁通过后，产品在真实预览中确认语义结果；不把“页面能打开”冒充为产品行为正确。', input: '验证矩阵 + 真实预览', action: '产品显式接受或返修', output: '验收记录 / RefinementRound' },
       { key: 'accepted', label: '已验收', desc: '重新核验分支和范围，只暂存允许的目录，创建稳定提交与 Frontend Delivery Handoff。', input: '产品验收', action: '受控 git add + commit', output: 'DeliveryCard + revision' },
@@ -431,7 +431,7 @@
       { label: '执行 Tickets', rows: [
         ['executeRequirement', '可靠启动后台队列', '按钮请求不等待整个 Codex Turn 完成。'],
         ['prepareExecution', '检查工作区并建分支', '脏工作区或进行中的 Git 操作直接阻断。'],
-        ['executeQueue', '按依赖串行消费', '多张票复用同一个 implementation Thread。'],
+        ['executeQueue', '消费 ready 队列', '当前 Node 逐张执行；Go 后续增加多 Worker 与独立 worktree。'],
         ['codex-adapter', '归一化上游事件', 'app-server / SDK 差异不泄漏到领域模型。'],
         ['RequirementStore', '持续落盘进度', '票状态、Agent 事件、改动文件都可刷新恢复。'],
         ['verifyCurrentRequirement', '队列完成后自动验证', '命令、范围、运行时与浏览器证据进入矩阵。'],

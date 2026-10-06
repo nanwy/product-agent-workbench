@@ -204,19 +204,19 @@ Spec 始终是全局约束，Ticket 是执行切片，所以拆票不是把需�
 
 会，所以 Ticket 不能按文件拆，而要按用户能观察到的结果拆，并且每张票都继承同一个已确认 Spec。
 
-当前 Ticket 有 `deliverable`、`acceptanceCriteria` 和 `blockedBy`。依赖只能指向前面已经存在的票，缺失依赖和向前引用会被拒绝，从输入上避免循环。执行仍然是串行的，同一时间只有一张 active，不做复杂的并行 DAG 调度。
+当前 Ticket 有 `deliverable`、`acceptanceCriteria` 和 `blockedBy`。依赖只能指向前面已经存在的票，缺失依赖和向前引用会被拒绝，从输入上避免循环。确认后只有无依赖票进入 queued，其余保持 pending；前置票全部 completed 后才解锁。当前 Node executor 仍一次消费一票，Go 迁移的后续阶段才会增加有界多 Worker、独立 worktree 和整合策略。
 
 例如“提交审批”依赖“入口与权限状态完成”，就写成第二张票 blocked by 第一张。第三张“错误提示和重试”再依赖第二张。即使每张票单独执行，Agent 仍然收到完整 Spec、之前已完成的结果和当前差异。
 
-MVP 选择串行是因为真实前端需求经常改同一组文件。为了理论上的并行去处理冲突和合并，复杂度远高于节省的时间。
+当前先把“依赖就绪”和“执行并发”拆开：DAG 决定哪些票可以 queued，Node executor 仍串行消费。这样先验证调度正确性，再在 Go 阶段用独立 worktree 和显式整合处理真正并行带来的冲突。
 
 ## 智能产品研发工作台是如何按 Ticket 增量开发和记录状态的？
 
 别名：AI 是一次生成还是按 Ticket 开发、Ticket 执行状态怎么记录、服务重启后开发任务怎么继续、用户双击执行按钮会重复建分支吗
 
-按 Ticket 串行增量开发。
+按 Ticket 依赖图增量开发；当前 Node executor 逐张消费已经就绪的队列。
 
-每张票经历 pending、active、completed 或 blocked 等状态。实现 Thread 会在同一 Requirement 内连续使用，所以它能看到前一张票的代码结果；但决定能否继续的不是聊天记忆，而是持久化的 Ticket 状态、Git 事实和验证结果。
+每张票经历 pending、queued、active、completed 或 blocked 等状态。实现 Thread 会在同一 Requirement 内连续使用，所以它能看到前一张票的代码结果；但决定能否继续的不是聊天记忆，而是持久化的 Ticket 状态、Git 事实和验证结果。
 
 服务重启也是一个典型场景。假设第二张票执行到一半，磁盘上还是 running，但进程和心跳已经消失。系统不会假装它仍在执行，也不会把整条需求清空，而是把当前票恢复成可重试的 blocked，保留第一张票、需求分支和 Thread ID。
 
@@ -330,7 +330,7 @@ Mock 也不只是用类型随机填值。Schema 负责字段形状，需求场�
 2. Agent 只读仓库，发现已有权限 hook、审批弹窗和后台入口，于是追问这次是否只改前台详情页。
 3. 产品确认后，系统保存共同理解：复用原权限和弹窗；只改 competition 前台；无权限用户和后台页面不变。
 4. 系统生成 Spec v1，产品确认后拆成三张 Ticket：入口与权限展示、审批交互、异常状态与回归验证。
-5. 第二张票通过 `blockedBy` 依赖第一张，第三张依赖第二张；执行保持串行。
+5. 第二张票通过 `blockedBy` 依赖第一张，第三张依赖第二张；只有依赖满足的票进入队列。
 6. 工作台确认仓库干净，从记录的 base revision 创建独立需求分支。
 7. Codex 读取 `AGENTS.md`、模块 README 和相关源码，在确认目录内逐票实现。每个 turn 后重新检查 Git 范围。
 8. SSE 把 app-server 文字增量实时投影到 React Query；断线或 sequence 缺口时重新获取 Requirement 快照。
@@ -385,7 +385,7 @@ Zustand 仍适合纯客户端状态，例如 Inspector 当前选中的 DOM、侧
 - 当前不会为陌生仓库自动安装依赖或直接猜启动命令；理想方案是检测后由工程师确认，再写入受信配置。
 - 当前代码位置来自路由、关键词和源码探索；DOM 点选 Inspector 是下一步方案。
 - 接口类型和 Mock 采用 Skill + Apifox CLI；不把它说成 MCP，也不把“已跑通的接口准备流程”说成已经覆盖了工作台所有阶段。
-- 当前 Ticket 支持显式依赖和串行执行，不说成已有复杂并行 DAG 调度。
+- 当前 Ticket 支持显式依赖、pending/queued 区分和依赖解锁；Node executor 尚未并行，不能说成已经完成多 Worker 与 worktree 整合。
 - 当前有真实验证数据，但没有同口径历史基线，不编造提效百分比。
 - 产品验收不等于生产批准；系统生成候选提交，前端仍决定重构、保留或丢弃。
 

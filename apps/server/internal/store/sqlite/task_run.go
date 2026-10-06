@@ -23,8 +23,9 @@ import (
 //  1. 先检查 run.Status 是否为 queued，否则返回 domain.ErrInvalidTransition；
 //  2. INSERT 时不传 enqueue_seq，让 SQLite 的 INTEGER PRIMARY KEY 生成稳定顺序；
 //  3. CreatedAt 使用 run.CreatedAt.UTC().UnixNano()，未发生的时间和结果传 nil；
-//  4. 使用 ON CONFLICT(id) DO NOTHING + RowsAffected 映射重复 ID；
-//  5. 其它唯一约束或外键错误不能伪装成 ErrAlreadyExists。
+//  4. 使用 ON CONFLICT DO NOTHING + RowsAffected，把重复 ID、重复 attempt 或同一 Ticket
+//     的第二条活动记录映射为 ErrAlreadyExists；
+//  5. 外键和 CHECK 错误仍由 SQLite 返回，不能伪装成 ErrAlreadyExists。
 func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 	if run.Status != domain.TaskStatusQueued {
 		return domain.ErrInvalidTransition
@@ -34,7 +35,7 @@ func (s *Store) EnqueueTask(ctx context.Context, run domain.TaskRun) error {
 			id, requirement_id, ticket_id, attempt,
 			status, created_at
 		) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO NOTHING
+		ON CONFLICT DO NOTHING
 	`
 	result, err := s.db.ExecContext(
 		ctx,

@@ -59,9 +59,9 @@ TanStack Start / Node 控制服务
 
 根 `AGENTS.md` 始终生效；拟修改范围内只选择最近的目录规则。Skills 探索阶段只读取 frontmatter 元数据，只有产品点名、仓库规则要求或确定性需求类型匹配时才生效。UI 展示来源、范围和激活原因。
 
-### 4. 连续会话，串行执行
+### 4. 连续会话，按依赖推进
 
-每个 Requirement 保存规划与实现 Thread ID。默认后端使用项目固定版本的 Codex app-server 创建或恢复 Thread，多张票沿用同一个 implementation Thread 串行执行；Adapter 把上游通知归一化为稳定事件，文字 delta 合批后通过 SSE 推送给浏览器。取消只终止当前 Turn，不删除 Thread。
+每个 Requirement 保存规划与实现 Thread ID。Ticket artifact 用 `blockedBy` 表达依赖：无依赖票进入 queued，其余保持 pending，前置票完成后再解锁。当前 Node executor 仍沿用同一个 implementation Thread 逐张消费；Go 后续使用有界多 Worker 与独立 worktree 执行多个 ready Ticket。Adapter 把上游通知归一化为稳定事件，文字 delta 合批后通过 SSE 推送给浏览器。取消只终止当前 Turn，不删除 Thread。
 
 ### 5. 分支隔离不等于工作区安全
 

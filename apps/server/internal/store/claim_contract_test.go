@@ -13,8 +13,8 @@ import (
 
 // runClaimStoreContract 验证领取顺序、空队列语义和原子性。
 //
-// 测试中的两条活动 TaskRun 分属不同 Requirement，因为 migration 明确禁止
-// 同一 Requirement 同时存在两条 queued/claimed/running 记录。
+// 测试中的两条活动 TaskRun 属于同一 Requirement 的不同 Ticket，用于锁定 Ticket DAG
+// 的并行队列语义；同一 Ticket 才需要禁止重复活动 attempt。
 func runClaimStoreContract(t *testing.T, factory storeFactory) {
 	t.Helper()
 
@@ -22,11 +22,10 @@ func runClaimStoreContract(t *testing.T, factory storeFactory) {
 		subject := factory(t)
 		ctx := context.Background()
 		createRequirementForTask(t, ctx, subject, "req-1")
-		createRequirementForTask(t, ctx, subject, "req-2")
 
 		createdAt := testTime()
 		first := queuedTaskFixtureFor(t, "run-first", "req-1", "ticket-1", 1, createdAt)
-		second := queuedTaskFixtureFor(t, "run-second", "req-2", "ticket-2", 1, createdAt)
+		second := queuedTaskFixtureFor(t, "run-second", "req-1", "ticket-2", 1, createdAt)
 		if err := subject.EnqueueTask(ctx, first); err != nil {
 			t.Fatalf("EnqueueTask(first) error = %v", err)
 		}

@@ -279,8 +279,9 @@ go test ./apps/server/internal/httpapi -run TestServer_GetAndCancelTaskRun -v
   `go test -race`；revision 条件 UPDATE 能阻止旧快照覆盖。
 - 练习 12 TaskRun 基础（已完成）：`EnqueueTask`、`GetTask`、`SaveTask` 与 `scanTaskRun`
   已通过公共契约、20 次重复运行、race detector 和 vet；状态 CAS 会拒绝旧快照覆盖。
-- 练习 12 原子 claim（当前）：事务 API 学习说明、公共顺序/并发/context 契约和中文实现
-  步骤已解锁，核心 `ClaimNextTask` 由你实现。TaskEvent 尚未解锁。
+- 练习 12 原子 claim（已完成）：immediate 写事务、顺序领取、双连接竞争和 context 契约
+  已通过；SQLite 查询不使用不受支持的 `FOR UPDATE`。
+- 练习 12 TaskEvent（已完成）：Memory 与 SQLite 共用批量追加、游标读取、原子性和深拷贝契约。
 - 使用数据库 API 前先读 `internal/store/sqlite/README.md`，分清 `ExecContext`、
   `QueryRowContext`、`QueryContext`、`Scan` 和项目自定义的 `scanTaskRun`。
 - 对应旧代码：`requirement-store.ts` 的 JSON 快照、临时文件 rename 和 Promise 写队列。
@@ -288,7 +289,7 @@ go test ./apps/server/internal/httpapi -run TestServer_GetAndCancelTaskRun -v
 SQLite Adapter 接收 `*sql.DB`，不锁死 driver、不在构造函数迁移，也不使用 ORM。旧 JSON
 Store 与 SQLite 在正式切流前不双写。
 
-当前 Red 测试（现在应当失败在 `ClaimNextTask` 尚未实现）：
+当前 SQLite TaskRun 与 claim 验证：
 
 ```bash
 go test ./apps/server/internal/store -run TestSQLiteClaimStoreContract -v
@@ -298,7 +299,43 @@ TaskRun 对应原 TypeScript `prepareExecution` 中把 queued Ticket 放入 JSON
 `executeQueue`/`recordExecutionFailure` 把后续状态覆盖回文件。SQLite 改为每次执行独立一行，
 并用 `WHERE id = ? AND status = ?` 代替进程内旧快照写回。
 
-### 练习 13：最小同步 Worker
+### 练习 13：Ticket DAG Scheduler
+
+- 目标：把已经确认的 Ticket artifact 转成真正可执行的 TaskRun 队列。
+- 输入：不可变 `TicketVersionID`、Ticket 的 `blockedBy` 图和 SQLite 中的执行历史。
+- 输出：只为“所有前置票已经 completed”的 Ticket 创建 queued TaskRun。
+- 对应旧代码：`confirmTicketVersion` 与 `executeQueue` 中散落的 Ticket 状态推进。
+
+学习顺序：
+
+1. 定义 Ticket artifact reader，读取确认版本而不是接受浏览器伪造 TicketID；
+2. 写纯函数计算 ready Ticket，覆盖两个并行根、汇合节点、失败阻塞和链式依赖；（当前）
+3. 给 TaskRun 增加稳定的 TicketVersionID 或 artifact digest；
+4. 实现幂等 `Reconcile`，重复调用不能创建第二条活动 attempt；
+5. 在 Ticket 完成和进程重启后重新计算 ready 集合。
+
+当前只解锁第一个纯计算 seam：`scheduler.ReadyTickets`。先让下面的测试变绿，暂时不要实现
+ArtifactReader 文件 Adapter、数据库 Reconcile 或 Worker：
+
+```bash
+go test ./apps/server/internal/scheduler -run TestReadyTickets_DiamondDAG -v
+```
+
+```text
+A ─┐
+   ├─→ C → D
+B ─┘
+
+初始 queued: A, B
+A 完成:      B
+B 完成:      C
+C 完成:      D
+```
+
+Scheduler 只负责“哪些 Ticket 可以入队”；`ClaimNextTask` 仍然只负责从 queued TaskRun 中
+原子领取，不读取 Markdown，也不理解依赖图。
+
+### 练习 14：最小同步 Worker
 
 - 文件：`internal/runner/worker.go`
 - 测试：`TestWorker_RunNextCompletesTaskWithFakeExecutor`
@@ -322,13 +359,15 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 11 migration 设计（已完成）
 → 12 SQLite Requirement 契约（已完成）
 → 12 SQLite TaskRun 入队/读取/CAS（已完成）
-→ 12 SQLite 原子 claim（当前）
-→ 12 SQLite TaskEvent 契约
-→ 13 fake executor Worker
+→ 12 SQLite 原子 claim（已完成）
+→ 12 SQLite TaskEvent 契约（已完成）
+→ 13 Ticket DAG Scheduler：ReadyTickets 纯函数（当前 Red）
+→ 14 fake executor Worker
+→ 15 有界多 Worker + 独立 Worktree + Requirement 分支整合
 ```
 
-完成练习 13 后，Go 后端会第一次具备“不依赖真实 Codex 的完整任务执行闭环”。随后才进入
-Codex app-server、Git Worktree、验证矩阵、事件/SSE 和前端切流。
+完成练习 14 后，Go 后端会第一次具备“不依赖真实 Codex 的完整任务执行闭环”。随后增加
+有界多 Worker Supervisor，但只有独立 worktree 与结果整合策略完成后才真正开启并行执行。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
@@ -344,11 +383,13 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | complete 动作（已完成） | 保存成功结果和完成时间 | `executeQueue` 中当前 Ticket 成功收尾 | 状态迁移统一经过领域状态机；调度下一票与验证仍留给 Runner |
 | fail/cancel 动作（已完成） | 保存失败原因或取消终态 | `recordExecutionFailure`、`cancelRequirementExecution` | 失败与取消不再通过对象展开手写状态；状态 CAS 防止旧快照覆盖并发终态 |
 | TaskRun HTTP（已完成） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
-| SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；当前实现原子 claim | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | JSON 聚合替换为可查询、可原子 claim 的关系数据 |
+| SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；活动唯一约束已降到 Ticket 级 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队 |
+| Ticket DAG Scheduler（待实现） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
 | 最小 Worker（骨架） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 
-当前实际完成到 SQLite TaskRun 基础；学习骨架已铺到最小 Worker。不要提前调用真实 Codex；
-先让 SQLite claim、TaskEvent 契约和 fake executor 闭环稳定。
+当前实际完成到 SQLite TaskEvent；Node 侧已具备依赖感知的 pending/queued 推进，Go 侧正在
+实现 Scheduler 的 ready 纯函数。不要提前并行调用真实 Codex；先让 Scheduler 和 fake
+executor 闭环稳定。
 
 ### 学习目标
 

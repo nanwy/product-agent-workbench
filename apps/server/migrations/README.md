@@ -5,7 +5,8 @@
 在第一阶段固定领域状态迁移前，不要创建第一份 SQL。写 SQL 前必须明确回答：
 
 1. 哪些查询会列出 Requirement，按哪些列排序或过滤？
-2. 哪条唯一约束阻止同一 Requirement 同时存在两个活动 TaskRun？
+2. 哪条唯一约束阻止同一 Ticket 同时存在两个活动 TaskRun，同时允许同一 Requirement
+   的无依赖 Ticket 并行？
 3. 哪些外键应该级联、限制删除或保留审计历史？
 4. 调用方看到的 Requirement revision 如何参与每次写操作？
 5. 事件 id 如何分配，SSE replay 保留多大的窗口？
@@ -63,7 +64,8 @@
 额外业务约束：
 
 - `(requirement_id, ticket_id, attempt)` 唯一，同一次重试不能重复创建；
-- 同一个 Requirement 最多存在一个 `queued`、`claimed` 或 `running` TaskRun；
+- 同一个 `(requirement_id, ticket_id)` 最多存在一个 `queued`、`claimed` 或 `running`
+  TaskRun；同一 Requirement 的不同 Ticket 可以同时活动；
 - `(task_run_id, sequence)` 唯一，同一个 TaskRun 的事件序号不能重复；
 - `task_runs.requirement_id` 和 `task_events.task_run_id` 使用限制删除的外键，保留审计历史；
 - result 三个字段整体表达可选结果；第一版由领域层和行扫描共同校验组合是否合法。
@@ -105,7 +107,7 @@ SQLite 没有 `SELECT FOR UPDATE`。claim 使用一个 immediate 写事务：
 | `requirements.id` 唯一 | `GetRequirement(id)` |
 | `task_runs.id` 唯一 | `GetTask(id)` 与状态 CAS |
 | `task_runs(status, enqueue_seq)` | `ClaimNextTask()` |
-| Requirement 活动态部分唯一约束 | 防止同一 Requirement 同时执行两次 |
+| Ticket 活动态部分唯一约束 | 防止同一 Ticket 重复执行，同时允许同一 Requirement 多票并行 |
 | `task_events(task_run_id, sequence)` 唯一 | 连续追加、游标读取与稳定排序 |
 | `task_events.id` 全局单调 | 后续 SSE `Last-Event-ID` replay |
 
@@ -136,10 +138,11 @@ SQLite 没有 `SELECT FOR UPDATE`。claim 使用一个 immediate 写事务：
 
 1. 手写并验证第一份只向前 migration。（已完成）
 2. 安装 SQLite driver，嵌入 migration，用独立临时磁盘数据库建立集成测试。（已完成）
-3. 复用 Memory Requirement 契约，实现 `sqlite/requirement.go` 的参数化 SQL。（当前）
-4. 修正 TaskRun 契约 fixture 的外键和活动任务语义，再实现 TaskRun 行还原。
-5. 用至少两个物理连接验证原子 claim 和 revision 并发，不只依赖 `go test -race`。
-6. 最后解锁 TaskEvent 整批事务契约。
+3. 复用 Memory Requirement 契约，实现 `sqlite/requirement.go` 的参数化 SQL。（已完成）
+4. 完成 TaskRun 行还原，并把活动唯一约束固定为 Requirement + Ticket。（已完成）
+5. 用至少两个物理连接验证原子 claim 和 revision 并发，不只依赖 `go test -race`。（已完成）
+6. 实现 TaskEvent 整批事务契约。（已完成）
+7. Store 稳定后再实现 Ticket DAG Scheduler；依赖图仍来自版本化 artifact，不提前建 Ticket 表。（当前）
 
 对应旧 TypeScript：`requirement-store.ts` 的 JSON 快照和 Promise 写队列会被事务与约束替代，
 但 Spec/Ticket Markdown 仍是文件 artifact，不迁入这些表。切流前禁止同时写 JSON 和 SQLite。

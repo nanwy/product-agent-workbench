@@ -118,7 +118,7 @@ WHERE status IN ('waiting', 'claimed', 'running');</code></pre>
     <p id="task-run-answer-2" hidden>两个任务可以拥有相同创建时间；数据库生成的 enqueue_seq 才提供无歧义的稳定顺序。</p>
   </div>
 
-  <div class="interview"><p>“TaskRun 表没有把业务 ID 和队列顺序混在一起。字符串 ID 用于领域引用，数据库整数序号用于稳定 claim；部分唯一索引只覆盖 queued、claimed、running，既阻止同一 Requirement 并发执行，又允许保留失败历史并创建下一次 attempt。”</p></div>
+  <div class="interview"><p>“TaskRun 表没有把业务 ID 和队列顺序混在一起。字符串 ID 用于领域引用，数据库整数序号用于稳定 claim；部分唯一索引只覆盖 queued、claimed、running，并以 Requirement + Ticket 为键，所以无依赖 Ticket 可以并行，同一 Ticket 又不会出现两个活动 attempt。”</p></div>
 
   <p class="tiny">先看：<a href="../reference/sqlite-syntax-glossary.html">Migration 零基础语法表</a>。主参考：<a href="https://www.sqlite.org/lang_createtable.html#rowid">SQLite INTEGER PRIMARY KEY / rowid</a>、<a href="https://www.sqlite.org/autoinc.html">SQLite AUTOINCREMENT</a>、<a href="https://www.sqlite.org/foreignkeys.html">Foreign Keys</a>、<a href="https://www.sqlite.org/partialindex.html">Partial Indexes</a>。有任何一行看不懂，直接把那一行带回来问 Agent。</p>
   <footer class="footer-nav"><a href="./0011-sqlite-task-events-table.html">下一课：TaskEvent 表</a> · <a href="./0009-sqlite-migration-first-table.html">上一课：Requirement 表</a></footer>

@@ -16,8 +16,8 @@ func TestApplication_ClaimNextTaskRun(t *testing.T) {
 
 	t.Run("领取最早任务并保存 claimed 事实", func(t *testing.T) {
 		storeAdapter := memory.New()
-		first := enqueueTaskFixture(t, storeAdapter, "run-1", taskRunTestTime)
-		second := enqueueTaskFixture(t, storeAdapter, "run-2", taskRunTestTime.Add(time.Second))
+		first := enqueueTaskFixtureForTicket(t, storeAdapter, "run-1", "ticket-1", taskRunTestTime)
+		second := enqueueTaskFixtureForTicket(t, storeAdapter, "run-2", "ticket-2", taskRunTestTime.Add(time.Second))
 		claimedAt := taskRunTestTime.Add(time.Minute)
 		readTimes := 0
 		application := newTaskRunApplication(
@@ -210,11 +210,22 @@ func enqueueTaskFixture(
 	createdAt time.Time,
 ) domain.TaskRun {
 	t.Helper()
+	return enqueueTaskFixtureForTicket(t, storeAdapter, id, "ticket-1", createdAt)
+}
+
+func enqueueTaskFixtureForTicket(
+	t *testing.T,
+	storeAdapter store.Store,
+	id string,
+	ticketID string,
+	createdAt time.Time,
+) domain.TaskRun {
+	t.Helper()
 
 	run, err := domain.NewTaskRun(domain.NewTaskRunInput{
 		ID:            id,
 		RequirementID: "req-1",
-		TicketID:      "ticket-1",
+		TicketID:      ticketID,
 		Attempt:       1,
 	}, createdAt)
 	if err != nil {

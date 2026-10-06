@@ -1181,7 +1181,7 @@ function PlanReview({ requirement }: { requirement: Requirement }) {
         </div>
         <div>
           <dt>执行票</dt>
-          <dd>{requirement.tickets.length} 张，串行执行</dd>
+          <dd>{requirement.tickets.length} 张，按依赖推进</dd>
         </div>
         <div>
           <dt>已检查代码</dt>

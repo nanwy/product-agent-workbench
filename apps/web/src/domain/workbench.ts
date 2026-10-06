@@ -28,9 +28,13 @@ export type EvidenceRecord = {
 export type ExecutionTicket = {
   id: string
   title: string
-  status: 'queued' | 'active' | 'completed' | 'blocked'
+  /**
+   * pending 表示依赖尚未满足，因此不能进入执行队列；blocked 表示这张票曾经开始执行，
+   * 但因为失败或进程中断而需要人工重试。两者不能混用。
+   */
+  status: 'pending' | 'queued' | 'active' | 'completed' | 'blocked'
   acceptanceCriteria: string[]
-  /** 只记录真实依赖边；执行阶段仍按依赖顺序串行消费 tickets。 */
+  /** 只记录真实依赖边；所有前置票 completed 后，Scheduler 才能把本票推进 queued。 */
   blockedBy?: string[]
   /** 用户可以独立观察或验证的端到端交付行为。 */
   deliverable?: string

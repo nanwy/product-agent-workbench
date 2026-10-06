@@ -4,9 +4,11 @@ import type { Requirement } from '../src/domain/workbench'
 import {
   buildTicketsPrompt,
   confirmTicketVersion,
+  initializeTicketQueue,
   nextTicketVersionIdentity,
   parseTicketsArtifact,
   recordTicketVersion,
+  releaseReadyTickets,
   stripTicketsProtocol,
 } from '../src/server/workbench-tickets'
 
@@ -41,6 +43,7 @@ describe('conversational Tickets gate', () => {
     const requirement = fixtureRequirement()
     const parsed = parseTicketsArtifact(protocol([
       { id: 'TICKET-01', title: '交付结果', blockedBy: [], deliverable: '用户能看到结果', acceptanceCriteria: ['预览可见'] },
+      { id: 'TICKET-02', title: '依赖结果', blockedBy: ['TICKET-01'], deliverable: '后继结果', acceptanceCriteria: ['前置完成'] },
     ]))!
     const identity = nextTicketVersionIdentity(requirement)
     const draft = recordTicketVersion(
@@ -53,11 +56,44 @@ describe('conversational Tickets gate', () => {
     expect(draft.conversation).toMatchObject({ phase: 'to-tickets', status: 'awaiting-confirmation' })
     expect(draft.conversation.messages.at(-1)?.segments.at(-1)).toMatchObject({ type: 'tickets', versionId: identity.id })
     expect(confirmed.conversation).toMatchObject({ phase: 'implement', activeSkill: 'implement', status: 'idle' })
-    expect(confirmed.tickets).toEqual([expect.objectContaining({ id: 'TICKET-01', status: 'queued' })])
+    expect(confirmed.tickets).toEqual([
+      expect.objectContaining({ id: 'TICKET-01', status: 'queued' }),
+      expect.objectContaining({ id: 'TICKET-02', status: 'pending' }),
+    ])
     expect(confirmTicketVersion(confirmed, identity.id)).toBe(confirmed)
     expect(() => confirmTicketVersion(draft, 'REQ-1-tickets-v0')).toThrow('当前有效')
     expect(() => confirmTicketVersion({ ...draft, conversation: { ...draft.conversation, phase: 'to-spec' } }, identity.id)).toThrow('当前阶段')
     expect(() => confirmTicketVersion({ ...draft, conversation: { ...draft.conversation, status: 'running' } }, identity.id)).toThrow('当前阶段')
+  })
+
+  it('only queues root tickets and releases a node after every dependency completes', () => {
+    const drafts = parseTicketsArtifact(protocol([
+      { id: 'TICKET-01', title: '并行根 A', blockedBy: [], deliverable: '结果 A', acceptanceCriteria: ['标准 A'] },
+      { id: 'TICKET-02', title: '并行根 B', blockedBy: [], deliverable: '结果 B', acceptanceCriteria: ['标准 B'] },
+      { id: 'TICKET-03', title: '汇合节点 C', blockedBy: ['TICKET-01', 'TICKET-02'], deliverable: '结果 C', acceptanceCriteria: ['标准 C'] },
+      { id: 'TICKET-04', title: '后继节点 D', blockedBy: ['TICKET-03'], deliverable: '结果 D', acceptanceCriteria: ['标准 D'] },
+    ]))!
+    const initialized = initializeTicketQueue(
+      drafts.map((ticket) => ({ ...ticket, path: `tickets/${ticket.id}.md` })),
+    )
+
+    expect(initialized.map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'TICKET-01', status: 'queued' },
+      { id: 'TICKET-02', status: 'queued' },
+      { id: 'TICKET-03', status: 'pending' },
+      { id: 'TICKET-04', status: 'pending' },
+    ])
+
+    const afterA = releaseReadyTickets(initialized.map((ticket) =>
+      ticket.id === 'TICKET-01' ? { ...ticket, status: 'completed' as const } : ticket,
+    ))
+    expect(afterA.find(({ id }) => id === 'TICKET-03')?.status).toBe('pending')
+
+    const afterB = releaseReadyTickets(afterA.map((ticket) =>
+      ticket.id === 'TICKET-02' ? { ...ticket, status: 'completed' as const } : ticket,
+    ))
+    expect(afterB.find(({ id }) => id === 'TICKET-03')?.status).toBe('queued')
+    expect(afterB.find(({ id }) => id === 'TICKET-04')?.status).toBe('pending')
   })
 })
 

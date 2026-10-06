@@ -10,6 +10,7 @@ import { getTargetProcessSnapshot, startTargetProject, stopTargetProject } from 
 import { verifyCurrentRequirement } from './verification'
 import { assertWorkbenchSkillBundle, resolveWorkbenchSkillPath } from './workbench-skills'
 import { applyImplementationEvent, beginImplementationTurn, finishImplementationTurn } from './workbench-implementation'
+import { releaseReadyTickets } from './workbench-tickets'
 
 const globalExecution = globalThis as typeof globalThis & {
   __workbenchExecution?: Promise<void> | null
@@ -125,7 +126,8 @@ async function prepareExecution() {
     }
   }
 
-  // 优先恢复 active，其次重试 blocked，最后取下一张 queued，从而保持单票串行语义。
+  // 优先恢复 active，其次重试 blocked，最后从 Scheduler 已判定就绪的 queued 中取一张。
+  // 当前 Node executor 仍一次只运行一票；多个 ready Ticket 会共同留在队列中等待消费。
   const activeIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'active')
   const blockedIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'blocked')
   const queuedIndex = requirement.tickets.findIndex((ticket) => ticket.status === 'queued')
@@ -286,7 +288,8 @@ async function executeQueue(signal: AbortSignal) {
     const completed = event('completed', `${ticket.id} 已完成`)
     const next = await requirementStore.update((current) => {
       if (!current) throw new Error('产品需求已不存在')
-      const tickets = current.tickets.map((candidate) => candidate.id === ticket.id ? { ...candidate, status: 'completed' as const } : candidate)
+      const completedTickets = current.tickets.map((candidate) => candidate.id === ticket.id ? { ...candidate, status: 'completed' as const } : candidate)
+      const tickets = releaseReadyTickets(completedTickets)
       const nextIndex = tickets.findIndex((candidate) => candidate.status === 'queued')
       if (nextIndex >= 0) tickets[nextIndex] = { ...tickets[nextIndex], status: 'active' }
       completed.message += nextIndex >= 0 ? `，继续 ${tickets[nextIndex].id}` : '，执行队列结束'

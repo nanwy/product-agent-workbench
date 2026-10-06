@@ -61,7 +61,7 @@ Spec 不是覆盖写。共同理解发生变化后，旧草稿标记为 `superse
 
 ### 6. 连续执行 Ticket
 
-多张 Ticket 串行执行，同一时间只有一张 active。规划和实现可以使用不同 Thread；同一 Requirement 的实现阶段会续接原 implementation Thread。取消只中止当前 Turn，Requirement、需求分支和 Thread ID 保留，之后可以继续。
+多张 Ticket 按 `blockedBy` 推进：无依赖票进入 queued，后继票保持 pending，前置票完成后才解锁。当前 Node executor 同一时间仍只有一张 active；Go 迁移后再用有界多 Worker 与独立 worktree 执行多个 ready Ticket。规划和实现可以使用不同 Thread；取消只中止当前 Turn，Requirement、需求分支和 Thread ID 保留，之后可以继续。
 
 页面操作都带幂等键，避免双击或网络重试重复建分支、启动进程或提交。执行期间每五秒刷新持久化心跳；Node 重启后，如果磁盘还写着 `running`，但进程和心跳已经消失，系统把当前票恢复为可重试的 blocked，并保留已经完成的票、分支和 Thread。
 
@@ -122,7 +122,7 @@ Agent 退出码为 0 只代表 Turn 结束。工作台宿主按配置运行 type
 
 我先把流程做成显式状态机。产品创建 Requirement 后进入只读 Grilling，Agent 只问影响实现的业务决策，输出目标结果、修改边界和验收信号。产品确认后才生成版本化 Spec，再拆成能独立观察的 Ticket。服务端只认结构化协议和当前版本，不根据 Agent 的一句“完成了”推进状态。
 
-实现前，工作台解析目标仓库的 `AGENTS.md` 和项目 Skill，检查 working tree、HEAD 与进行中的 Git 操作，从固定 revision 创建独立需求分支。Codex 的 workspace-write 只覆盖确认目录，每个 Turn 前后继续用 Git 检查越界。多张 Ticket 串行执行，取消和服务重启后保留分支、Thread 和已完成结果。
+实现前，工作台解析目标仓库的 `AGENTS.md` 和项目 Skill，检查 working tree、HEAD 与进行中的 Git 操作，从固定 revision 创建独立需求分支。Codex 的 workspace-write 只覆盖确认目录，每个 Turn 前后继续用 Git 检查越界。多张 Ticket 按依赖进入 ready 队列；当前 Node executor 逐张消费，取消和服务重启后保留分支、Thread 和已完成结果。
 
 验证没有交给 Agent 自己宣布。工作台宿主运行 typecheck、测试和 build，Runtime 管理开发服务，预览网关把真实页面嵌入工作台，`agent-browser` 记录页面结构与控制台证据。每条验证明确写 `verified`、`failed` 或带原因的 `not-run`。产品验收后，系统生成包含 Spec、Tickets、风险和验证矩阵的 Handoff 与候选提交，但不 push、不 merge。
 

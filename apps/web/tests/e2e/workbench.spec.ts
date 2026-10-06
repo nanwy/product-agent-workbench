@@ -109,9 +109,9 @@ test('reviews and confirms versioned local Spec and Tickets artifacts', async ({
   expect(confirmed.conversation.phase).toBe('implement')
   expect(confirmed.specVersions.map((version: { status: string }) => version.status)).toEqual(['superseded', 'superseded', 'superseded', 'confirmed'])
   expect(confirmed.ticketVersions.map((version: { status: string }) => version.status)).toEqual(['superseded', 'superseded', 'superseded', 'confirmed'])
-  expect(confirmed.tickets.map((ticket: { id: string; blockedBy: string[] }) => ({ id: ticket.id, blockedBy: ticket.blockedBy }))).toEqual([
-    { id: 'TICKET-01', blockedBy: [] },
-    { id: 'TICKET-02', blockedBy: ['TICKET-01'] },
+  expect(confirmed.tickets.map((ticket: { id: string; blockedBy: string[]; status: string }) => ({ id: ticket.id, blockedBy: ticket.blockedBy, status: ticket.status }))).toEqual([
+    { id: 'TICKET-01', blockedBy: [], status: 'queued' },
+    { id: 'TICKET-02', blockedBy: ['TICKET-01'], status: 'pending' },
   ])
   for (const ticket of confirmed.ticketVersions.at(-1).tickets) {
     await expect(readFile(path.join(dataRoot, ticket.path), 'utf8')).resolves.toContain('**Status:** ready-for-agent')

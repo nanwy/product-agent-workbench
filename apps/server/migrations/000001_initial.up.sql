@@ -48,7 +48,7 @@ CREATE TABLE requirements (
 -- 6. status 只能是 queued/claimed/running/completed/failed/cancelled。
 -- 7. (requirement_id, ticket_id, attempt) 必须唯一。
 -- 8. 创建 status + enqueue_seq 队列索引。
--- 9. 创建只约束 queued/claimed/running 的 Requirement 活动态部分唯一索引。
+-- 9. 创建只约束 queued/claimed/running 的 Ticket 活动态部分唯一索引。
 --
 -- 写完后自查：两个 created_at 完全相同的任务靠什么稳定排序？为什么不能 INSERT OR REPLACE？
 
@@ -79,10 +79,11 @@ CREATE TABLE task_runs (
 CREATE INDEX idx_task_runs_queue
 ON task_runs(status, enqueue_seq);
 
--- 部分唯一索引只约束活动状态：同一 Requirement 不能同时有两个正在执行的 TaskRun。
+-- 部分唯一索引只约束活动状态：同一 Ticket 不能同时有两个正在执行的 TaskRun。
+-- 同一 Requirement 的不同 Ticket 可以同时活动，为后续 DAG Scheduler 和多 Worker 保留并行能力。
 -- completed/failed/cancelled 不进入该索引，因此仍可保留历史并创建新的 attempt。
-CREATE UNIQUE INDEX ux_task_runs_one_active_requirement
-ON task_runs(requirement_id)
+CREATE UNIQUE INDEX ux_task_runs_one_active_ticket
+ON task_runs(requirement_id, ticket_id)
 WHERE status IN ('queued', 'claimed', 'running');
 -- ---------------------------------------------------------------------------
 -- 第 3 步：task_events

@@ -17,6 +17,51 @@ import (
 func runTaskRunStoreContract(t *testing.T, factory storeFactory) {
 	t.Helper()
 
+	t.Run("同一 Requirement 的不同 Ticket 可同时入队，同一 Ticket 只能有一个活动 attempt", func(t *testing.T) {
+		subject := factory(t)
+		ctx := context.Background()
+		createRequirementForTask(t, ctx, subject, "req-1")
+		createdAt := testTime()
+
+		first := queuedTaskFixtureFor(t, "run-a-1", "req-1", "ticket-a", 1, createdAt)
+		parallel := queuedTaskFixtureFor(t, "run-b-1", "req-1", "ticket-b", 1, createdAt)
+		if err := subject.EnqueueTask(ctx, first); err != nil {
+			t.Fatalf("EnqueueTask(ticket-a) error = %v", err)
+		}
+		if err := subject.EnqueueTask(ctx, parallel); err != nil {
+			t.Fatalf("同一 Requirement 的不同 Ticket 入队 error = %v", err)
+		}
+
+		overlappingRetry := queuedTaskFixtureFor(t, "run-a-2", "req-1", "ticket-a", 2, createdAt.Add(time.Second))
+		if err := subject.EnqueueTask(ctx, overlappingRetry); !errors.Is(err, store.ErrAlreadyExists) {
+			t.Fatalf("同一 Ticket 的第二条活动 attempt error = %v, want ErrAlreadyExists", err)
+		}
+
+		claimed, err := first.Claim(createdAt.Add(time.Second))
+		if err != nil {
+			t.Fatalf("Claim() fixture error = %v", err)
+		}
+		running, err := claimed.Start(createdAt.Add(2 * time.Second))
+		if err != nil {
+			t.Fatalf("Start() fixture error = %v", err)
+		}
+		completed, err := running.Complete(domain.TaskResult{Summary: "ticket-a 完成"}, createdAt.Add(3*time.Second))
+		if err != nil {
+			t.Fatalf("Complete() fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, completed, domain.TaskStatusQueued); err != nil {
+			t.Fatalf("SaveTask(completed) error = %v", err)
+		}
+		if err := subject.EnqueueTask(ctx, overlappingRetry); err != nil {
+			t.Fatalf("前一 attempt 终止后重试入队 error = %v", err)
+		}
+
+		duplicateAttempt := queuedTaskFixtureFor(t, "run-a-2-duplicate", "req-1", "ticket-a", 2, createdAt.Add(2*time.Second))
+		if err := subject.EnqueueTask(ctx, duplicateAttempt); !errors.Is(err, store.ErrAlreadyExists) {
+			t.Fatalf("重复 attempt error = %v, want ErrAlreadyExists", err)
+		}
+	})
+
 	t.Run("TaskRun 入队、读取与保存使用深拷贝", func(t *testing.T) {
 		subject := factory(t)
 		ctx := context.Background()

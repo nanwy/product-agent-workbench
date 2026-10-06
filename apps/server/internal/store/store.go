@@ -32,6 +32,9 @@ type Store interface {
 	) (int64, error)
 
 	// EnqueueTask 首次保存 queued TaskRun。
+	//
+	// 同一 Requirement 的不同 Ticket 可以同时活动；同一 Ticket 已有 queued、claimed 或
+	// running attempt 时返回 ErrAlreadyExists，避免 Scheduler 重复入队。
 	EnqueueTask(ctx context.Context, run domain.TaskRun) error
 
 	// GetTask 按 ID 返回 TaskRun 的深拷贝。

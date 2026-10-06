@@ -115,7 +115,7 @@ SSE 事件只是“发生了变化”的低成本投影。客户端收到事件�
   → 创建 task run（queued）
   → scheduler 原子 claim（claimed）
   → Runner 创建 managed worktree，启动/续接 Codex（running）
-  → 每票串行执行，事件持久化后通知 SSE
+  → 按 Ticket DAG 计算 ready 队列，先同步执行，再升级为独立 worktree 的有界并行
   → host verification + browser evidence
   → completed 或 failed/cancelled
   → 产品查看真实 preview 并验收
@@ -242,6 +242,6 @@ HTTP 请求只负责可靠地登记动作，不等待长任务。Runner 使用�
 
 ### 目标简历表述（实现完成后才能使用）
 
-> 设计并实现本地规格驱动研发控制面：使用 Go、SQLite 与 React 管理 Requirement/TaskRun 状态机，通过 SSE 事件 replay 支持断线恢复；以 JSON-RPC 监督 Codex app-server，在受管 Git worktree 中串行执行候选变更，并通过真实预览、主机验证矩阵和人工 Handoff 保留生产合并权。
+> 设计并实现本地规格驱动研发控制面：使用 Go、SQLite 与 React 管理 Requirement/TaskRun 状态机，通过 SSE 事件 replay 支持断线恢复；以 Ticket DAG 计算 ready 队列，通过 JSON-RPC 监督 Codex app-server，在受管 Git worktree 中执行并整合候选变更，并通过真实预览、主机验证矩阵和人工 Handoff 保留生产合并权。
 
 在 Phase 2～6 未完成前，只能表述为“正在将 TypeScript MVP 迁移到上述架构”，不能把目标能力写成已交付事实。

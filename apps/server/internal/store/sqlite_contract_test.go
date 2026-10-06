@@ -25,8 +25,7 @@ func TestSQLiteRequirementStoreContract(t *testing.T) {
 
 // TestSQLiteTaskRunStoreContract 是练习 12 的第二个纵向切片。
 //
-// 当前故意处于 Red：实现 EnqueueTask、GetTask、SaveTask 后才会变绿。
-// ClaimNextTask 和 TaskEvent 尚未加入 SQLite 契约。
+// 它验证 EnqueueTask、GetTask、SaveTask 以及 Ticket 级活动唯一约束。
 func TestSQLiteTaskRunStoreContract(t *testing.T) {
 	runTaskRunStoreContract(t, newSQLiteStore)
 }
@@ -37,6 +36,13 @@ func TestSQLiteTaskRunStoreContract(t *testing.T) {
 // 不能通过把连接池限制为 1 来让测试“看起来稳定”。
 func TestSQLiteClaimStoreContract(t *testing.T) {
 	runClaimStoreContract(t, newSQLiteStore)
+}
+
+// TestSQLiteTaskEventStoreContract 复用 Memory 已通过的 TaskEvent 行为契约。
+//
+// 它验证整批追加的原子性、单 TaskRun sequence、全局事件 ID、游标读取与 Payload 深拷贝。
+func TestSQLiteTaskEventStoreContract(t *testing.T) {
+	runTaskEventStoreContract(t, newSQLiteStore)
 }
 
 // newSQLiteStore 为每个子测试创建独立的磁盘数据库。

@@ -1,4 +1,4 @@
-import type { Requirement, TicketDraft } from '../domain/workbench'
+import type { ExecutionTicket, Requirement, TicketDraft } from '../domain/workbench'
 import { resolveWorkbenchSkillPath } from './workbench-skills'
 
 export const TICKETS_ARTIFACT_START = '[WORKBENCH:TICKETS]'
@@ -96,6 +96,39 @@ export function renderTicketMarkdown(ticket: ParsedTicket) {
   ].join('\n')
 }
 
+/**
+ * 把确认后的不可变 Ticket artifact 转成第一批执行状态。
+ *
+ * 没有前置依赖的根 Ticket 可以立即进入队列；其余 Ticket 只保存为 pending，不能因为它们
+ * 在 artifact 中排得靠前就提前执行。当前 Node MVP 仍由一个执行循环消费 queued，Go
+ * Scheduler 接管后也必须保持相同语义。
+ */
+export function initializeTicketQueue(tickets: TicketDraft[]): ExecutionTicket[] {
+  return tickets.map((ticket) => ({
+    ...ticket,
+    status: ticket.blockedBy.length === 0 ? 'queued' as const : 'pending' as const,
+  }))
+}
+
+/**
+ * 根据已经完成的 Ticket 解锁所有新就绪节点。
+ *
+ * 这是 Ticket DAG 的纯计算 seam：只把 pending 变为 queued，不修改 active、失败待重试或
+ * 已完成状态。依赖失败/取消时不会出现在 completed 集合中，因此后继票会继续 pending。
+ */
+export function releaseReadyTickets(tickets: ExecutionTicket[]): ExecutionTicket[] {
+  const completed = new Set(
+    tickets.filter((ticket) => ticket.status === 'completed').map((ticket) => ticket.id),
+  )
+  return tickets.map((ticket) => {
+    if (ticket.status !== 'pending') return ticket
+    const blockers = ticket.blockedBy ?? []
+    return blockers.length > 0 && blockers.every((blocker) => completed.has(blocker))
+      ? { ...ticket, status: 'queued' as const }
+      : ticket
+  })
+}
+
 /** 固化当前草稿并把卡片挂到最后一条 assistant 消息；旧版本只标记失效。 */
 export function recordTicketVersion(
   requirement: Requirement,
@@ -141,7 +174,7 @@ export function confirmTicketVersion(
     stage: 'implementation',
     updatedAt: confirmedAt,
     ticketVersions: versions.map((version) => version.id === versionId ? { ...version, status: 'confirmed' as const, confirmedAt } : version),
-    tickets: active.tickets.map((ticket) => ({ ...ticket, status: 'queued' as const })),
+    tickets: initializeTicketQueue(active.tickets),
     conversation: {
       ...requirement.conversation,
       phase: 'implement',
