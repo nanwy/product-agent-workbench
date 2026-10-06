@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
@@ -10,9 +12,6 @@ import (
 
 // ErrInvalidDependencies 表示 Worker 缺少应用用例或执行 Adapter。
 var ErrInvalidDependencies = errors.New("Worker 依赖无效")
-
-// errRunNextNotImplemented 只用于最小 Worker 学习脚手架。
-var errRunNextNotImplemented = errors.New("Worker.RunNext 尚未实现")
 
 // TaskRunApplication 是 Worker 消费的 TaskRun 生命周期 seam。
 type TaskRunApplication interface {
@@ -74,5 +73,76 @@ func NewWorker(dependencies WorkerDependencies) (*Worker, error) {
 // context 取消时不要用 context.Background() 强行写失败；任务保留为 claimed/running，后续
 // 重启恢复策略根据持久事实决定重试或失败。
 func (w *Worker) RunNext(ctx context.Context) (domain.TaskRun, error) {
-	return domain.TaskRun{}, errRunNextNotImplemented
+	// 第一步：从 Store 原子领取最早的 queued 任务。
+	// ClaimNextTaskRun 已经把“查找 + queued → claimed”封装成一个原子操作，Worker
+	// 不能先查询再领取，否则多个 Worker 可能拿到同一条任务。
+	claimed, err := w.application.ClaimNextTaskRun(ctx)
+	if err != nil {
+		return domain.TaskRun{}, err
+	}
+
+	// 第二步：在调用外部执行器之前，先把控制面事实推进为 running。
+	// 如果这里失败，任务仍停留在 claimed；恢复策略以后可以根据这个状态决定如何处理。
+	running, err := w.application.StartTaskRun(ctx, claimed.ID)
+	if err != nil {
+		return claimed, fmt.Errorf("启动 TaskRun %q: %w", claimed.ID, err)
+	}
+
+	// 第三步：只从服务端可信配置和已确认 Ticket artifact 构造执行请求。
+	// BuildRequest 失败说明当前任务无法执行，也应把已经 running 的任务保存为 failed。
+	request, err := w.buildRequest(ctx, running)
+	if err != nil {
+		return w.failRunningTask(ctx, running, fmt.Errorf("构造 TaskRun %q 的执行请求: %w", running.ID, err))
+	}
+
+	// RequestBuilder 只负责补充仓库路径和 Prompt。TaskRun 必须使用刚刚持久化的 running
+	// 快照，避免错误的 Builder 返回另一条任务或旧状态并传给执行器。
+	request.TaskRun = running
+
+	// 第四步：同步执行一次任务。这里故意不创建 goroutine；调用方拥有 ctx，也负责决定
+	// RunNext 何时返回。事件接收器由 Executor 在执行过程中按顺序调用。
+	runResult, err := w.executor.Run(ctx, request, w.eventSink)
+	if err != nil {
+		return w.failRunningTask(ctx, running, err)
+	}
+
+	// 第五步：只有执行器成功返回后，才允许保存 completed 和执行结果。
+	// 如果落盘失败，不能再把任务标成 failed，因为外部执行实际上已经成功；调用方需要
+	// 保留这个错误，后续恢复流程再核对 running 记录与外部结果。
+	completed, err := w.application.CompleteTaskRun(ctx, app.CompleteTaskRunInput{
+		ID:     running.ID,
+		Result: runResult.Result,
+	})
+	if err != nil {
+		return running, fmt.Errorf("完成 TaskRun %q: %w", running.ID, err)
+	}
+	return completed, nil
+}
+
+// failRunningTask 尝试把已经进入 running 的任务保存为 failed，同时保留最初执行错误。
+//
+// context 已取消时不能改用 context.Background() 绕过调用方：此时保持 running 事实，交给
+// 后续重启恢复逻辑判断。若保存 failed 也失败，则用 errors.Join 同时返回两个原因。
+func (w *Worker) failRunningTask(
+	ctx context.Context,
+	running domain.TaskRun,
+	cause error,
+) (domain.TaskRun, error) {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return running, ctxErr
+	}
+
+	reason := strings.TrimSpace(cause.Error())
+	if reason == "" {
+		// 领域层不接受空失败原因；这里提供稳定描述，但仍通过返回值保留原始 error。
+		reason = "执行器返回了空失败原因"
+	}
+	failed, err := w.application.FailTaskRun(ctx, app.FailTaskRunInput{
+		ID:     running.ID,
+		Reason: reason,
+	})
+	if err != nil {
+		return running, errors.Join(cause, fmt.Errorf("保存 TaskRun %q 失败状态: %w", running.ID, err))
+	}
+	return failed, cause
 }

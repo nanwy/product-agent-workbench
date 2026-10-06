@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～13 已完成，练习 14 下一步
+## 当前进度：练习 1～14 已完成，练习 15 下一步
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -205,7 +205,7 @@ go test -race ./apps/server/...
 本次执行完成”的部分。继续下一张 Ticket、运行验证矩阵和发布事件仍由后续 Runner、
 verification 与事件模块负责，不能塞进这个 Application 用例。
 
-## 后续学习骨架：已经铺到最小 Worker
+## 后续学习骨架：已经铺到有界多 Worker 前
 
 下面的文件已经存在。练习 7～10 已完成；下一步从练习 11 开始。后续仍然一次只解锁一个公开
 seam 的测试，保持 red → green。
@@ -340,7 +340,7 @@ Scheduler 只负责“哪些 Ticket 可以入队”；`ClaimNextTask` 仍然只�
 ### 练习 14：最小同步 Worker
 
 - 文件：`internal/runner/worker.go`
-- 测试：`TestWorker_RunNextCompletesTaskWithFakeExecutor`
+- 状态：已完成。
 - 实现：claim → start → BuildRequest → fake Executor.Run → complete；失败时进入 fail。
 - 对应旧代码：`prepareExecution + executeQueue` 的最小纵向切片。
 
@@ -364,8 +364,8 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 12 SQLite 原子 claim（已完成）
 → 12 SQLite TaskEvent 契约（已完成）
 → 13 Ticket DAG Scheduler（已完成）
-→ 14 fake executor Worker（下一步）
-→ 15 有界多 Worker + 独立 Worktree + Requirement 分支整合
+→ 14 fake executor Worker（已完成）
+→ 15 有界多 Worker + 独立 Worktree + Requirement 分支整合（下一步）
 ```
 
 完成练习 14 后，Go 后端会第一次具备“不依赖真实 Codex 的完整任务执行闭环”。随后增加
@@ -387,11 +387,11 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | TaskRun HTTP（已完成） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
 | SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；活动唯一约束已降到 Ticket 级 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队 |
 | Ticket DAG Scheduler（已完成） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
-| 最小 Worker（骨架） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
+| 最小 Worker（已完成） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 
-当前实际完成到 Ticket DAG Scheduler；Node 侧原有的 pending/queued 推进已经在 Go 中收敛
-为纯 ready 计算和幂等 Reconcile。下一步用 fake executor 完成同步 Worker 闭环，不提前
-并行调用真实 Codex。
+当前实际完成到最小同步 Worker：Node 侧原有的 pending/queued 推进已经在 Go 中收敛为纯
+ready 计算和幂等 Reconcile，单条 TaskRun 也已具备同步执行闭环。下一步才增加有界并发、
+独立 Worktree 和 Requirement 分支整合。
 
 ### 学习目标
 
