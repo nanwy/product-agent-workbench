@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～15A 已完成，练习 15B 下一步
+## 当前进度：练习 1～15B 已完成，练习 16 下一步
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -366,12 +366,14 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 13 Ticket DAG Scheduler（已完成）
 → 14 fake executor Worker（已完成）
 → 15A 有界多 Worker + Worktree 隔离/整合编排（已完成）
-→ 15B 真实 Git Worktree Adapter + ownership 恢复（下一步）
+→ 15B 真实 Git Worktree Adapter + ownership 恢复（已完成）
+→ 16 Codex app-server Adapter（下一步）
 ```
 
-练习 15A 已加入固定并发槽位的 Supervisor、独立 Worktree 的 ManagedRunner、修改范围门禁、
-Requirement 分支整合 seam，以及 completed 后重新计算 Ticket DAG 的 Hook。当前仍使用 fake
-Workspace Manager；练习 15B 才实现真实 Git Adapter、ownership 记录与重启恢复。
+练习 15B 已实现真实 Git Adapter：Ticket 和 Requirement 分别使用受管 Worktree；Git 命令
+不经过 Shell；修改范围在提交前重新检查；并行 Ticket 通过非快进 merge 串行整合。ownership
+记录原子写入磁盘，重启后只恢复记录与实时 Git 事实一致的目录；中断 merge 会自动 abort，
+路径存在但没有 ownership 记录时拒绝接管或清理。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
@@ -390,11 +392,12 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；活动唯一约束已降到 Ticket 级 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队 |
 | Ticket DAG Scheduler（已完成） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
 | 最小 Worker（已完成） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
-| 有界 Worker/Worktree 编排（已完成） | 固定并发排空 ready 队列；每票隔离执行后整合 | 原串行 `executeQueue` 暂无对应能力 | 并发数量受控；完成后重新计算 DAG；真实 Git Adapter 留到 15B |
+| 有界 Worker/Worktree 编排（已完成） | 固定并发排空 ready 队列；每票隔离执行后整合 | 原串行 `executeQueue` 暂无对应能力 | 并发数量受控；完成后重新计算 DAG |
+| 真实 Git Worktree Adapter（已完成） | ownership、范围门禁、提交、非快进整合、冲突回滚和重启恢复 | `git-workspace.ts` 直接占用用户 checkout | 用户 checkout 不切分支；只清理可证明归属的受管目录 |
 
-当前实际完成到有界 Worker 与 Worktree 编排：Node 侧原有的 pending/queued 推进已经在 Go
-中收敛为纯 ready 计算和幂等 Reconcile，多张 ready Ticket 可以由固定槽位并行消费，并通过
-Workspace Manager seam 隔离及整合。下一步实现真实 Git Adapter 与 ownership 恢复。
+当前实际完成到真实 Git Worktree Adapter：多张 ready Ticket 可以由固定槽位并行消费，各自
+在受管 Worktree 中修改，并串行整合到 Requirement 分支。下一步实现 Codex app-server 协议
+Adapter，把现在的 fake Executor 替换为真实 Turn。
 
 ### 学习目标
 

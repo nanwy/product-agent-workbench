@@ -143,8 +143,9 @@ func validModificationScopes(scopes []string) bool {
 		return false
 	}
 	for _, scope := range scopes {
-		normalized := path.Clean(strings.ReplaceAll(strings.TrimSpace(scope), "\\", "/"))
-		if normalized == "" || path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		trimmed := strings.TrimSpace(scope)
+		normalized := path.Clean(strings.ReplaceAll(trimmed, "\\", "/"))
+		if trimmed == "" || path.IsAbs(normalized) || normalized == ".." || strings.HasPrefix(normalized, "../") {
 			return false
 		}
 	}
