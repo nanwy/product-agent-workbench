@@ -41,10 +41,10 @@ type RequirementResponse struct {
 	Revision  int64                   `json:"revision"`
 }
 
-// EnqueueTaskRunRequest 是浏览器请求调度一个已确认 TicketVersion 的稳定 JSON 合约。
+// ReconcileTaskRunsRequest 是浏览器请求调度一个已确认 TicketVersion 的稳定 JSON 合约。
 //
 // TicketID 和 Attempt 不接受浏览器输入；Scheduler 必须从确认 artifact 与执行历史计算。
-type EnqueueTaskRunRequest struct {
+type ReconcileTaskRunsRequest struct {
 	RequirementID   string `json:"requirementId"`
 	TicketVersionID string `json:"ticketVersionId"`
 }

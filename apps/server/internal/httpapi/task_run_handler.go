@@ -2,8 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-
-	"product-agent-workbench/internal/app"
 )
 
 // handleReconcileTaskRuns 处理 POST /api/v1/task-runs。
@@ -11,7 +9,7 @@ import (
 // 浏览器只提交已确认版本的身份；具体执行票和 attempt 由 Scheduler 决定，不能从请求体
 // 直接构造 TaskRun。
 func (s *Server) handleReconcileTaskRuns(w http.ResponseWriter, r *http.Request) {
-	var request EnqueueTaskRunRequest
+	var request ReconcileTaskRunsRequest
 	if err := decodeJSON(w, r, &request); err != nil {
 		writeError(w, err)
 		return

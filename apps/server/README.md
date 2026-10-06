@@ -257,13 +257,14 @@ UPDATE task_runs SET ... WHERE id = ? AND status = ?;
 
 - 状态：已完成。
 - 文件：`internal/httpapi/task_run_handler.go`、`contracts.go`、`server.go`
-- 练习 9：实现 DTO 映射与 `POST /api/v1/task-runs`。
+- 练习 9：实现 DTO 映射与 `POST /api/v1/task-runs`；该入口现在只接收
+  `RequirementID + TicketVersionID`，并调用 Scheduler 计算本次可入队 Ticket。
 - 练习 10：实现 `GET /api/v1/task-runs/{id}` 与
   `POST /api/v1/task-runs/{id}/cancel`。
 - 对应旧代码：浏览器启动执行、读取快照和取消执行的 Server Function 入口。
 
-只有浏览器需要的 enqueue/get/cancel 暴露为 HTTP。claim/start/complete/fail 是 Worker 内部
-生命周期，不能让浏览器伪造。
+浏览器只暴露 reconcile/get/cancel。原始 enqueue 与 claim/start/complete/fail 都是服务端内部
+生命周期，不能让浏览器伪造 Ticket、Attempt 或依赖状态。
 
 ```bash
 go test ./apps/server/internal/httpapi -run TestServer_EnqueueTaskRun -v

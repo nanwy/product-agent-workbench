@@ -43,10 +43,10 @@ CREATE TABLE requirements (
 -- 2. id 是业务 ID，必须唯一且非空；因为 enqueue_seq 已占用整数主键位置，思考这里应使用
 --    UNIQUE 还是第二个 PRIMARY KEY（SQLite 一张表不能有两个主键）。
 -- 3. requirement_id 使用外键引用 requirements.id，并限制删除。
--- 4. ticket_id、attempt、status、created_at 必填；attempt >= 1。
+-- 4. ticket_version_id、ticket_id、attempt、status、created_at 必填；attempt >= 1。
 -- 5. claimed_at、started_at、finished_at 和结果字段允许 NULL。
 -- 6. status 只能是 queued/claimed/running/completed/failed/cancelled。
--- 7. (requirement_id, ticket_id, attempt) 必须唯一。
+-- 7. (requirement_id, ticket_version_id, ticket_id, attempt) 必须唯一。
 -- 8. 创建 status + enqueue_seq 队列索引。
 -- 9. 创建只约束 queued/claimed/running 的 Ticket 活动态部分唯一索引。
 --
@@ -56,6 +56,7 @@ CREATE TABLE task_runs (
     enqueue_seq INTEGER PRIMARY KEY,
     id TEXT NOT NULL UNIQUE,
     requirement_id TEXT NOT NULL  REFERENCES requirements(id) ON DELETE RESTRICT,
+    ticket_version_id TEXT NOT NULL,
     ticket_id TEXT NOT NULL,
     attempt INTEGER NOT NULL,
     status TEXT NOT NULL,
@@ -72,7 +73,7 @@ CREATE TABLE task_runs (
     CHECK (status IN (
         'queued','claimed','running','completed','failed','cancelled'
     )),
-    UNIQUE (requirement_id, ticket_id, attempt)
+    UNIQUE (requirement_id, ticket_version_id, ticket_id, attempt)
 );
 
 -- ClaimNextTask 先按 status 筛选 queued，再按 enqueue_seq 找最早入队记录。

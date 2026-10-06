@@ -20,6 +20,9 @@ type EnqueueTaskRunInput struct {
 
 // EnqueueTaskRun 创建并持久化 queued TaskRun。
 //
+// 这是 Worker、迁移工具等服务端内部调用的底层用例。浏览器不能直接调用它；浏览器只能
+// 请求 Scheduler.Reconcile，让 Scheduler 根据已确认 artifact 决定 Ticket 和 Attempt。
+//
 // 建议按以下顺序实现：
 //  1. 先检查 ctx.Err()；已经取消的请求不能继续读写 Store，也不能消耗 ID 或时间。
 //  2. 使用 strings.TrimSpace 清理 RequirementID、TicketID，并校验 Attempt >= 1。

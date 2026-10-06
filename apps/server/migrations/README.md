@@ -58,7 +58,7 @@
 | 表 | 字段 | 约束目的 |
 | --- | --- | --- |
 | `requirements` | `id`, `project_id`, `title`, `stage`, `revision` | `id` 唯一；`revision >= 1`；stage 只能取领域枚举 |
-| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、三个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举；000002 为旧记录回填 `legacy` 版本 |
+| `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、三个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
 | `task_events` | `id`, `task_run_id`, `sequence`, `type`, `payload`, `created_at` | `id` 是全局 SSE 游标；sequence 正数 |
 
 额外业务约束：

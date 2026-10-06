@@ -83,7 +83,7 @@ func newSQLiteStore(t *testing.T) store.Store {
 	if err != nil {
 		t.Fatalf("读取 migration 目录：%v", err)
 	}
-	// embed.FS 的 ReadDir 按文件名排序，因此 000001、000002 会稳定按版本顺序执行。
+	// embed.FS 的 ReadDir 按文件名排序，未来新增 migration 时仍会按版本顺序执行。
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".up.sql") {
 			continue
