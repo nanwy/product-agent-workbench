@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～15B 已完成，练习 16 下一步
+## 当前进度：练习 1～16B 已完成，练习 16C 下一步
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -367,13 +367,24 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 14 fake executor Worker（已完成）
 → 15A 有界多 Worker + Worktree 隔离/整合编排（已完成）
 → 15B 真实 Git Worktree Adapter + ownership 恢复（已完成）
-→ 16 Codex app-server Adapter（下一步）
+→ 16A JSON-RPC 消息模型与单读/单写循环（已完成）
+→ 16B Codex app-server 子进程生命周期（已完成）
+→ 16C initialize + Thread 创建/恢复（下一步）
+→ 16D Turn 执行、通知、中断与结果归一化
 ```
 
 练习 15B 已实现真实 Git Adapter：Ticket 和 Requirement 分别使用受管 Worktree；Git 命令
 不经过 Shell；修改范围在提交前重新检查；并行 Ticket 通过非快进 merge 串行整合。ownership
 记录原子写入磁盘，重启后只恢复记录与实时 Git 事实一致的目录；中断 merge 会自动 abort，
 路径存在但没有 ownership 记录时拒绝接管或清理。
+
+练习 16A 已实现可复用的 JSON-RPC 传输层：输入按换行拆分消息，输出统一经过单一写循环，
+并发请求使用递增数字 ID 与 pending map 匹配响应；通知和 app-server 反向请求分别进入独立
+回调。连接取消或协议失败时会关闭两端管道并唤醒全部等待请求，避免遗留 goroutine。
+
+练习 16B 已实现 app-server 子进程生命周期：受信任配置直接组成 argv，不经过 Shell；stdout
+只交给 JSON-RPC，stderr 只保留有上限的诊断尾部。父 context 取消或主动 Shutdown 时先关闭
+stdin 请求优雅退出，超过宽限期后在 Unix 终止进程组，内部唯一 goroutine 负责 Wait 和回收退出状态。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
