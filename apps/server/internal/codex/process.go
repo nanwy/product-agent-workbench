@@ -193,6 +193,16 @@ func (p *AppServerProcess) Connection() *JSONRPCConnection {
 	return p.connection
 }
 
+// Done 在操作系统子进程退出后关闭。它只用于 select，不携带退出结果；结果通过 Wait 获取。
+func (p *AppServerProcess) Done() <-chan struct{} {
+	if p == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return p.done
+}
+
 // Wait 等待子进程退出；传入的 ctx 只控制“等待多久”，不拥有也不取消子进程。
 func (p *AppServerProcess) Wait(ctx context.Context) (AppServerExit, error) {
 	if p == nil {

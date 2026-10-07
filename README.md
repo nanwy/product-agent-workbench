@@ -30,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **78%**；学习脚手架已经进入真实 Codex Adapter，
-约覆盖后端迁移路线的 **90%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **84%**；学习脚手架已经闭合真实 Codex Adapter，
+约覆盖后端迁移路线的 **94%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -47,7 +47,7 @@ docs/         架构、面试与学习文档
 | 最小同步 Worker + fake executor | 已完成同步 claim/start/execute/complete/fail 闭环 | `prepareExecution + executeQueue` 的最小纵向切片 |
 | 有界多 Worker + Worktree 编排 | 已完成固定槽位、范围门禁、整合 seam 与完成后 DAG 重算 | Node 当前串行执行，无对应并行能力 |
 | 真实 Git Worktree Adapter | 已完成 ownership、隔离提交、非快进整合、冲突回滚和重启恢复 | `git-workspace.ts` 当前占用用户 checkout |
-| 真实 Codex Adapter、验证、SSE、前端切流 | JSONL 传输与 app-server 进程生命周期已完成 | 现有 Node 高权限模块与浏览器状态同步 |
+| 真实 Codex Adapter、进程装配、验证、SSE、前端切流 | Codex Adapter 与 Go 进程生命周期已完成；验证、SSE 和前端切流待完成 | 现有 Node 高权限模块与浏览器状态同步 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 

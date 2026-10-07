@@ -89,6 +89,7 @@ func (r *ManagedRunner) Run(
 	if len(changedFiles) == 0 {
 		return RunResult{}, fmt.Errorf("TaskRun %q: %w", request.TaskRun.ID, ErrNoWorkspaceChanges)
 	}
+	// 不允许修改范围外的文件。
 	if outside := filesOutsideScopes(changedFiles, request.Workspace.ModificationScopes); len(outside) > 0 {
 		return RunResult{}, fmt.Errorf(
 			"TaskRun %q: %w: %s",

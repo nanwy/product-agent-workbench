@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～16B 已完成，练习 16C 下一步
+## 当前进度：练习 1～17D 已完成，下一步是 18A SSE replay
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -369,8 +369,13 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 15B 真实 Git Worktree Adapter + ownership 恢复（已完成）
 → 16A JSON-RPC 消息模型与单读/单写循环（已完成）
 → 16B Codex app-server 子进程生命周期（已完成）
-→ 16C initialize + Thread 创建/恢复（下一步）
-→ 16D Turn 执行、通知、中断与结果归一化
+→ 16C initialize + Thread 创建/恢复（已完成）
+→ 16D Turn 执行、通知、中断与结果归一化（已完成）
+→ 17A Verification Matrix 纯规则（已完成）
+→ 17B RequestBuilder + EventSink Adapter（已完成）
+→ 17C main 进程入口依赖装配（已完成）
+→ 17D 真实 Adapter 与进程生命周期（已完成）
+→ 18A 持久化事件 SSE replay（下一步）
 ```
 
 练习 15B 已实现真实 Git Adapter：Ticket 和 Requirement 分别使用受管 Worktree；Git 命令
@@ -385,6 +390,54 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 练习 16B 已实现 app-server 子进程生命周期：受信任配置直接组成 argv，不经过 Shell；stdout
 只交给 JSON-RPC，stderr 只保留有上限的诊断尾部。父 context 取消或主动 Shutdown 时先关闭
 stdin 请求优雅退出，超过宽限期后在 Unix 终止进程组，内部唯一 goroutine 负责 Wait 和回收退出状态。
+
+练习 16C 已实现有状态协议 Client：必须先等待 initialize 成功，再发送 initialized；随后按
+受信任 RunRequest 中是否存在 Thread ID 选择 thread/start 或 thread/resume，并校验响应中的 Thread ID。
+
+练习 16D 已实现真实 Executor：在受管 Worktree 中启动 Turn，顺序持久化 session、文本增量、
+item 与完成事件；只有 turn/completed 的 completed 状态返回成功。业务 context 取消时先发送
+turn/interrupt，再由进程层兜底回收；审批类反向请求默认拒绝，未知请求返回 method not found。
+
+### 练习 17A：Verification Matrix 纯规则（已完成）
+
+- 文件：`internal/verification/validation.go`、`internal/verification/matrix.go`；
+- 学习纸：`internal/verification/README.md`；
+- 当前状态：证据校验、稳定 ID 去重、字符串规范化和交付阻塞判断已完成；
+- 本步只做 `Evidence[] → Matrix → BlocksDelivery`，不执行 shell、Git、HTTP 或浏览器；
+- 前端对应：把验证记录先做 schema/refine，再用 `records.some(...)` 计算阻塞状态；
+- Go 学习点：`for range`、`switch`、`map[string]struct{}`、early return、错误包装。
+
+完成顺序：先实现单行 `validateEvidence`，再实现数组级 `BuildMatrix`，最后实现
+`Matrix.BlocksDelivery`。必要项只要不是 verified（包括 failed 和 not-run）就必须阻止交付。
+
+### 练习 17B：RequestBuilder 与 EventSink Adapter（已完成）
+
+- 文件：`internal/runner/request_builder.go`、`internal/runner/event_sink.go`；
+- 学习纸：`internal/runner/README.md`；
+- 当前状态：可信事实身份核对、RunRequest 构造、范围切片复制和 EventSink 落库适配已完成；
+- `RequestBuilder` 把 running TaskRun 和服务端可信事实组合成 RunRequest；
+- `EventSink` 把 Executor 的单条事件回调适配到 Store 的批量追加接口；
+- 本步不装配 `main.go`，也不启动真实进程。
+
+### 练习 17C：main 进程入口依赖装配
+
+- 文件：`cmd/workbench/runtime.go`；
+- 学习纸：`cmd/workbench/README.md`，并补充了 `internal/runner/README.md` 的闭包说明；
+- 当前状态：Application、Scheduler、Runner、Worker、Supervisor 与 HTTP Server 已完成装配；
+- 前端对应：在 React 根节点组合 Provider；Go 使用手动构造函数注入；
+- 本步只实现 `buildRuntime`，不打开数据库、不监听端口、不启动 goroutine；
+- 学习重点：闭包捕获、composition root、构造顺序、错误包装和资源职责边界。
+
+### 练习 17D：真实 Adapter 与进程生命周期
+
+- `cmd/workbench/config.go` 从环境读取受信任路径、命令、并发数和 loopback 地址；
+- `cmd/workbench/database.go` 打开 SQLite，并用 `schema_migrations` 幂等执行嵌入 migration；
+- `internal/artifact/store.go` 从确认后的 JSON manifest 同时提供 Ticket DAG 与执行事实；
+- `cmd/workbench/lifecycle.go` 创建 SQLite Store、Artifact Store、GitManager、Codex Executor；
+- HTTP Server 与 Supervisor 使用同一个应用级 context；SIGINT/SIGTERM 会取消后台执行，
+  优雅关闭 HTTP，等待 goroutine 退出，最后关闭数据库；
+- 受管 Worktree 在启动时依据 ownership 记录恢复，未知目录不会被接管；
+- 当前 API 无鉴权，因此配置层拒绝绑定非 loopback 地址。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
@@ -405,10 +458,15 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | 最小 Worker（已完成） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 | 有界 Worker/Worktree 编排（已完成） | 固定并发排空 ready 队列；每票隔离执行后整合 | 原串行 `executeQueue` 暂无对应能力 | 并发数量受控；完成后重新计算 DAG |
 | 真实 Git Worktree Adapter（已完成） | ownership、范围门禁、提交、非快进整合、冲突回滚和重启恢复 | `git-workspace.ts` 直接占用用户 checkout | 用户 checkout 不切分支；只清理可证明归属的受管目录 |
+| 真实 Codex Adapter（已完成） | JSONL、进程、握手、Thread、Turn、事件和中断 | `codex-app-server.ts` 与 `codex-adapter.ts` | 协议、进程和业务事件分层；每张 Ticket 可拥有独立进程与连续 Thread |
+| Verification Matrix（17A 已完成） | 校验证据并计算必要项是否阻止交付 | `verification.ts` 的 records 与 blocking 判断 | 先提取纯规则；命令、Git、浏览器证据收集留在后续 Adapter |
+| 运行时 Adapter（17B 已完成） | 从可信事实构造 RunRequest，并把 EventSink 接到 Store | `workbench-execution.ts` 中混合的配置读取和事件写入 | 浏览器不再提供执行路径；函数回调通过小接口接入持久化 |
+| 依赖装配（17C 已完成） | 在唯一 composition root 连接 Application、Scheduler、Runner、Supervisor 和 HTTP | 前端入口中的 Provider 组合与 Node 模块级单例 | 使用显式构造函数和闭包工厂，不引入 DI 框架或全局 service locator |
+| 进程生命周期（17D 已完成） | 打开 SQLite、构造真实 Adapter、运行 HTTP/Worker 并优雅退出 | Node 入口、进程 signal 与模块级后台任务 | 单一应用 context 传播取消；资源由创建者关闭；HTTP 仅绑定 loopback |
 
-当前实际完成到真实 Git Worktree Adapter：多张 ready Ticket 可以由固定槽位并行消费，各自
-在受管 Worktree 中修改，并串行整合到 Requirement 分支。下一步实现 Codex app-server 协议
-Adapter，把现在的 fake Executor 替换为真实 Turn。
+当前 Go 进程已经能够装配 SQLite、版本化 Ticket artifact、真实 Git/Codex Adapter、HTTP
+与有界 Worker。下一阶段补 SSE replay、verification 门禁和前端切流，之后 Go 控制面才能
+替代当前 Node 执行链路。
 
 ### 学习目标
 

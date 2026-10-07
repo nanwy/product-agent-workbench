@@ -13,7 +13,10 @@ type RunRequest struct {
 	TaskRun        domain.TaskRun
 	RepositoryRoot string
 	Prompt         string
-	Workspace      WorkspacePlan
+	// CodexThreadID 为空时创建新 Thread；非空时恢复此前持久化的 Thread。
+	// 它必须由服务端根据前一次 TaskRun 结果填写，不能接受浏览器任意输入。
+	CodexThreadID string
+	Workspace     WorkspacePlan
 }
 
 // WorkspacePlan 描述一张 Ticket 如何获得独立工作目录并整合回 Requirement 分支。

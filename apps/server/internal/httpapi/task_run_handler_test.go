@@ -8,27 +8,32 @@ import (
 	"testing"
 	"time"
 
-	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/httpapi"
+	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store"
 )
 
-func TestServer_EnqueueTaskRun(t *testing.T) {
-	// 练习 9：从浏览器 JSON 到 Application 输入，再把领域结果映射为稳定 HTTP DTO。
+func TestServer_ReconcileTaskRuns(t *testing.T) {
+	// 浏览器只提交 Requirement 和确认版本；Scheduler 决定真正可以入队的 Ticket。
 
 	want := taskRunHTTPFixture()
 	var gotContext context.Context
-	var gotInput app.EnqueueTaskRunInput
-	server := newTaskRunHTTPServer(t, fakeTaskRunApplication{
-		enqueue: func(ctx context.Context, input app.EnqueueTaskRunInput) (domain.TaskRun, error) {
+	var gotRequirementID string
+	var gotTicketVersionID string
+	server := newTaskRunSchedulerHTTPServer(t, fakeTaskScheduler{
+		reconcile: func(ctx context.Context, requirementID string, ticketVersionID string) (scheduler.ReconcileResult, error) {
 			gotContext = ctx
-			gotInput = input
-			return want, nil
+			gotRequirementID = requirementID
+			gotTicketVersionID = ticketVersionID
+			return scheduler.ReconcileResult{
+				TicketVersionID: ticketVersionID,
+				Enqueued:        []domain.TaskRun{want},
+			}, nil
 		},
 	})
 	request := httptest.NewRequest(http.MethodPost, httpapi.PathTaskRuns, strings.NewReader(
-		`{"requirementId":"req-1","ticketVersionId":"req-1-tickets-v1","ticketId":"ticket-1","attempt":1}`,
+		`{"requirementId":"req-1","ticketVersionId":"req-1-tickets-v1"}`,
 	))
 	request = request.WithContext(context.WithValue(request.Context(), requestContextKey{}, "task-trace-1"))
 	response := httptest.NewRecorder()
@@ -37,27 +42,27 @@ func TestServer_EnqueueTaskRun(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("POST TaskRun status = %d, want 201; body=%q", response.Code, response.Body.String())
 	}
-	wantInput := app.EnqueueTaskRunInput{RequirementID: "req-1", TicketVersionID: "req-1-tickets-v1", TicketID: "ticket-1", Attempt: 1}
-	if gotInput != wantInput {
-		t.Fatalf("EnqueueTaskRun input = %#v, want %#v", gotInput, wantInput)
+	if gotRequirementID != "req-1" || gotTicketVersionID != "req-1-tickets-v1" {
+		t.Fatalf("Reconcile identity = %q/%q", gotRequirementID, gotTicketVersionID)
 	}
 	if gotContext == nil || gotContext.Value(requestContextKey{}) != "task-trace-1" {
 		t.Fatal("handler 没有把 request context 原样传给 Application")
 	}
 	assertJSONContentType(t, response)
-	var body httpapi.TaskRunResponse
+	var body httpapi.ReconcileTaskRunsResponse
 	decodeSingleJSON(t, response, &body)
-	if body.ID != want.ID || body.Status != domain.TaskStatusQueued || !body.CreatedAt.Equal(want.CreatedAt) {
+	if body.TicketVersionID != "req-1-tickets-v1" || len(body.Enqueued) != 1 ||
+		body.Enqueued[0].ID != want.ID || body.Enqueued[0].Status != domain.TaskStatusQueued {
 		t.Fatalf("TaskRun response = %#v, want queued run %#v", body, want)
 	}
 }
 
-func TestServer_EnqueueTaskRunRejectsInvalidJSON(t *testing.T) {
+func TestServer_ReconcileTaskRunsRejectsInvalidJSON(t *testing.T) {
 	calls := 0
-	server := newTaskRunHTTPServer(t, fakeTaskRunApplication{
-		enqueue: func(context.Context, app.EnqueueTaskRunInput) (domain.TaskRun, error) {
+	server := newTaskRunSchedulerHTTPServer(t, fakeTaskScheduler{
+		reconcile: func(context.Context, string, string) (scheduler.ReconcileResult, error) {
 			calls++
-			return domain.TaskRun{}, nil
+			return scheduler.ReconcileResult{}, nil
 		},
 	})
 	request := httptest.NewRequest(
@@ -200,19 +205,8 @@ func TestServer_TaskRunResponseMapsCompletedResult(t *testing.T) {
 }
 
 type fakeTaskRunApplication struct {
-	enqueue func(context.Context, app.EnqueueTaskRunInput) (domain.TaskRun, error)
-	get     func(context.Context, string) (domain.TaskRun, error)
-	cancel  func(context.Context, string) (domain.TaskRun, error)
-}
-
-func (fake fakeTaskRunApplication) EnqueueTaskRun(
-	ctx context.Context,
-	input app.EnqueueTaskRunInput,
-) (domain.TaskRun, error) {
-	if fake.enqueue == nil {
-		panic("测试没有配置 EnqueueTaskRun")
-	}
-	return fake.enqueue(ctx, input)
+	get    func(context.Context, string) (domain.TaskRun, error)
+	cancel func(context.Context, string) (domain.TaskRun, error)
 }
 
 func (fake fakeTaskRunApplication) GetTaskRun(
@@ -240,6 +234,30 @@ func newTaskRunHTTPServer(t *testing.T, taskRuns httpapi.TaskRunApplication) *ht
 	server, err := httpapi.NewServer(httpapi.Dependencies{
 		Application: fakeRequirementApplication{},
 		TaskRuns:    taskRuns,
+	})
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	return server
+}
+
+type fakeTaskScheduler struct {
+	reconcile func(context.Context, string, string) (scheduler.ReconcileResult, error)
+}
+
+func (fake fakeTaskScheduler) Reconcile(
+	ctx context.Context,
+	requirementID string,
+	ticketVersionID string,
+) (scheduler.ReconcileResult, error) {
+	return fake.reconcile(ctx, requirementID, ticketVersionID)
+}
+
+func newTaskRunSchedulerHTTPServer(t *testing.T, taskScheduler httpapi.TaskScheduler) *httpapi.Server {
+	t.Helper()
+	server, err := httpapi.NewServer(httpapi.Dependencies{
+		Application: fakeRequirementApplication{},
+		Scheduler:   taskScheduler,
 	})
 	if err != nil {
 		t.Fatalf("NewServer() error = %v", err)

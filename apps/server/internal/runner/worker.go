@@ -10,7 +10,7 @@ import (
 	"product-agent-workbench/internal/domain"
 )
 
-// ErrInvalidDependencies 表示 Worker 缺少应用用例或执行 Adapter。
+// ErrInvalidDependencies 表示 Runner/Worker 的构造函数缺少必要依赖。
 var ErrInvalidDependencies = errors.New("Worker 依赖无效")
 
 // TaskRunApplication 是 Worker 消费的 TaskRun 生命周期 seam。

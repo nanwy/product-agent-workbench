@@ -54,6 +54,8 @@ type JSONRPCConnection struct {
 
 	closeStreamsOnce sync.Once
 	waitGroup        sync.WaitGroup
+	loopsDone        atomic.Int32
+	done             chan struct{}
 }
 
 // NewJSONRPCConnection 创建尚未启动的协议连接，不创建 goroutine，也不读取任何字节。
@@ -77,6 +79,7 @@ func NewJSONRPCConnection(dependencies JSONRPCDependencies) (*JSONRPCConnection,
 		maxMessageBytes:  maxMessageBytes,
 		writes:           make(chan outgoingMessage),
 		pending:          make(map[int64]pendingRequest),
+		done:             make(chan struct{}),
 	}
 	// JSON-RPC 请求 ID 从 1 开始，0 留作“尚未分配”的调试信号。
 	connection.nextID.Store(0)
@@ -215,8 +218,18 @@ func (c *JSONRPCConnection) Wait() error {
 	return c.terminalError()
 }
 
+// Done 在 reader loop 和 writer loop 都退出后关闭，用于上层同时等待 Turn 与协议故障。
+func (c *JSONRPCConnection) Done() <-chan struct{} {
+	if c == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return c.done
+}
+
 func (c *JSONRPCConnection) readLoop() {
-	defer c.waitGroup.Done()
+	defer c.loopFinished()
 	defer c.closeStreams()
 
 	scanner := bufio.NewScanner(c.input)
@@ -243,7 +256,7 @@ func (c *JSONRPCConnection) readLoop() {
 }
 
 func (c *JSONRPCConnection) writeLoop() {
-	defer c.waitGroup.Done()
+	defer c.loopFinished()
 	defer c.closeStreams()
 
 	for {
@@ -261,6 +274,13 @@ func (c *JSONRPCConnection) writeLoop() {
 				return
 			}
 		}
+	}
+}
+
+func (c *JSONRPCConnection) loopFinished() {
+	c.waitGroup.Done()
+	if c.loopsDone.Add(1) == 2 {
+		close(c.done)
 	}
 }
 
