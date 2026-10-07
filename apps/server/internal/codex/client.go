@@ -96,8 +96,9 @@ func (c *AppServerClient) OpenThread(ctx context.Context, request TurnRequest) (
 		return "", err
 	}
 
+	requestedThreadID := strings.TrimSpace(request.ThreadID)
 	var result threadResult
-	if strings.TrimSpace(request.ThreadID) == "" {
+	if requestedThreadID == "" {
 		params := threadStartParams{
 			CWD:                   request.WorkingDirectory,
 			RuntimeWorkspaceRoots: []string{request.WorkingDirectory},
@@ -113,7 +114,7 @@ func (c *AppServerClient) OpenThread(ctx context.Context, request TurnRequest) (
 		}
 	} else {
 		params := threadResumeParams{
-			ThreadID:              strings.TrimSpace(request.ThreadID),
+			ThreadID:              requestedThreadID,
 			CWD:                   request.WorkingDirectory,
 			RuntimeWorkspaceRoots: []string{request.WorkingDirectory},
 			ApprovalPolicy:        "never",
@@ -128,6 +129,13 @@ func (c *AppServerClient) OpenThread(ctx context.Context, request TurnRequest) (
 	threadID := firstNonBlank(result.Thread.ID, result.ThreadID)
 	if threadID == "" {
 		return "", fmt.Errorf("Codex Thread 响应缺少 thread id")
+	}
+	if requestedThreadID != "" && threadID != requestedThreadID {
+		return "", fmt.Errorf(
+			"Codex thread/resume 响应身份不一致：请求 %q，返回 %q",
+			requestedThreadID,
+			threadID,
+		)
 	}
 	return threadID, nil
 }

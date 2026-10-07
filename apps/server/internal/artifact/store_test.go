@@ -55,11 +55,13 @@ func TestStoreReadsSchedulerAndRunnerProjections(t *testing.T) {
 		TicketVersionID: versionID,
 		TicketID:        "ticket-b",
 		Attempt:         2,
+		CodexThreadID:   "thread-2",
 	})
 	if err != nil {
 		t.Fatalf("ReadExecutionFacts() error = %v", err)
 	}
 	if facts.Prompt != "实现 B" ||
+		facts.CodexThreadID != "thread-2" ||
 		facts.Workspace.TicketBranch != "workbench/req-1/ticket-b/attempt-2" ||
 		facts.Workspace.ModificationScopes[0] != "apps/server" {
 		t.Fatalf("ExecutionFacts = %#v", facts)

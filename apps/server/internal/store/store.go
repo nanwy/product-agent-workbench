@@ -51,6 +51,10 @@ type Store interface {
 		ticketVersionID string,
 	) ([]domain.TaskRun, error)
 
+	// ListInFlightTasks 返回已经被领取、但尚未进入终态的 TaskRun。
+	// queued 仍可由新进程正常领取，不属于恢复对象；结果按稳定入队顺序排列。
+	ListInFlightTasks(ctx context.Context) ([]domain.TaskRun, error)
+
 	// ClaimNextTask 原子领取最早入队的 queued TaskRun。
 	//
 	// “查找候选、调用 TaskRun.Claim、写回结果”必须处于同一个写锁临界区。

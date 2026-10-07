@@ -227,6 +227,28 @@ func (s *Store) ListTasksByTicketVersion(
 	return runs, nil
 }
 
+// ListInFlightTasks 返回 claimed/running TaskRun，供启动恢复使用。
+func (s *Store) ListInFlightTasks(ctx context.Context) ([]domain.TaskRun, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	runs := make([]domain.TaskRun, 0)
+	for _, id := range s.taskOrder {
+		run, exists := s.tasks[id]
+		if !exists || (run.Status != domain.TaskStatusClaimed && run.Status != domain.TaskStatusRunning) {
+			continue
+		}
+		runs = append(runs, cloneTaskRun(run))
+	}
+	return runs, nil
+}
+
 // ClaimNextTask 原子领取最早入队、仍处于 queued 状态的任务。
 func (s *Store) ClaimNextTask(ctx context.Context, now time.Time) (domain.TaskRun, error) {
 	// 实现要点：

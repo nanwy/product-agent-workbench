@@ -70,12 +70,18 @@ type fakeExecutor struct {
 }
 
 func (fake *fakeExecutor) Run(
-	_ context.Context,
+	ctx context.Context,
 	request runner.RunRequest,
 	_ runner.EventSink,
+	sessions runner.SessionSink,
 ) (runner.RunResult, error) {
 	fake.calls++
 	fake.request = request
+	if fake.result.Result.CodexThreadID != "" {
+		if err := sessions(ctx, request.TaskRun.ID, fake.result.Result.CodexThreadID); err != nil {
+			return runner.RunResult{}, err
+		}
+	}
 	return fake.result, fake.err
 }
 

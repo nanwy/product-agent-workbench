@@ -51,7 +51,8 @@ func NewManagedRunner(dependencies ManagedRunnerDependencies) (*ManagedRunner, e
 func (r *ManagedRunner) Run(
 	ctx context.Context,
 	request RunRequest,
-	sink EventSink,
+	events EventSink,
+	sessions SessionSink,
 ) (RunResult, error) {
 	if err := validateWorkspaceRequest(request); err != nil {
 		return RunResult{}, err
@@ -71,7 +72,7 @@ func (r *ManagedRunner) Run(
 	// 第二步：底层 Executor 只能看到受管 Worktree 路径，不能回到用户原始 checkout。
 	isolateRequest := request
 	isolateRequest.RepositoryRoot = prepared.Path
-	runResult, err := r.executor.Run(ctx, isolateRequest, sink)
+	runResult, err := r.executor.Run(ctx, isolateRequest, events, sessions)
 	if err != nil {
 		return RunResult{}, fmt.Errorf("在 Worktree 中执行 TaskRun %q: %w", request.TaskRun.ID, err)
 	}

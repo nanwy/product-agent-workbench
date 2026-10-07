@@ -65,6 +65,7 @@ CREATE TABLE task_runs (
     started_at INTEGER,
     finished_at INTEGER,
     result_summary TEXT,
+    -- Thread 打开后立即写入；它可以先于 completed 结果存在，供失败/重启后的 attempt 恢复。
     codex_thread_id TEXT,
     worktree_path TEXT,
     result_revision TEXT,

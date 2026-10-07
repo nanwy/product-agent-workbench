@@ -21,6 +21,9 @@ func TestBuildRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildRuntime() error = %v", err)
 	}
+	if components.Application == nil {
+		t.Fatal("buildRuntime() Application = nil")
+	}
 	if components.Handler == nil {
 		t.Fatal("buildRuntime() Handler = nil")
 	}
@@ -70,7 +73,7 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 			if !errors.Is(err, runner.ErrInvalidDependencies) {
 				t.Fatalf("buildRuntime() error = %v, want ErrInvalidDependencies", err)
 			}
-			if components.Handler != nil || components.Supervisor != nil {
+			if components.Application != nil || components.Handler != nil || components.Supervisor != nil {
 				t.Fatalf("buildRuntime() components = %#v, want zero value", components)
 			}
 		})
@@ -144,6 +147,7 @@ func (runtimeExecutor) Run(
 	context.Context,
 	runner.RunRequest,
 	runner.EventSink,
+	runner.SessionSink,
 ) (runner.RunResult, error) {
 	return runner.RunResult{}, nil
 }

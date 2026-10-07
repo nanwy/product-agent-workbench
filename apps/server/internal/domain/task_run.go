@@ -71,8 +71,11 @@ type TaskRun struct {
 	ClaimedAt       *time.Time
 	StartedAt       *time.Time
 	FinishedAt      *time.Time
-	Result          *TaskResult
-	FailureReason   string
+	// CodexThreadID 在 Thread 打开后立即保存，即使本次执行随后失败或进程重启也保留。
+	// 前端类比：它像一次长会话的 sessionId，不是只有“请求成功”时才存在的响应字段。
+	CodexThreadID string
+	Result        *TaskResult
+	FailureReason string
 }
 
 // NewTaskRun 校验创建输入，并返回 queued 状态的新执行尝试。
@@ -123,6 +126,25 @@ func (run TaskRun) Start(now time.Time) (TaskRun, error) {
 	return run, nil
 }
 
+// AttachCodexThread 把外部执行会话绑定到 running TaskRun。
+//
+// 相同 ID 可以重复写入，便于重试持久化；一条 TaskRun 一旦绑定 Thread，就不能悄悄换成
+// 另一个 Thread，否则事件流和最终结果会指向不同会话。
+func (run TaskRun) AttachCodexThread(threadID string) (TaskRun, error) {
+	threadID = strings.TrimSpace(threadID)
+	if run.Status != TaskStatusRunning {
+		return run, ErrInvalidTransition
+	}
+	if threadID == "" {
+		return run, ErrInvalidInput
+	}
+	if run.CodexThreadID != "" && run.CodexThreadID != threadID {
+		return run, ErrInvalidTransition
+	}
+	run.CodexThreadID = threadID
+	return run, nil
+}
+
 // Complete 把 running 任务迁移为 completed，并保存可审计结果。
 func (run TaskRun) Complete(result TaskResult, now time.Time) (TaskRun, error) {
 	if run.Status != TaskStatusRunning {
@@ -130,6 +152,16 @@ func (run TaskRun) Complete(result TaskResult, now time.Time) (TaskRun, error) {
 	}
 	if isBlank(result.Summary) {
 		return run, ErrInvalidInput
+	}
+	if run.CodexThreadID != "" {
+		if result.CodexThreadID == "" {
+			result.CodexThreadID = run.CodexThreadID
+		} else if result.CodexThreadID != run.CodexThreadID {
+			return run, ErrInvalidInput
+		}
+	} else if !isBlank(result.CodexThreadID) {
+		// 兼容不支持实时 SessionSink 的简单 Runner；真实 Codex Executor 会更早持久化。
+		run.CodexThreadID = strings.TrimSpace(result.CodexThreadID)
 	}
 	if run.StartedAt == nil || run.StartedAt.IsZero() || now.IsZero() || now.Before(*run.StartedAt) {
 		return run, ErrInvalidTime

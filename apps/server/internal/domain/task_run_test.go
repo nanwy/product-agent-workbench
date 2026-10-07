@@ -302,10 +302,34 @@ func TestTaskRun_Complete(t *testing.T) {
 	want := original
 	want.Status = TaskStatusCompleted
 	want.FinishedAt = &finishedAt
+	want.CodexThreadID = result.CodexThreadID
 	want.Result = &result
 	want.FailureReason = ""
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Complete() = %#v，期望 %#v", got, want)
+	}
+}
+
+func TestTaskRun_AttachCodexThread(t *testing.T) {
+	t.Parallel()
+
+	original := TaskRun{ID: "RUN-001", Status: TaskStatusRunning}
+	attached, err := original.AttachCodexThread(" thread-1 ")
+	if err != nil {
+		t.Fatalf("AttachCodexThread() error = %v", err)
+	}
+	if attached.CodexThreadID != "thread-1" {
+		t.Fatalf("CodexThreadID = %q, want thread-1", attached.CodexThreadID)
+	}
+	if same, err := attached.AttachCodexThread("thread-1"); err != nil || same != attached {
+		t.Fatalf("idempotent AttachCodexThread() = %#v, %v", same, err)
+	}
+	if got, err := attached.AttachCodexThread("thread-other"); !errors.Is(err, ErrInvalidTransition) || got != attached {
+		t.Fatalf("different AttachCodexThread() = %#v, %v", got, err)
+	}
+	queued := TaskRun{ID: "RUN-002", Status: TaskStatusQueued}
+	if got, err := queued.AttachCodexThread("thread-2"); !errors.Is(err, ErrInvalidTransition) || got != queued {
+		t.Fatalf("queued AttachCodexThread() = %#v, %v", got, err)
 	}
 }
 

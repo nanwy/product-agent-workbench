@@ -14,7 +14,7 @@ type RunRequest struct {
 	RepositoryRoot string
 	Prompt         string
 	// CodexThreadID 为空时创建新 Thread；非空时恢复此前持久化的 Thread。
-	// 它必须由服务端根据前一次 TaskRun 结果填写，不能接受浏览器任意输入。
+	// 它必须由服务端根据当前或前一次 TaskRun 的持久化会话填写，不能接受浏览器任意输入。
 	CodexThreadID string
 	Workspace     WorkspacePlan
 }
@@ -41,11 +41,18 @@ type RunResult struct {
 // 返回错误表示事件无法可靠保存，Runner 应停止继续产生不可审计的工作。
 type EventSink func(ctx context.Context, event domain.TaskEvent) error
 
+// SessionSink 在外部 Thread 打开后、Turn 开始前持久化会话 ID。
+//
+// 这相当于前端在长任务建立 WebSocket/session 后立刻把 sessionId 写入 store，而不是等
+// 整个任务成功才记录。返回错误时 Runner 必须停止，不能开始一个无法恢复的 Turn。
+type SessionSink func(ctx context.Context, taskRunID string, threadID string) error
+
 // Runner 隐藏 Codex、Git Worktree 和目标进程等执行细节。
 type Runner interface {
 	Run(
 		ctx context.Context,
 		request RunRequest,
-		sink EventSink,
+		events EventSink,
+		sessions SessionSink,
 	) (RunResult, error)
 }

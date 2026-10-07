@@ -17,6 +17,7 @@ var ErrInvalidDependencies = errors.New("Worker 依赖无效")
 type TaskRunApplication interface {
 	ClaimNextTaskRun(ctx context.Context) (domain.TaskRun, error)
 	StartTaskRun(ctx context.Context, id string) (domain.TaskRun, error)
+	RecordTaskRunSession(ctx context.Context, input app.RecordTaskRunSessionInput) (domain.TaskRun, error)
 	CompleteTaskRun(ctx context.Context, input app.CompleteTaskRunInput) (domain.TaskRun, error)
 	FailTaskRun(ctx context.Context, input app.FailTaskRunInput) (domain.TaskRun, error)
 }
@@ -110,7 +111,16 @@ func (w *Worker) RunNext(ctx context.Context) (domain.TaskRun, error) {
 
 	// 第四步：同步执行一次任务。这里故意不创建 goroutine；调用方拥有 ctx，也负责决定
 	// RunNext 何时返回。事件接收器由 Executor 在执行过程中按顺序调用。
-	runResult, err := w.executor.Run(ctx, request, w.eventSink)
+	// SessionSink 会在 Codex Thread 打开后立即落盘。它类似前端长任务拿到 sessionId 后先写
+	// 全局 store；即使后面的流式请求失败，刷新后仍能恢复到同一会话。
+	sessionSink := func(sessionContext context.Context, taskRunID string, threadID string) error {
+		_, err := w.application.RecordTaskRunSession(sessionContext, app.RecordTaskRunSessionInput{
+			ID:            taskRunID,
+			CodexThreadID: threadID,
+		})
+		return err
+	}
+	runResult, err := w.executor.Run(ctx, request, w.eventSink, sessionSink)
 	if err != nil {
 		return w.failRunningTask(ctx, running, err)
 	}

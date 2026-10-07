@@ -36,8 +36,9 @@ type runtimeDependencies struct {
 // Handler 接收浏览器请求；Supervisor 消费已经入队的 TaskRun。Application、Scheduler、
 // EventSink 等对象会被这两个入口通过字段或闭包继续引用，所以不必全部重复放进这个结构体。
 type runtimeComponents struct {
-	Handler    http.Handler
-	Supervisor *runner.Supervisor
+	Application *app.Application
+	Handler     http.Handler
+	Supervisor  *runner.Supervisor
 }
 
 // buildRuntime 是项目的 composition root（依赖装配根）。
@@ -117,7 +118,14 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 EventSink: %w", err)
 	}
-	buildRequest, err := runner.NewTrustedRequestBuilder(dependencies.ExecutionFacts)
+	resumableFacts, err := runner.NewResumableExecutionFactsReader(
+		dependencies.ExecutionFacts,
+		dependencies.Store,
+	)
+	if err != nil {
+		return runtimeComponents{}, fmt.Errorf("创建可恢复执行事实 Reader: %w", err)
+	}
+	buildRequest, err := runner.NewTrustedRequestBuilder(resumableFacts)
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 RequestBuilder: %w", err)
 	}
@@ -161,8 +169,9 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	}
 
 	return runtimeComponents{
-		Handler:    server,
-		Supervisor: supervisor,
+		Application: application,
+		Handler:     server,
+		Supervisor:  supervisor,
 	}, nil
 }
 

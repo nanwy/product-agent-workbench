@@ -397,6 +397,8 @@ stdin 请求优雅退出，超过宽限期后在 Unix 终止进程组，内部�
 练习 16D 已实现真实 Executor：在受管 Worktree 中启动 Turn，顺序持久化 session、文本增量、
 item 与完成事件；只有 turn/completed 的 completed 状态返回成功。业务 context 取消时先发送
 turn/interrupt，再由进程层兜底回收；审批类反向请求默认拒绝，未知请求返回 method not found。
+Thread ID 会在 Turn 开始前写入 TaskRun；新 attempt 从同一 Ticket 的执行历史恢复最近 Thread，
+`thread/resume` 返回不同 ID 时会拒绝继续，避免事件和结果串到另一个会话。
 
 ### 练习 17A：Verification Matrix 纯规则（已完成）
 
@@ -437,6 +439,8 @@ turn/interrupt，再由进程层兜底回收；审批类反向请求默认拒绝
 - HTTP Server 与 Supervisor 使用同一个应用级 context；SIGINT/SIGTERM 会取消后台执行，
   优雅关闭 HTTP，等待 goroutine 退出，最后关闭数据库；
 - 受管 Worktree 在启动时依据 ownership 记录恢复，未知目录不会被接管；
+- HTTP/Worker 启动前会把旧进程遗留的 claimed/running TaskRun 标记为 failed，保留 Thread ID，
+  但不会自动重跑可能已有副作用的任务；
 - 当前 API 无鉴权，因此配置层拒绝绑定非 loopback 地址。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系

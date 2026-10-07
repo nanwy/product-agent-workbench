@@ -169,6 +169,57 @@ func (s *Store) ListTasksByTicketVersion(
 	return runs, nil
 }
 
+// ListInFlightTasks 返回进程重启前遗留的 claimed/running TaskRun。
+//
+// 它只读取事实，不在 SQL 中直接改状态；Application 会逐条调用领域 Fail，再用 SaveTask
+// 的状态 CAS 保存，避免数据库层绕过时间与状态规则。
+func (s *Store) ListInFlightTasks(ctx context.Context) ([]domain.TaskRun, error) {
+	const query = `
+		SELECT
+			id,
+			requirement_id,
+			ticket_version_id,
+			ticket_id,
+			attempt,
+			status,
+			created_at,
+			claimed_at,
+			started_at,
+			finished_at,
+			result_summary,
+			codex_thread_id,
+			worktree_path,
+			result_revision,
+			failure_reason
+		FROM task_runs
+		WHERE status IN (?, ?)
+		ORDER BY enqueue_seq ASC
+	`
+	rows, err := s.db.QueryContext(
+		ctx,
+		query,
+		string(domain.TaskStatusClaimed),
+		string(domain.TaskStatusRunning),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("查询执行中的 TaskRun: %w", err)
+	}
+	defer rows.Close()
+
+	runs := make([]domain.TaskRun, 0)
+	for rows.Next() {
+		run, err := scanTaskRun(rows)
+		if err != nil {
+			return nil, fmt.Errorf("扫描执行中的 TaskRun: %w", err)
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历执行中的 TaskRun: %w", err)
+	}
+	return runs, nil
+}
+
 // ClaimNextTask 原子领取最早 queued TaskRun。
 //
 // 先阅读同目录 README.md 的“事务 API 与原子 Claim”；里面解释了 BeginTx、Rollback、
@@ -275,7 +326,7 @@ func (s *Store) SaveTask(ctx context.Context, run domain.TaskRun, expectedStatus
 		WHERE id = ? AND status = ?
 	`
 
-	resultSummary, codexThreadID, worktreePath, resultRevision := resultColumns(run.Result)
+	resultSummary, codexThreadID, worktreePath, resultRevision := resultColumns(run)
 	result, err := s.db.ExecContext(
 		ctx,
 		query,

@@ -83,6 +83,15 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return fmt.Errorf("装配 Workbench: %w", err)
 	}
+	// HTTP 和 Worker 启动前先收敛上次进程留下的 claimed/running 记录。不能自动重跑，
+	// 因为旧进程可能已经在 Worktree 或外部系统产生了部分副作用。
+	recoveredRuns, err := components.Application.RecoverInterruptedTaskRuns(ctx)
+	if err != nil {
+		return fmt.Errorf("恢复中断的 TaskRun: %w", err)
+	}
+	if len(recoveredRuns) > 0 {
+		log.Printf("已把 %d 条中断的 TaskRun 标记为 failed", len(recoveredRuns))
+	}
 
 	return serveRuntime(ctx, config, components)
 }

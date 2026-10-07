@@ -17,6 +17,84 @@ import (
 func runTaskRunStoreContract(t *testing.T, factory storeFactory) {
 	t.Helper()
 
+	t.Run("只按入队顺序列出 claimed 和 running", func(t *testing.T) {
+		subject := factory(t)
+		ctx := context.Background()
+		createRequirementForTask(t, ctx, subject, "req-1")
+		createdAt := testTime()
+
+		queued := queuedTaskFixtureFor(t, "run-queued", "req-1", "ticket-queued", 1, createdAt)
+		claimedBase := queuedTaskFixtureFor(t, "run-claimed", "req-1", "ticket-claimed", 1, createdAt.Add(time.Second))
+		runningBase := queuedTaskFixtureFor(t, "run-running", "req-1", "ticket-running", 1, createdAt.Add(2*time.Second))
+		terminalBase := queuedTaskFixtureFor(t, "run-terminal", "req-1", "ticket-terminal", 1, createdAt.Add(3*time.Second))
+		for _, run := range []domain.TaskRun{queued, claimedBase, runningBase, terminalBase} {
+			if err := subject.EnqueueTask(ctx, run); err != nil {
+				t.Fatalf("EnqueueTask(%s) error = %v", run.ID, err)
+			}
+		}
+
+		claimed, err := claimedBase.Claim(createdAt.Add(4 * time.Second))
+		if err != nil {
+			t.Fatalf("Claim(claimed) fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, claimed, domain.TaskStatusQueued); err != nil {
+			t.Fatalf("SaveTask(claimed) error = %v", err)
+		}
+
+		runningClaimed, err := runningBase.Claim(createdAt.Add(5 * time.Second))
+		if err != nil {
+			t.Fatalf("Claim(running) fixture error = %v", err)
+		}
+		running, err := runningClaimed.Start(createdAt.Add(6 * time.Second))
+		if err != nil {
+			t.Fatalf("Start(running) fixture error = %v", err)
+		}
+		running, err = running.AttachCodexThread("thread-running")
+		if err != nil {
+			t.Fatalf("AttachCodexThread() fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, running, domain.TaskStatusQueued); err != nil {
+			t.Fatalf("SaveTask(running) error = %v", err)
+		}
+
+		terminalClaimed, err := terminalBase.Claim(createdAt.Add(7 * time.Second))
+		if err != nil {
+			t.Fatalf("Claim(terminal) fixture error = %v", err)
+		}
+		terminal, err := terminalClaimed.Fail("fixture 失败", createdAt.Add(8*time.Second))
+		if err != nil {
+			t.Fatalf("Fail(terminal) fixture error = %v", err)
+		}
+		if err := subject.SaveTask(ctx, terminal, domain.TaskStatusQueued); err != nil {
+			t.Fatalf("SaveTask(terminal) error = %v", err)
+		}
+
+		got, err := subject.ListInFlightTasks(ctx)
+		if err != nil {
+			t.Fatalf("ListInFlightTasks() error = %v", err)
+		}
+		if len(got) != 2 || got[0].ID != claimed.ID || got[1].ID != running.ID {
+			t.Fatalf("ListInFlightTasks() = %#v, want claimed then running", got)
+		}
+		if got[1].CodexThreadID != "thread-running" || got[1].Result != nil {
+			t.Fatalf("running session round trip = %#v, want thread without terminal result", got[1])
+		}
+		*got[0].ClaimedAt = got[0].ClaimedAt.Add(time.Hour)
+		again, err := subject.GetTask(ctx, claimed.ID)
+		if err != nil {
+			t.Fatalf("GetTask(claimed) error = %v", err)
+		}
+		if again.ClaimedAt.Equal(*got[0].ClaimedAt) {
+			t.Fatal("修改 ListInFlightTasks 返回值污染了 Store 内部状态")
+		}
+
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		if _, err := subject.ListInFlightTasks(cancelled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("ListInFlightTasks(cancelled) error = %v, want context.Canceled", err)
+		}
+	})
+
 	t.Run("同一 Requirement 的不同 Ticket 可同时入队，同一 Ticket 只能有一个活动 attempt", func(t *testing.T) {
 		subject := factory(t)
 		ctx := context.Background()

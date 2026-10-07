@@ -107,6 +107,7 @@ main
       → 打开 SQLite + 执行未应用 migration
       → 创建 Artifact Store / GitManager / Codex Executor
       → buildRuntime
+      → 把上次进程遗留的 claimed/running 标记为 failed
       → HTTP Server + Supervisor 并行运行
   ← SIGINT / SIGTERM
       → 取消 Worker 与 Codex
@@ -119,6 +120,10 @@ main
 `run` 中 `defer db.Close()`；`serveRuntime` 启动两个 goroutine，所以返回前等待两者结束。
 这和 React effect 返回 cleanup 的思想相近，但 Go 的资源不只包括订阅，还包括连接池、
 监听器、goroutine 和子进程。
+
+启动恢复不等于自动重试。前端类比是页面重新加载后，把上次永远停在 `loading` 的请求改成
+明确的 `error`，而不是自动再次提交表单。旧任务可能已经修改 Worktree，所以服务端只释放
+活动占用并保留失败原因与 Codex Thread ID；真正重试要创建更大的 attempt。
 
 ### 启动配置
 

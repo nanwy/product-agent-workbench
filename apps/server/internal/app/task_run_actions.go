@@ -7,6 +7,12 @@ import (
 	"product-agent-workbench/internal/domain"
 )
 
+// RecordTaskRunSessionInput 是 Executor 打开 Codex Thread 后立即保存的会话事实。
+type RecordTaskRunSessionInput struct {
+	ID            string
+	CodexThreadID string
+}
+
 // ClaimNextTaskRun 原子领取队列中最早的 queued TaskRun。
 //
 // 它对应原 TypeScript `workbench-execution.ts/prepareExecution` 中查找 nextIndex、把
@@ -74,4 +80,34 @@ func (app *Application) StartTaskRun(ctx context.Context, id string) (domain.Tas
 		return domain.TaskRun{}, err
 	}
 	return taskRun, nil
+}
+
+// RecordTaskRunSession 在真正提交 Turn 前保存 Codex Thread ID。
+//
+// 不能等 completed 时才保存：进程如果在 Turn 中途退出，下一次 attempt 仍需要知道应该
+// resume 哪个 Thread。这里使用 running → running 的状态 CAS，只更新会话事实。
+func (app *Application) RecordTaskRunSession(
+	ctx context.Context,
+	input RecordTaskRunSessionInput,
+) (domain.TaskRun, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.TaskRun{}, err
+	}
+	input.ID = strings.TrimSpace(input.ID)
+	input.CodexThreadID = strings.TrimSpace(input.CodexThreadID)
+	if input.ID == "" || input.CodexThreadID == "" {
+		return domain.TaskRun{}, domain.ErrInvalidInput
+	}
+	run, err := app.store.GetTask(ctx, input.ID)
+	if err != nil {
+		return domain.TaskRun{}, err
+	}
+	updated, err := run.AttachCodexThread(input.CodexThreadID)
+	if err != nil {
+		return domain.TaskRun{}, err
+	}
+	if err := app.store.SaveTask(ctx, updated, run.Status); err != nil {
+		return domain.TaskRun{}, err
+	}
+	return updated, nil
 }

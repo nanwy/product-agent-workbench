@@ -67,14 +67,17 @@ func scanTaskRun(scanner rowScanner) (domain.TaskRun, error) {
 	run.ClaimedAt = timeFromNullInt64(claimedAt)
 	run.StartedAt = timeFromNullInt64(startedAt)
 	run.FinishedAt = timeFromNullInt64(finishedAt)
+	if codexThreadID.Valid {
+		run.CodexThreadID = codexThreadID.String
+	}
 
 	switch {
-	case !resultSummary.Valid && !codexThreadID.Valid && !worktreePath.Valid && !resultRevision.Valid:
+	case !resultSummary.Valid && !worktreePath.Valid && !resultRevision.Valid:
 		run.Result = nil
-	case resultSummary.Valid && codexThreadID.Valid && worktreePath.Valid && resultRevision.Valid:
+	case resultSummary.Valid && worktreePath.Valid && resultRevision.Valid:
 		run.Result = &domain.TaskResult{
 			Summary:       resultSummary.String,
-			CodexThreadID: codexThreadID.String,
+			CodexThreadID: run.CodexThreadID,
 			WorktreePath:  worktreePath.String,
 			Revision:      resultRevision.String,
 		}
@@ -109,12 +112,14 @@ func nullableUnixNano(value *time.Time) any {
 	return value.UTC().UnixNano()
 }
 
-func resultColumns(result *domain.TaskResult) (any, any, any, any) {
+func resultColumns(run domain.TaskRun) (any, any, any, any) {
+	threadID := nullableString(run.CodexThreadID)
+	result := run.Result
 	if result == nil {
-		return nil, nil, nil, nil
+		return nil, threadID, nil, nil
 	}
 
-	return result.Summary, result.CodexThreadID, result.WorktreePath, result.Revision
+	return result.Summary, threadID, result.WorktreePath, result.Revision
 }
 
 func nullableString(value string) any {

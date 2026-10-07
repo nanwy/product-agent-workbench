@@ -46,7 +46,7 @@ type ExecutorConfig struct {
 }
 
 // Executor 为每个 TaskRun 启动一个一次性 app-server，并实现 runner.Runner。
-// Thread ID 由 TaskResult 持久化；下次 attempt 可以通过 TaskRun 中的可信配置决定是否续接。
+// Thread ID 在 Turn 开始前通过 SessionSink 持久化；下次 attempt 可从执行历史决定是否续接。
 type Executor struct {
 	config ExecutorConfig
 }
@@ -96,9 +96,10 @@ func NewExecutor(config ExecutorConfig) (*Executor, error) {
 func (e *Executor) Run(
 	ctx context.Context,
 	request runner.RunRequest,
-	sink runner.EventSink,
+	events runner.EventSink,
+	sessions runner.SessionSink,
 ) (runResult runner.RunResult, runErr error) {
-	if ctx == nil || sink == nil || strings.TrimSpace(request.TaskRun.ID) == "" ||
+	if ctx == nil || events == nil || sessions == nil || strings.TrimSpace(request.TaskRun.ID) == "" ||
 		strings.TrimSpace(request.RepositoryRoot) == "" || strings.TrimSpace(request.Prompt) == "" {
 		return runner.RunResult{}, ErrInvalidTurnRequest
 	}
@@ -106,7 +107,7 @@ func (e *Executor) Run(
 		return runner.RunResult{}, err
 	}
 
-	emitter := newEventEmitter(request.TaskRun.ID, sink, e.config.Clock)
+	emitter := newEventEmitter(request.TaskRun.ID, events, e.config.Clock)
 	// app-server 必须比业务 ctx 多活到 interrupt 和进程回收结束，因此生命周期 context
 	// 只继承值，不继承取消信号；业务取消仍由下面的 select 显式处理。
 	lifecycleContext, cancelLifecycle := context.WithCancel(context.WithoutCancel(ctx))
@@ -172,6 +173,10 @@ func (e *Executor) Run(
 	cancelThread()
 	if err != nil {
 		return runner.RunResult{}, err
+	}
+	// 先持久化 Thread，再发送 Turn。若这里失败，不能继续制造一个控制面无法恢复的会话。
+	if err := sessions(ctx, request.TaskRun.ID, threadID); err != nil {
+		return runner.RunResult{}, fmt.Errorf("保存 Codex Thread %q: %w", threadID, err)
 	}
 	if err := emitSession(ctx, emitter, threadID); err != nil {
 		return runner.RunResult{}, err

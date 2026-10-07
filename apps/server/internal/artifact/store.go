@@ -122,6 +122,9 @@ func (s *Store) ReadExecutionFacts(
 			TicketID:        ticket.ID,
 			RepositoryRoot:  document.RepositoryRoot,
 			Prompt:          ticket.Prompt,
+			// 当前 attempt 如果已经打开过 Thread（例如同进程内重建请求），直接恢复它。
+			// 更早 attempt 的 Thread 由 composition root 组合的历史 reader 补充。
+			CodexThreadID: run.CodexThreadID,
 			Workspace: runner.WorkspacePlan{
 				BaseRevision:       document.BaseRevision,
 				TicketBranch:       ticketBranch(run),
