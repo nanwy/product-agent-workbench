@@ -64,6 +64,82 @@ type SpecVersion struct {
 	ConfirmedAt   *time.Time
 }
 
+// TicketVersionStatus 区分当前草稿、已冻结执行图和被新草稿替代的历史。
+type TicketVersionStatus string
+
+const (
+	TicketVersionDraft      TicketVersionStatus = "draft"
+	TicketVersionConfirmed  TicketVersionStatus = "confirmed"
+	TicketVersionSuperseded TicketVersionStatus = "superseded"
+)
+
+// Ticket 是产品确认前可阅读、确认后可执行的一张纵向工作单元。
+// ModificationScopes 来自受信任的目标项目配置，不接受 Codex 或浏览器自行扩大。
+type Ticket struct {
+	ID                 string
+	Title              string
+	BlockedBy          []string
+	Deliverable        string
+	AcceptanceCriteria []string
+	ModificationScopes []string
+}
+
+// TicketVersion 把依赖图固定到 Spec 和 Git revision，确认后才能发布给 Scheduler。
+type TicketVersion struct {
+	ID                string
+	RequirementID     string
+	SpecVersionID     string
+	Version           int
+	Status            TicketVersionStatus
+	RepositoryRoot    string
+	BaseRevision      string
+	RequirementBranch string
+	Tickets           []Ticket
+	CreatedAt         time.Time
+	ConfirmedAt       *time.Time
+}
+
+// NormalizeTickets 清理生成结果，并要求依赖只能指向当前版本中更早出现的票。
+// 这个顺序约束天然排除了不存在的依赖和环，Scheduler 仍会独立验证一次运行时输入。
+func NormalizeTickets(tickets []Ticket) ([]Ticket, error) {
+	if len(tickets) == 0 || len(tickets) > 32 {
+		return nil, ErrInvalidInput
+	}
+	result := make([]Ticket, 0, len(tickets))
+	seen := make(map[string]struct{}, len(tickets))
+	for _, ticket := range tickets {
+		ticket.ID = strings.TrimSpace(ticket.ID)
+		ticket.Title = strings.TrimSpace(ticket.Title)
+		ticket.Deliverable = strings.TrimSpace(ticket.Deliverable)
+		ticket.AcceptanceCriteria = normalizeRequiredList(ticket.AcceptanceCriteria)
+		ticket.ModificationScopes = normalizeRequiredList(ticket.ModificationScopes)
+		if ticket.ID == "" || ticket.Title == "" || ticket.Deliverable == "" ||
+			len(ticket.AcceptanceCriteria) == 0 || len(ticket.ModificationScopes) == 0 {
+			return nil, ErrInvalidInput
+		}
+		if _, exists := seen[ticket.ID]; exists {
+			return nil, ErrInvalidInput
+		}
+		blockers := make([]string, 0, len(ticket.BlockedBy))
+		blockerSet := make(map[string]struct{}, len(ticket.BlockedBy))
+		for _, blocker := range ticket.BlockedBy {
+			blocker = strings.TrimSpace(blocker)
+			if _, exists := seen[blocker]; !exists || blocker == ticket.ID {
+				return nil, ErrInvalidInput
+			}
+			if _, duplicate := blockerSet[blocker]; duplicate {
+				continue
+			}
+			blockerSet[blocker] = struct{}{}
+			blockers = append(blockers, blocker)
+		}
+		ticket.BlockedBy = blockers
+		seen[ticket.ID] = struct{}{}
+		result = append(result, ticket)
+	}
+	return result, nil
+}
+
 // NormalizeSpecDocument 清理 Agent 输出；任何章节为空都不允许发布为草稿。
 func NormalizeSpecDocument(value SpecDocument) (SpecDocument, error) {
 	value.Problem = strings.TrimSpace(value.Problem)

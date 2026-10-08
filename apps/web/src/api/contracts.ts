@@ -58,6 +58,15 @@ export type ConfirmSpecRequest = {
   expectedRevision: number
 }
 
+export type GenerateTicketsRequest = {
+  expectedRevision: number
+  instruction: string
+}
+
+export type ConfirmTicketsRequest = {
+  expectedRevision: number
+}
+
 export type GrillingUnderstandingResponse = {
   summary: string
   desiredOutcome: string
@@ -85,10 +94,32 @@ export type SpecVersionResponse = {
   confirmedAt?: string
 }
 
+export type TicketResponse = {
+  id: string
+  title: string
+  blockedBy: string[]
+  deliverable: string
+  acceptanceCriteria: string[]
+  modificationScopes: string[]
+}
+
+export type TicketVersionResponse = {
+  id: string
+  specVersionId: string
+  version: number
+  status: 'draft' | 'confirmed' | 'superseded'
+  baseRevision: string
+  requirementBranch: string
+  tickets: TicketResponse[]
+  createdAt: string
+  confirmedAt?: string
+}
+
 export type PlanningResponse = {
   requirement: RequirementResponse
   understanding?: GrillingUnderstandingResponse
   specVersions: SpecVersionResponse[]
+  ticketVersions: TicketVersionResponse[]
 }
 
 export type ReconcileTaskRunsRequest = {

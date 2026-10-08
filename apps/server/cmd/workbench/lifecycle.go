@@ -84,13 +84,17 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return fmt.Errorf("创建只读 Codex Planner: %w", err)
 	}
-	targetRepositoryRoot, err := planning.LoadRepositoryRoot(config.TargetConfigPath)
+	target, err := planning.LoadTarget(config.TargetConfigPath)
 	if err != nil {
 		return err
 	}
-	specGenerator, err := planning.NewGenerator(readOnlyPlanner, targetRepositoryRoot)
+	specGenerator, err := planning.NewGenerator(readOnlyPlanner, target.RepositoryRoot)
 	if err != nil {
 		return fmt.Errorf("创建 Spec Generator: %w", err)
+	}
+	ticketGenerator, err := planning.NewTicketsGenerator(readOnlyPlanner, target, config.GitExecutable)
+	if err != nil {
+		return fmt.Errorf("创建 Ticket Generator: %w", err)
 	}
 	verificationPlan, err := verification.LoadPlan(config.TargetConfigPath)
 	if err != nil {
@@ -121,16 +125,18 @@ func run(ctx context.Context, config processConfig) error {
 		return fmt.Errorf("创建 Verification Service: %w", err)
 	}
 	components, err := buildRuntime(runtimeDependencies{
-		Store:          persistence,
-		Artifacts:      artifacts,
-		ExecutionFacts: artifacts,
-		Workspaces:     workspaces,
-		Executor:       executor,
-		Verifier:       verifier,
-		SpecGenerator:  specGenerator,
-		NewID:          uuid.NewString,
-		Now:            time.Now,
-		Concurrency:    config.Concurrency,
+		Store:           persistence,
+		Artifacts:       artifacts,
+		ExecutionFacts:  artifacts,
+		Workspaces:      workspaces,
+		Executor:        executor,
+		Verifier:        verifier,
+		SpecGenerator:   specGenerator,
+		TicketGenerator: ticketGenerator,
+		TicketPublisher: artifacts,
+		NewID:           uuid.NewString,
+		Now:             time.Now,
+		Concurrency:     config.Concurrency,
 	})
 	if err != nil {
 		return fmt.Errorf("装配 Workbench: %w", err)

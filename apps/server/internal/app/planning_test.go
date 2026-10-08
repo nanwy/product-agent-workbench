@@ -12,6 +12,12 @@ import (
 
 type specGeneratorStub struct{}
 
+type ticketGeneratorStub struct{}
+
+type ticketPublisherStub struct {
+	published []domain.TicketVersion
+}
+
 func (specGeneratorStub) Generate(context.Context, app.SpecGenerationInput) (domain.SpecDocument, error) {
 	return domain.SpecDocument{
 		Problem: "需求尚未形成规格", Solution: "生成版本化 Spec", UserStories: []string{"用户可以确认"},
@@ -20,8 +26,33 @@ func (specGeneratorStub) Generate(context.Context, app.SpecGenerationInput) (dom
 	}, nil
 }
 
-func TestPlanningFlowMovesRequirementFromGrillingToTickets(t *testing.T) {
-	ids := []string{"req-1", "version-1"}
+func (ticketGeneratorStub) GenerateTickets(
+	context.Context,
+	app.TicketGenerationInput,
+) (app.GeneratedTicketPlan, error) {
+	return app.GeneratedTicketPlan{
+		RepositoryRoot:    "/tmp/repository",
+		BaseRevision:      "0123456789012345678901234567890123456789",
+		RequirementBranch: "workbench/requirements/req-1",
+		Tickets: []domain.Ticket{{
+			ID: "TICKET-01", Title: "完成纵向切片", BlockedBy: []string{},
+			Deliverable: "页面和接口可用", AcceptanceCriteria: []string{"用户可以操作"},
+			ModificationScopes: []string{"apps/web"},
+		}},
+	}, nil
+}
+
+func (stub *ticketPublisherStub) PublishConfirmedTicketVersion(
+	_ context.Context,
+	version domain.TicketVersion,
+) error {
+	stub.published = append(stub.published, version)
+	return nil
+}
+
+func TestPlanningFlowMovesRequirementFromGrillingToImplementation(t *testing.T) {
+	ids := []string{"req-1", "version-1", "ticket-version-1"}
+	publisher := &ticketPublisherStub{published: []domain.TicketVersion{}}
 	application, err := app.New(app.Dependencies{
 		Store: memory.New(),
 		NewID: func() string {
@@ -29,8 +60,10 @@ func TestPlanningFlowMovesRequirementFromGrillingToTickets(t *testing.T) {
 			ids = ids[1:]
 			return id
 		},
-		Now:           func() time.Time { return time.Date(2026, time.October, 8, 12, 0, 0, 0, time.UTC) },
-		SpecGenerator: specGeneratorStub{},
+		Now:             func() time.Time { return time.Date(2026, time.October, 8, 12, 0, 0, 0, time.UTC) },
+		SpecGenerator:   specGeneratorStub{},
+		TicketGenerator: ticketGeneratorStub{},
+		TicketPublisher: publisher,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -59,5 +92,20 @@ func TestPlanningFlowMovesRequirementFromGrillingToTickets(t *testing.T) {
 	})
 	if err != nil || planning.Requirement.Stage != domain.RequirementStageTickets || planning.Requirement.Revision != 4 {
 		t.Fatalf("ConfirmSpec() = %#v, error=%v", planning, err)
+	}
+	planning, err = application.GenerateTickets(ctx, app.GenerateTicketsInput{
+		RequirementID: requirement.ID, ExpectedRevision: 4,
+	})
+	if err != nil || len(planning.TicketVersions) != 1 || planning.Requirement.Revision != 5 {
+		t.Fatalf("GenerateTickets() = %#v, error=%v", planning, err)
+	}
+	planning, err = application.ConfirmTickets(ctx, app.ConfirmTicketsInput{
+		RequirementID:    requirement.ID,
+		VersionID:        planning.TicketVersions[0].ID,
+		ExpectedRevision: 5,
+	})
+	if err != nil || planning.Requirement.Stage != domain.RequirementStageImplementation ||
+		planning.Requirement.Revision != 6 || len(publisher.published) != 1 {
+		t.Fatalf("ConfirmTickets() = %#v, published=%d, error=%v", planning, len(publisher.published), err)
 	}
 }

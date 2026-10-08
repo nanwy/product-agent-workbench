@@ -319,6 +319,9 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .go-spec-document section { display: grid; gap: 4px; }
 .go-spec-document h3 { margin: 0; color: var(--muted); font-size: 10px; }
 .go-spec-document ul { display: grid; gap: 3px; margin: 0; padding-left: 18px; }
+.go-ticket-card { display: grid; gap: 4px; border-left: 2px solid var(--accent); padding: 7px 9px; }
+.go-ticket-card p, .go-ticket-card ul { margin: 0; }
+.go-ticket-card ul { padding-left: 18px; }
 .go-inline-error { border-radius: var(--radius-sm); background: var(--danger-soft); padding: 8px; color: var(--danger); font-size: 9px; }
 .go-verification { display: grid; gap: 7px; margin-top: 12px; }
 .go-verification > strong { color: var(--danger); font-size: 12px; }

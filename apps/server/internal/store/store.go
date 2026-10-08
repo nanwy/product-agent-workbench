@@ -59,6 +59,24 @@ type Store interface {
 		confirmedAt time.Time,
 	) (int64, error)
 
+	// CreateTicketVersion 原子保存 Ticket DAG 草稿、失效旧草稿并推进 Requirement revision。
+	CreateTicketVersion(
+		ctx context.Context,
+		requirement domain.Requirement,
+		expectedRevision int64,
+		version domain.TicketVersion,
+	) (int64, error)
+	ListTicketVersions(ctx context.Context, requirementID string) ([]domain.TicketVersion, error)
+
+	// ConfirmTicketVersion 原子冻结当前 Ticket DAG，并把 Requirement 推进到 implementation。
+	ConfirmTicketVersion(
+		ctx context.Context,
+		requirement domain.Requirement,
+		expectedRevision int64,
+		versionID string,
+		confirmedAt time.Time,
+	) (int64, error)
+
 	// EnqueueTask 首次保存 queued TaskRun。
 	//
 	// 同一 Requirement 的不同 Ticket 可以同时活动；同一 Ticket 已有 queued、claimed 或

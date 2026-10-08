@@ -71,3 +71,39 @@ func (s *Server) handleConfirmSpec(w http.ResponseWriter, r *http.Request) {
 	}
 	logWriteError(writeJSON(w, http.StatusOK, newPlanningResponse(snapshot)))
 }
+
+func (s *Server) handleGenerateTickets(w http.ResponseWriter, r *http.Request) {
+	var request GenerateTicketsRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, err)
+		return
+	}
+	snapshot, err := s.planning.GenerateTickets(r.Context(), app.GenerateTicketsInput{
+		RequirementID:    r.PathValue("id"),
+		ExpectedRevision: request.ExpectedRevision,
+		Instruction:      request.Instruction,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	logWriteError(writeJSON(w, http.StatusCreated, newPlanningResponse(snapshot)))
+}
+
+func (s *Server) handleConfirmTickets(w http.ResponseWriter, r *http.Request) {
+	var request ConfirmTicketsRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, err)
+		return
+	}
+	snapshot, err := s.planning.ConfirmTickets(r.Context(), app.ConfirmTicketsInput{
+		RequirementID:    r.PathValue("id"),
+		VersionID:        r.PathValue("versionId"),
+		ExpectedRevision: request.ExpectedRevision,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	logWriteError(writeJSON(w, http.StatusOK, newPlanningResponse(snapshot)))
+}

@@ -22,16 +22,18 @@ import (
 // 为什么不使用全局变量：测试可以传 fake Store/ArtifactReader/Executor；每个依赖从哪里来
 // 一目了然，也不会因为 import 某个包就偷偷启动进程或连接数据库。
 type runtimeDependencies struct {
-	Store          store.Store
-	Artifacts      scheduler.ArtifactReader
-	ExecutionFacts runner.ExecutionFactsReader
-	Workspaces     workspace.Manager
-	Executor       runner.Runner
-	Verifier       app.DeliveryVerifier
-	SpecGenerator  app.SpecGenerator
-	NewID          func() string
-	Now            func() time.Time
-	Concurrency    int
+	Store           store.Store
+	Artifacts       scheduler.ArtifactReader
+	ExecutionFacts  runner.ExecutionFactsReader
+	Workspaces      workspace.Manager
+	Executor        runner.Runner
+	Verifier        app.DeliveryVerifier
+	SpecGenerator   app.SpecGenerator
+	TicketGenerator app.TicketGenerator
+	TicketPublisher app.TicketPublisher
+	NewID           func() string
+	Now             func() time.Time
+	Concurrency     int
 }
 
 // runtimeComponents 是装配完成后，进程生命周期真正需要持有的两个入口。
@@ -96,12 +98,14 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	// 前端类比：先创建共享的 queryClient。后面的 HTTP Server 和每个 Worker 都引用同一个
 	// Application，因此状态变更会经过同一套用例规则和同一个 Store。
 	application, err := app.New(app.Dependencies{
-		Store:         dependencies.Store,
-		Tickets:       dependencies.Artifacts,
-		Verification:  dependencies.Verifier,
-		SpecGenerator: dependencies.SpecGenerator,
-		NewID:         dependencies.NewID,
-		Now:           dependencies.Now,
+		Store:           dependencies.Store,
+		Tickets:         dependencies.Artifacts,
+		Verification:    dependencies.Verifier,
+		SpecGenerator:   dependencies.SpecGenerator,
+		TicketGenerator: dependencies.TicketGenerator,
+		TicketPublisher: dependencies.TicketPublisher,
+		NewID:           dependencies.NewID,
+		Now:             dependencies.Now,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 Application: %w", err)
@@ -202,6 +206,8 @@ func validateRuntimeDependencies(dependencies runtimeDependencies) error {
 		dependencies.Executor == nil ||
 		dependencies.Verifier == nil ||
 		dependencies.SpecGenerator == nil ||
+		dependencies.TicketGenerator == nil ||
+		dependencies.TicketPublisher == nil ||
 		dependencies.NewID == nil ||
 		dependencies.Now == nil
 	if missingDependency || dependencies.Concurrency < 1 {

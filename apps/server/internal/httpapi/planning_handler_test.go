@@ -16,6 +16,8 @@ type planningApplicationStub struct {
 	confirmGrilling func(context.Context, app.ConfirmGrillingInput) (app.PlanningSnapshot, error)
 	generateSpec    func(context.Context, app.GenerateSpecInput) (app.PlanningSnapshot, error)
 	confirmSpec     func(context.Context, app.ConfirmSpecInput) (app.PlanningSnapshot, error)
+	generateTickets func(context.Context, app.GenerateTicketsInput) (app.PlanningSnapshot, error)
+	confirmTickets  func(context.Context, app.ConfirmTicketsInput) (app.PlanningSnapshot, error)
 	getPlanning     func(context.Context, string) (app.PlanningSnapshot, error)
 }
 
@@ -27,6 +29,12 @@ func (stub planningApplicationStub) GenerateSpec(ctx context.Context, input app.
 }
 func (stub planningApplicationStub) ConfirmSpec(ctx context.Context, input app.ConfirmSpecInput) (app.PlanningSnapshot, error) {
 	return stub.confirmSpec(ctx, input)
+}
+func (stub planningApplicationStub) GenerateTickets(ctx context.Context, input app.GenerateTicketsInput) (app.PlanningSnapshot, error) {
+	return stub.generateTickets(ctx, input)
+}
+func (stub planningApplicationStub) ConfirmTickets(ctx context.Context, input app.ConfirmTicketsInput) (app.PlanningSnapshot, error) {
+	return stub.confirmTickets(ctx, input)
 }
 func (stub planningApplicationStub) GetPlanning(ctx context.Context, id string) (app.PlanningSnapshot, error) {
 	return stub.getPlanning(ctx, id)

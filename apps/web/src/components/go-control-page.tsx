@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { WorkbenchApiError } from '../api/client'
@@ -8,6 +8,7 @@ import {
   useCancelTaskRunMutation,
   useConfirmGrillingMutation,
   useConfirmSpecMutation,
+  useConfirmTicketsMutation,
   useCreateRequirementMutation,
   useGoHealthQuery,
   useGoPlanningQuery,
@@ -15,11 +16,13 @@ import {
   useGoTaskRunQuery,
   useGoVerificationQuery,
   useGenerateSpecMutation,
+  useGenerateTicketsMutation,
   useReconcileTaskRunsMutation,
   useVerifyRequirementMutation,
 } from '../api/queries'
 import type {
   SpecDocumentResponse,
+  TicketResponse,
   TaskRunResponse,
   VerificationReportResponse,
 } from '../api/contracts'
@@ -44,6 +47,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const [changeBoundary, setChangeBoundary] = useState('')
   const [acceptanceSignal, setAcceptanceSignal] = useState('')
   const [specInstruction, setSpecInstruction] = useState('')
+  const [ticketInstruction, setTicketInstruction] = useState('')
 
   // 第二步：所有服务端事实从 Query Cache 读取。空 ID 时 hook 会保持 disabled。
   const queryClient = useQueryClient()
@@ -65,6 +69,8 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const confirmGrilling = useConfirmGrillingMutation()
   const generateSpec = useGenerateSpecMutation()
   const confirmSpec = useConfirmSpecMutation()
+  const generateTickets = useGenerateTicketsMutation()
+  const confirmTickets = useConfirmTicketsMutation()
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -119,9 +125,41 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
     })
   }
 
+  function handleGenerateTickets(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!requirement.data) return
+    generateTickets.mutate({
+      requirementId: requirement.data.id,
+      request: {
+        expectedRevision: requirement.data.revision,
+        instruction: ticketInstruction,
+      },
+    })
+  }
+
+  function handleConfirmTickets(versionId: string) {
+    if (!requirement.data) return
+    confirmTickets.mutate({
+      requirementId: requirement.data.id,
+      versionId,
+      expectedRevision: requirement.data.revision,
+    }, {
+      onSuccess: () => setTicketVersionId(versionId),
+    })
+  }
+
   const activeSpec = planning.data?.specVersions.find((version) => version.status === 'draft')
   const latestSpec = planning.data?.specVersions[planning.data.specVersions.length - 1]
   const visibleSpec = activeSpec ?? latestSpec
+  const activeTicketVersion = planning.data?.ticketVersions.find((version) => version.status === 'draft')
+  const latestTicketVersion = planning.data?.ticketVersions[planning.data.ticketVersions.length - 1]
+  const visibleTicketVersion = activeTicketVersion ?? latestTicketVersion
+
+  // 页面刷新后从服务端 confirmed 事实恢复队列输入，不要求用户复制一串内部 ID。
+  useEffect(() => {
+    const confirmed = planning.data?.ticketVersions.find((version) => version.status === 'confirmed')
+    if (confirmed) setTicketVersionId(confirmed.id)
+  }, [planning.data?.ticketVersions])
 
   const actionError =
     createRequirement.error ??
@@ -130,13 +168,15 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
     verifyRequirement.error ??
     confirmGrilling.error ??
     generateSpec.error ??
-    confirmSpec.error
+    confirmSpec.error ??
+    generateTickets.error ??
+    confirmTickets.error
 
   return (
     <main className="go-control-shell">
       <header className="go-control-header">
         <div>
-          <span>{standalone ? 'STEP 21B · GO PLANNING' : 'STEP 21B · GO HTTP'}</span>
+          <span>{standalone ? 'STEP 21C · GO PLANNING' : 'STEP 21C · GO HTTP'}</span>
           <h1>Go 控制面</h1>
           <p>
             {standalone
@@ -255,7 +295,48 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
 
         <article className="go-control-card">
-          <header><span>03</span><div><h2>Ticket Queue</h2><p>让 Scheduler 计算 ready Ticket</p></div></header>
+          <header><span>03</span><div><h2>Tickets</h2><p>把已确认 Spec 拆成可并行 DAG</p></div></header>
+          {requirement.data?.stage === 'tickets' ? (
+            <form onSubmit={handleGenerateTickets}>
+              <label>
+                <span>修订要求（第一版可留空）</span>
+                <textarea value={ticketInstruction} onChange={(event) => setTicketInstruction(event.target.value)} />
+              </label>
+              <button className="primary-button" disabled={generateTickets.isPending}>
+                {generateTickets.isPending ? 'Codex 正在拆票…' : '生成 Tickets 草稿'}
+              </button>
+            </form>
+          ) : null}
+          {visibleTicketVersion ? (
+            <div className="go-result-block">
+              <strong>v{visibleTicketVersion.version} · {visibleTicketVersion.status}</strong>
+              <small>ID：{visibleTicketVersion.id}</small>
+              {visibleTicketVersion.tickets.map((ticket) => <TicketCard key={ticket.id} ticket={ticket} />)}
+              {activeTicketVersion ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={confirmTickets.isPending || !requirement.data}
+                  onClick={() => handleConfirmTickets(activeTicketVersion.id)}
+                >
+                  确认并发布 TicketVersion
+                </button>
+              ) : visibleTicketVersion.status === 'confirmed' && requirement.data?.stage === 'implementation' ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={confirmTickets.isPending}
+                  onClick={() => handleConfirmTickets(visibleTicketVersion.id)}
+                >
+                  重新发布执行 manifest
+                </button>
+              ) : null}
+            </div>
+          ) : <p className="form-note">确认 Spec 后才会进入 21C。</p>}
+        </article>
+
+        <article className="go-control-card">
+          <header><span>04</span><div><h2>Ticket Queue</h2><p>让 Scheduler 计算 ready Ticket</p></div></header>
           <form onSubmit={handleReconcile}>
             <label>
               <span>TicketVersion ID</span>
@@ -268,7 +349,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
             </label>
             <p className="form-note">
               这里必须填写已经确认并写入服务端 artifact 的版本 ID，不能临时自定义。
-              当前 Ticket 生成与确认流程将在 21C 迁入 Go。
+              21C 确认成功后会自动填入这里；Scheduler 只会读取已发布的不可变 artifact。
             </p>
             <button
               className="primary-button"
@@ -290,7 +371,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
 
         <article className="go-control-card">
-          <header><span>04</span><div><h2>TaskRun</h2><p>查询执行尝试与取消活动任务</p></div></header>
+          <header><span>05</span><div><h2>TaskRun</h2><p>查询执行尝试与取消活动任务</p></div></header>
           <label className="go-resource-lookup">
             <span>TaskRun ID</span>
             <input
@@ -312,7 +393,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
 
         <article className="go-control-card">
-          <header><span>05</span><div><h2>Verification</h2><p>执行最终候选门禁并读取报告</p></div></header>
+          <header><span>06</span><div><h2>Verification</h2><p>执行最终候选门禁并读取报告</p></div></header>
           <button
             className="primary-button"
             disabled={!requirementId.trim() || !ticketVersionId.trim() || verifyRequirement.isPending}
@@ -354,6 +435,19 @@ function SpecSection({ title, values }: { title: string; values: string[] }) {
       <h3>{title}</h3>
       <ul>{values.map((value, index) => <li key={`${title}-${index}`}>{value}</li>)}</ul>
     </section>
+  )
+}
+
+function TicketCard({ ticket }: { ticket: TicketResponse }) {
+  return (
+    <article className="go-ticket-card">
+      <strong>{ticket.id} · {ticket.title}</strong>
+      <p>{ticket.deliverable}</p>
+      <small>依赖：{ticket.blockedBy.length ? ticket.blockedBy.join(', ') : '无，可并行启动'}</small>
+      <ul>{ticket.acceptanceCriteria.map((criterion, index) => (
+        <li key={`${ticket.id}-${index}`}>{criterion}</li>
+      ))}</ul>
+    </article>
   )
 }
 

@@ -1,10 +1,12 @@
 import type {
   ConfirmGrillingRequest,
   ConfirmSpecRequest,
+  ConfirmTicketsRequest,
   CreateRequirementRequest,
   ErrorResponse,
   HealthResponse,
   GenerateSpecRequest,
+  GenerateTicketsRequest,
   PlanningResponse,
   ReconcileTaskRunsRequest,
   ReconcileTaskRunsResponse,
@@ -132,6 +134,29 @@ export function createWorkbenchApiClient(options: WorkbenchApiClientOptions = {}
       fetchRequest,
       baseUrl,
       `/requirements/${encodePathSegment(requirementId)}/specs/${encodePathSegment(versionId)}/confirm`,
+      { method: 'POST', body: input, signal: requestOptions?.signal },
+    ),
+
+    generateTickets: (
+      requirementId: string,
+      input: GenerateTicketsRequest,
+      requestOptions?: RequestOptions,
+    ) => requestJSON<PlanningResponse>(
+      fetchRequest,
+      baseUrl,
+      `/requirements/${encodePathSegment(requirementId)}/tickets/generate`,
+      { method: 'POST', body: input, signal: requestOptions?.signal },
+    ),
+
+    confirmTickets: (
+      requirementId: string,
+      versionId: string,
+      input: ConfirmTicketsRequest,
+      requestOptions?: RequestOptions,
+    ) => requestJSON<PlanningResponse>(
+      fetchRequest,
+      baseUrl,
+      `/requirements/${encodePathSegment(requirementId)}/tickets/${encodePathSegment(versionId)}/confirm`,
       { method: 'POST', body: input, signal: requestOptions?.signal },
     ),
 

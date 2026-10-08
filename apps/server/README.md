@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～20、21A 和 21B 已完成，下一步是 21C Tickets
+## 当前进度：练习 1～20、21A～21C 已完成，下一步是 21D 目标预览
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -610,6 +610,15 @@ TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree、SSE replay 与 Verificati
 - 确认当前草稿后，Requirement 使用 revision 乐观锁推进到 `tickets`；
 - 前端类比：Spec 版本是服务端实体，React Query 只是它的缓存投影。
 
+### 步骤 21C：Ticket DAG 生成、确认与发布（已完成）
+
+- 只读 Codex 把已确认 Spec 拆成按顺序声明依赖的 Ticket DAG；无依赖根节点可以并行；
+- SQLite 保存不可覆盖的 TicketVersion 草稿，新草稿只 supersede 旧草稿；
+- 仓库路径、Git HEAD 和修改范围来自服务端目标配置，不接受浏览器或 Codex 扩权；
+- 确认后 Requirement 从 `tickets` 推进到 `implementation`，并原子发布 Scheduler/Worker
+  共用的 JSON manifest；重复发布相同内容幂等；
+- SPA 展示每张票的交付内容、验收条件和 `blockedBy`，确认后自动填充真实 TicketVersion ID。
+
 新增接口：
 
 ```text
@@ -617,4 +626,6 @@ GET  /api/v1/requirements/{id}/planning
 POST /api/v1/requirements/{id}/grilling/confirm
 POST /api/v1/requirements/{id}/specs/generate
 POST /api/v1/requirements/{id}/specs/{versionId}/confirm
+POST /api/v1/requirements/{id}/tickets/generate
+POST /api/v1/requirements/{id}/tickets/{versionId}/confirm
 ```

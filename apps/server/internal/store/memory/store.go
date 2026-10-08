@@ -21,6 +21,7 @@ type Store struct {
 	requirements   map[string]domain.Requirement
 	understandings map[string]domain.GrillingUnderstanding
 	specVersions   map[string][]domain.SpecVersion
+	ticketVersions map[string][]domain.TicketVersion
 	tasks          map[string]domain.TaskRun
 	taskOrder      []string
 	eventsByTask   map[string][]domain.TaskEvent
@@ -41,6 +42,7 @@ func New() *Store {
 		requirements:   make(map[string]domain.Requirement),
 		understandings: make(map[string]domain.GrillingUnderstanding),
 		specVersions:   make(map[string][]domain.SpecVersion),
+		ticketVersions: make(map[string][]domain.TicketVersion),
 		tasks:          make(map[string]domain.TaskRun),
 		taskOrder:      []string{},
 		eventsByTask:   make(map[string][]domain.TaskEvent),

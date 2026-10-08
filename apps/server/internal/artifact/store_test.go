@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/scheduler"
@@ -78,6 +79,37 @@ func TestStoreReportsMissingTicketVersion(t *testing.T) {
 	_, err = store.ReadConfirmedTicketVersion(context.Background(), "req-1", "tickets-v1")
 	if !errors.Is(err, scheduler.ErrTicketVersionNotFound) {
 		t.Fatalf("missing TicketVersion error = %v, want ErrTicketVersionNotFound", err)
+	}
+}
+
+func TestStorePublishesConfirmedTicketVersionIdempotently(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmedAt := time.Now().UTC()
+	version := domain.TicketVersion{
+		ID: "tickets-v1", RequirementID: "req-1", SpecVersionID: "spec-v1",
+		Version: 1, Status: domain.TicketVersionConfirmed,
+		RepositoryRoot:    filepath.Join(t.TempDir(), "repository"),
+		BaseRevision:      "0123456789012345678901234567890123456789",
+		RequirementBranch: "workbench/requirements/req-1", ConfirmedAt: &confirmedAt,
+		Tickets: []domain.Ticket{{
+			ID: "TICKET-01", Title: "实现页面", BlockedBy: []string{}, Deliverable: "页面可用",
+			AcceptanceCriteria: []string{"类型检查通过"}, ModificationScopes: []string{"apps/web"},
+		}},
+	}
+	for range 2 {
+		if err := store.PublishConfirmedTicketVersion(context.Background(), version); err != nil {
+			t.Fatalf("PublishConfirmedTicketVersion() error = %v", err)
+		}
+	}
+	facts, err := store.ReadExecutionFacts(context.Background(), domain.TaskRun{
+		RequirementID: version.RequirementID, TicketVersionID: version.ID,
+		TicketID: "TICKET-01", Attempt: 1,
+	})
+	if err != nil || facts.Prompt == "" || facts.Workspace.ModificationScopes[0] != "apps/web" {
+		t.Fatalf("ExecutionFacts = %#v, error=%v", facts, err)
 	}
 }
 

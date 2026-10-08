@@ -1,7 +1,7 @@
 // Package artifact 读取已经确认、不可变的 TicketVersion 执行制品。
 //
-// 这里故意只实现读取：Spec/Ticket 的生成与确认仍由工作流用例负责。Runner 不能修改制品，
-// 浏览器也不能把仓库路径、Prompt 或修改范围直接塞进执行请求。
+// 生成逻辑属于规划 Adapter；本包只负责原子发布已确认版本，以及为 Scheduler/Runner 提供
+// 只读投影。浏览器不能把仓库路径、Prompt 或修改范围直接塞进执行请求。
 package artifact
 
 import (
@@ -75,6 +75,89 @@ func NewStore(root string) (*Store, error) {
 		return nil, fmt.Errorf("解析 artifact 根目录: %w", err)
 	}
 	return &Store{root: canonicalRoot}, nil
+}
+
+// PublishConfirmedTicketVersion 把数据库中已冻结的 TicketVersion 发布成不可变 JSON manifest。
+// 同一内容可重复发布，用于修复“数据库已提交、进程在文件落盘前退出”的安全失败状态。
+func (s *Store) PublishConfirmedTicketVersion(
+	ctx context.Context,
+	version domain.TicketVersion,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("%w: context 不能为空", ErrInvalidDocument)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if version.Status != domain.TicketVersionConfirmed || version.ConfirmedAt == nil {
+		return fmt.Errorf("%w: 只能发布已确认 TicketVersion", ErrInvalidDocument)
+	}
+	document := TicketVersionDocument{
+		ID:                version.ID,
+		RequirementID:     version.RequirementID,
+		RepositoryRoot:    version.RepositoryRoot,
+		BaseRevision:      version.BaseRevision,
+		RequirementBranch: version.RequirementBranch,
+		Tickets:           make([]TicketDocument, 0, len(version.Tickets)),
+	}
+	for _, ticket := range version.Tickets {
+		document.Tickets = append(document.Tickets, TicketDocument{
+			ID:                 ticket.ID,
+			BlockedBy:          append([]string{}, ticket.BlockedBy...),
+			Prompt:             renderTicketPrompt(ticket),
+			ModificationScopes: append([]string{}, ticket.ModificationScopes...),
+		})
+	}
+	if err := validateDocument(document, version.RequirementID, version.ID); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return fmt.Errorf("编码 TicketVersion artifact: %w", err)
+	}
+	data = append(data, '\n')
+	directory := filepath.Join(s.root, version.RequirementID)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("创建 TicketVersion artifact 目录: %w", err)
+	}
+	path := filepath.Join(directory, version.ID+".json")
+	if same, err := artifactMatches(path, data); err != nil {
+		return err
+	} else if same {
+		return nil
+	}
+
+	temporary, err := os.CreateTemp(directory, ".ticket-version-*.tmp")
+	if err != nil {
+		return fmt.Errorf("创建 TicketVersion 临时文件: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return fmt.Errorf("设置 TicketVersion 临时文件权限: %w", err)
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return fmt.Errorf("写入 TicketVersion 临时文件: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return fmt.Errorf("同步 TicketVersion 临时文件: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("关闭 TicketVersion 临时文件: %w", err)
+	}
+	// Link 不覆盖既有文件；并发发布只能有一个获胜，其余调用再比较内容后幂等成功。
+	if err := os.Link(temporaryPath, path); err != nil {
+		if same, matchErr := artifactMatches(path, data); matchErr != nil {
+			return matchErr
+		} else if same {
+			return nil
+		}
+		return fmt.Errorf("发布 TicketVersion artifact: %w", err)
+	}
+	return nil
 }
 
 // ReadConfirmedTicketVersion 返回 Scheduler 需要的依赖图投影。
@@ -212,9 +295,41 @@ func validateDocument(document TicketVersionDocument, requirementID string, tick
 		if _, exists := seen[ticket.ID]; exists {
 			return fmt.Errorf("%w: Ticket %q 重复", ErrInvalidDocument, ticket.ID)
 		}
+		for _, blocker := range ticket.BlockedBy {
+			if _, exists := seen[blocker]; !exists {
+				return fmt.Errorf("%w: Ticket %q 依赖不存在或顺序错误", ErrInvalidDocument, ticket.ID)
+			}
+		}
 		seen[ticket.ID] = struct{}{}
 	}
 	return nil
+}
+
+func artifactMatches(path string, expected []byte) (bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("读取既有 TicketVersion artifact: %w", err)
+	}
+	if !bytes.Equal(data, expected) {
+		return false, fmt.Errorf("%w: 已存在同 ID 的不同 artifact", ErrInvalidDocument)
+	}
+	return true, nil
+}
+
+func renderTicketPrompt(ticket domain.Ticket) string {
+	criteria := make([]string, 0, len(ticket.AcceptanceCriteria))
+	for _, criterion := range ticket.AcceptanceCriteria {
+		criteria = append(criteria, "- "+criterion)
+	}
+	return strings.Join([]string{
+		"实现执行票 " + ticket.ID + "：" + ticket.Title,
+		"交付内容：" + ticket.Deliverable,
+		"验收条件：\n" + strings.Join(criteria, "\n"),
+		"只修改 manifest 中允许的 modificationScopes；完成后说明修改和验证结果。",
+	}, "\n\n")
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {
@@ -244,3 +359,6 @@ func ticketBranch(run domain.TaskRun) string {
 
 var _ scheduler.ArtifactReader = (*Store)(nil)
 var _ runner.ExecutionFactsReader = (*Store)(nil)
+var _ interface {
+	PublishConfirmedTicketVersion(context.Context, domain.TicketVersion) error
+} = (*Store)(nil)

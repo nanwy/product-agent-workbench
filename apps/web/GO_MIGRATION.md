@@ -74,8 +74,8 @@ pnpm --filter @product-agent-workbench/web build
 ## 练习 19B：React Query 页面切流（已完成）
 
 当前 Go 已实现的资源已经形成独立可运行页面 `/go-control`。19B 完成时旧 `/` 页面仍保留，
-因为当时 Grilling、Spec 草稿、Ticket 草稿和目标预览尚无 Go endpoint。21A/21B 已补上
-Grilling 与 Spec；Ticket 草稿和目标预览仍不能让 Node JSON 与 Go SQLite 同时成为真值来源。
+因为当时 Grilling、Spec 草稿、Ticket 草稿和目标预览尚无 Go endpoint。21A～21C 已补上
+Grilling、Spec 与 TicketVersion；目标预览仍不能让 Node JSON 与 Go SQLite 同时成为真值来源。
 
 ```text
 表单输入 / 当前选中 ID              Go 服务端事实
@@ -246,5 +246,11 @@ curl http://127.0.0.1:8080/api/v1/health
 Go 启动只读 Codex Turn 检查目标仓库，解析严格的结构化协议并保存不可覆盖 Spec 版本。
 确认当前草稿后阶段推进到 `tickets`。浏览器只提交修订意图，不能传仓库路径、命令或 sandbox。
 
-后续顺序：21C Ticket 生成与 artifact、21D 目标预览、21E 删除 Node Server Functions，
+### 21C Tickets（已完成）
+
+Go 使用只读 Codex 把确认 Spec 拆成 Ticket DAG，SQLite 保存版本历史；确认后发布现有
+Scheduler 与 Worker 消费的不可变 JSON manifest，并推进到 `implementation`。前端不再猜
+TicketVersion ID，而是从确认响应取得真实 ID 并交给队列 Reconcile。
+
+后续顺序：21D 目标预览、21E 删除 Node Server Functions，
 最后由步骤 22 完成 Playwright 单二进制验收、故障演示、benchmark 和面试材料。

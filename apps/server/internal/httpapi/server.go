@@ -35,6 +35,8 @@ type PlanningApplication interface {
 	ConfirmGrilling(ctx context.Context, input app.ConfirmGrillingInput) (app.PlanningSnapshot, error)
 	GenerateSpec(ctx context.Context, input app.GenerateSpecInput) (app.PlanningSnapshot, error)
 	ConfirmSpec(ctx context.Context, input app.ConfirmSpecInput) (app.PlanningSnapshot, error)
+	GenerateTickets(ctx context.Context, input app.GenerateTicketsInput) (app.PlanningSnapshot, error)
+	ConfirmTickets(ctx context.Context, input app.ConfirmTicketsInput) (app.PlanningSnapshot, error)
 	GetPlanning(ctx context.Context, requirementID string) (app.PlanningSnapshot, error)
 }
 
@@ -173,6 +175,8 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/grilling/confirm", server.handleConfirmGrilling)
 		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/specs/generate", server.handleGenerateSpec)
 		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/specs/{versionId}/confirm", server.handleConfirmSpec)
+		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/tickets/generate", server.handleGenerateTickets)
+		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/tickets/{versionId}/confirm", server.handleConfirmTickets)
 	}
 	// TaskRuns 与 Scheduler 在渐进迁移期间允许为空，现有 Requirement HTTP 仍可独立测试。
 	if server.taskRuns != nil {

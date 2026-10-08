@@ -32,3 +32,17 @@ func TestGeneratorParsesStructuredSpec(t *testing.T) {
 		t.Fatalf("Generate() document=%#v error=%v", document, err)
 	}
 }
+
+func TestParseTicketsAcceptsParallelRootsAndOrderedDependency(t *testing.T) {
+	tickets, err := parseTickets(`[WORKBENCH:TICKETS]{"tickets":[
+		{"id":"TICKET-01","title":"A","blockedBy":[],"deliverable":"A","acceptanceCriteria":["A ok"]},
+		{"id":"TICKET-02","title":"B","blockedBy":[],"deliverable":"B","acceptanceCriteria":["B ok"]},
+		{"id":"TICKET-03","title":"C","blockedBy":["TICKET-01","TICKET-02"],"deliverable":"C","acceptanceCriteria":["C ok"]}
+	]}[/WORKBENCH:TICKETS]`, "apps/web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tickets) != 3 || len(tickets[2].BlockedBy) != 2 || tickets[0].ModificationScopes[0] != "apps/web" {
+		t.Fatalf("tickets = %#v", tickets)
+	}
+}

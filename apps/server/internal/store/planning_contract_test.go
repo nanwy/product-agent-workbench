@@ -56,6 +56,38 @@ func runPlanningStoreContract(t *testing.T, factory storeFactory) {
 		if err != nil || stored.Stage != domain.RequirementStageTickets || stored.Revision != 4 {
 			t.Fatalf("requirement = %#v, error=%v", stored, err)
 		}
+
+		ticketVersion := domain.TicketVersion{
+			ID: "tickets-1", RequirementID: requirement.ID, SpecVersionID: version.ID,
+			Version: 1, Status: domain.TicketVersionDraft,
+			RepositoryRoot: "/tmp/repository", BaseRevision: "0123456789012345678901234567890123456789",
+			RequirementBranch: "workbench/requirements/req-1", CreatedAt: now,
+			Tickets: []domain.Ticket{{
+				ID: "TICKET-01", Title: "纵向切片", BlockedBy: []string{}, Deliverable: "可见结果",
+				AcceptanceCriteria: []string{"页面可用"}, ModificationScopes: []string{"apps/web"},
+			}},
+		}
+		requirement = stored
+		revision, err = subject.CreateTicketVersion(ctx, requirement, 4, ticketVersion)
+		if err != nil || revision != 5 {
+			t.Fatalf("CreateTicketVersion() = (%d, %v), want (5, nil)", revision, err)
+		}
+		requirement.Revision = revision
+		requirement.Stage = domain.RequirementStageImplementation
+		revision, err = subject.ConfirmTicketVersion(
+			ctx,
+			requirement,
+			revision,
+			ticketVersion.ID,
+			now.Add(2*time.Minute),
+		)
+		if err != nil || revision != 6 {
+			t.Fatalf("ConfirmTicketVersion() = (%d, %v), want (6, nil)", revision, err)
+		}
+		ticketVersions, err := subject.ListTicketVersions(ctx, requirement.ID)
+		if err != nil || len(ticketVersions) != 1 || ticketVersions[0].Status != domain.TicketVersionConfirmed {
+			t.Fatalf("ticket versions = %#v, error=%v", ticketVersions, err)
+		}
 	})
 }
 

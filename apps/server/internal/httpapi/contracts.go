@@ -60,6 +60,15 @@ type ConfirmSpecRequest struct {
 	ExpectedRevision int64 `json:"expectedRevision"`
 }
 
+type GenerateTicketsRequest struct {
+	ExpectedRevision int64  `json:"expectedRevision"`
+	Instruction      string `json:"instruction"`
+}
+
+type ConfirmTicketsRequest struct {
+	ExpectedRevision int64 `json:"expectedRevision"`
+}
+
 type GrillingUnderstandingResponse struct {
 	Summary          string    `json:"summary"`
 	DesiredOutcome   string    `json:"desiredOutcome"`
@@ -87,10 +96,32 @@ type SpecVersionResponse struct {
 	ConfirmedAt *time.Time               `json:"confirmedAt,omitempty"`
 }
 
+type TicketResponse struct {
+	ID                 string   `json:"id"`
+	Title              string   `json:"title"`
+	BlockedBy          []string `json:"blockedBy"`
+	Deliverable        string   `json:"deliverable"`
+	AcceptanceCriteria []string `json:"acceptanceCriteria"`
+	ModificationScopes []string `json:"modificationScopes"`
+}
+
+type TicketVersionResponse struct {
+	ID                string                     `json:"id"`
+	SpecVersionID     string                     `json:"specVersionId"`
+	Version           int                        `json:"version"`
+	Status            domain.TicketVersionStatus `json:"status"`
+	BaseRevision      string                     `json:"baseRevision"`
+	RequirementBranch string                     `json:"requirementBranch"`
+	Tickets           []TicketResponse           `json:"tickets"`
+	CreatedAt         time.Time                  `json:"createdAt"`
+	ConfirmedAt       *time.Time                 `json:"confirmedAt,omitempty"`
+}
+
 type PlanningResponse struct {
-	Requirement   RequirementResponse            `json:"requirement"`
-	Understanding *GrillingUnderstandingResponse `json:"understanding"`
-	SpecVersions  []SpecVersionResponse          `json:"specVersions"`
+	Requirement    RequirementResponse            `json:"requirement"`
+	Understanding  *GrillingUnderstandingResponse `json:"understanding"`
+	SpecVersions   []SpecVersionResponse          `json:"specVersions"`
+	TicketVersions []TicketVersionResponse        `json:"ticketVersions"`
 }
 
 // ReconcileTaskRunsRequest 是浏览器请求调度一个已确认 TicketVersion 的稳定 JSON 合约。
@@ -221,8 +252,9 @@ func newRequirementResponse(requirement domain.Requirement) RequirementResponse 
 
 func newPlanningResponse(snapshot app.PlanningSnapshot) PlanningResponse {
 	response := PlanningResponse{
-		Requirement:  newRequirementResponse(snapshot.Requirement),
-		SpecVersions: make([]SpecVersionResponse, 0, len(snapshot.SpecVersions)),
+		Requirement:    newRequirementResponse(snapshot.Requirement),
+		SpecVersions:   make([]SpecVersionResponse, 0, len(snapshot.SpecVersions)),
+		TicketVersions: make([]TicketVersionResponse, 0, len(snapshot.TicketVersions)),
 	}
 	if snapshot.Understanding != nil {
 		response.Understanding = &GrillingUnderstandingResponse{
@@ -249,6 +281,30 @@ func newPlanningResponse(snapshot app.PlanningSnapshot) PlanningResponse {
 			},
 			CreatedAt:   version.CreatedAt,
 			ConfirmedAt: version.ConfirmedAt,
+		})
+	}
+	for _, version := range snapshot.TicketVersions {
+		tickets := make([]TicketResponse, 0, len(version.Tickets))
+		for _, ticket := range version.Tickets {
+			tickets = append(tickets, TicketResponse{
+				ID:                 ticket.ID,
+				Title:              ticket.Title,
+				BlockedBy:          append([]string{}, ticket.BlockedBy...),
+				Deliverable:        ticket.Deliverable,
+				AcceptanceCriteria: append([]string{}, ticket.AcceptanceCriteria...),
+				ModificationScopes: append([]string{}, ticket.ModificationScopes...),
+			})
+		}
+		response.TicketVersions = append(response.TicketVersions, TicketVersionResponse{
+			ID:                version.ID,
+			SpecVersionID:     version.SpecVersionID,
+			Version:           version.Version,
+			Status:            version.Status,
+			BaseRevision:      version.BaseRevision,
+			RequirementBranch: version.RequirementBranch,
+			Tickets:           tickets,
+			CreatedAt:         version.CreatedAt,
+			ConfirmedAt:       version.ConfirmedAt,
 		})
 	}
 	return response

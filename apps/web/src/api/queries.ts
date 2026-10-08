@@ -5,6 +5,7 @@ import type {
   ConfirmGrillingRequest,
   CreateRequirementRequest,
   GenerateSpecRequest,
+  GenerateTicketsRequest,
   PlanningResponse,
   ReconcileTaskRunsRequest,
   RequirementResponse,
@@ -126,6 +127,26 @@ export function useConfirmSpecMutation() {
   return useMutation({
     mutationFn: (input: { requirementId: string; versionId: string; expectedRevision: number }) =>
       api.confirmSpec(input.requirementId, input.versionId, {
+        expectedRevision: input.expectedRevision,
+      }),
+    onSuccess: (planning) => writePlanningCache(queryClient, planning),
+  })
+}
+
+export function useGenerateTicketsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { requirementId: string; request: GenerateTicketsRequest }) =>
+      api.generateTickets(input.requirementId, input.request),
+    onSuccess: (planning) => writePlanningCache(queryClient, planning),
+  })
+}
+
+export function useConfirmTicketsMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { requirementId: string; versionId: string; expectedRevision: number }) =>
+      api.confirmTickets(input.requirementId, input.versionId, {
         expectedRevision: input.expectedRevision,
       }),
     onSuccess: (planning) => writePlanningCache(queryClient, planning),

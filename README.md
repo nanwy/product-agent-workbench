@@ -31,8 +31,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，Go 全栈重构约完成 **90%**：步骤 1～20、21A Grilling 和 21B Spec 已落地。
-剩余工作是 21C Ticket 生成确认、21D 目标预览、21E 删除 Node Server Functions，以及
+截至当前，Go 全栈重构约完成 **93%**：步骤 1～20、21A Grilling、21B Spec 和 21C Tickets 已落地。
+剩余工作是 21D 目标预览、21E 删除 Node Server Functions，以及
 步骤 22 的交付强化。旧 Node 工作台仍是迁移对照，不能把当前状态称为完整替换。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -55,6 +55,7 @@ docs/         架构、面试与学习文档
 | 单二进制交付 | Vite SPA、embed.FS、路由 fallback 和单命令启动已完成 | 原 TanStack Start/Nitro 独立 Node 进程 |
 | Grilling 迁移 | 21A 共同理解确认、阶段 CAS、SQLite 持久化和 SPA 表单已完成 | Node Grilling 门禁与聚合内字段 |
 | Spec 迁移 | 21B 只读 Codex 生成、不可覆盖版本、确认门禁和 SPA 已完成 | `workbench-spec.ts` 与 Spec Server Functions |
+| Tickets 迁移 | 21C Ticket DAG 生成、版本持久化、manifest 发布和 SPA 已完成 | `workbench-tickets.ts` 与 Tickets Server Functions |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 

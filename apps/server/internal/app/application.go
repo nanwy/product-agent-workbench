@@ -22,6 +22,12 @@ var ErrSpecGeneratorUnavailable = errors.New("Spec 生成器不可用")
 // ErrInvalidSpecOutput 表示生成器成功返回文本，但没有形成完整结构化 Spec。
 var ErrInvalidSpecOutput = errors.New("Spec 生成结果无效")
 
+// ErrTicketGeneratorUnavailable 表示进程没有装配只读 Tickets 生成器。
+var ErrTicketGeneratorUnavailable = errors.New("Ticket 生成器不可用")
+
+// ErrInvalidTicketOutput 表示生成器没有形成合法且无环的 Ticket DAG。
+var ErrInvalidTicketOutput = errors.New("Ticket 生成结果无效")
+
 // IDGenerator 生成新的领域实体 ID。
 //
 // 把变化点作为依赖传入，测试才能使用确定值，生产环境以后可以注入 UUID 生成器。
@@ -40,12 +46,14 @@ type Clock func() time.Time
 // 的构造细节。这里只放当前用例真实使用的依赖；Runner 要等到执行用例出现后再加入，
 // 不要把未来可能使用的模块预先塞进依赖工具箱。
 type Dependencies struct {
-	Store         store.Store
-	Tickets       VerificationTicketReader
-	Verification  DeliveryVerifier
-	SpecGenerator SpecGenerator
-	NewID         IDGenerator
-	Now           Clock
+	Store           store.Store
+	Tickets         VerificationTicketReader
+	Verification    DeliveryVerifier
+	SpecGenerator   SpecGenerator
+	TicketGenerator TicketGenerator
+	TicketPublisher TicketPublisher
+	NewID           IDGenerator
+	Now             Clock
 }
 
 // Application 是 HTTP 层调用的用例入口。
@@ -53,12 +61,14 @@ type Dependencies struct {
 // HTTP handler 以后只调用这里公开的用例，不直接操作 Store 或领域状态机。这样 HTTP、CLI
 // 或测试都能复用相同规则，也避免把业务判断散落到不同入口。
 type Application struct {
-	store         store.Store
-	tickets       VerificationTicketReader
-	verification  DeliveryVerifier
-	specGenerator SpecGenerator
-	newID         IDGenerator
-	now           Clock
+	store           store.Store
+	tickets         VerificationTicketReader
+	verification    DeliveryVerifier
+	specGenerator   SpecGenerator
+	ticketGenerator TicketGenerator
+	ticketPublisher TicketPublisher
+	newID           IDGenerator
+	now             Clock
 }
 
 // New 创建应用用例模块。
@@ -74,12 +84,14 @@ func New(dependencies Dependencies) (*Application, error) {
 		return nil, ErrInvalidDependencies
 	}
 	return &Application{
-		store:         dependencies.Store,
-		tickets:       dependencies.Tickets,
-		verification:  dependencies.Verification,
-		specGenerator: dependencies.SpecGenerator,
-		newID:         dependencies.NewID,
-		now:           dependencies.Now,
+		store:           dependencies.Store,
+		tickets:         dependencies.Tickets,
+		verification:    dependencies.Verification,
+		specGenerator:   dependencies.SpecGenerator,
+		ticketGenerator: dependencies.TicketGenerator,
+		ticketPublisher: dependencies.TicketPublisher,
+		newID:           dependencies.NewID,
+		now:             dependencies.Now,
 	}, nil
 }
 
@@ -95,6 +107,31 @@ type SpecGenerationInput struct {
 // SpecGenerator 隔离“业务用例”和“怎样调用 Codex”。测试可以注入 fake，生产使用只读 Turn。
 type SpecGenerator interface {
 	Generate(ctx context.Context, input SpecGenerationInput) (domain.SpecDocument, error)
+}
+
+// TicketGenerationInput 只携带已经确认的 Spec 和用户本轮修订意图。
+type TicketGenerationInput struct {
+	Requirement     domain.Requirement
+	Spec            domain.SpecVersion
+	PreviousVersion *domain.TicketVersion
+	Instruction     string
+}
+
+// GeneratedTicketPlan 是只读规划 Adapter 返回的 Git 快照和 Ticket DAG。
+type GeneratedTicketPlan struct {
+	RepositoryRoot    string
+	BaseRevision      string
+	RequirementBranch string
+	Tickets           []domain.Ticket
+}
+
+type TicketGenerator interface {
+	GenerateTickets(ctx context.Context, input TicketGenerationInput) (GeneratedTicketPlan, error)
+}
+
+// TicketPublisher 把已确认版本发布成 Scheduler/Worker 共用的不可变 manifest。
+type TicketPublisher interface {
+	PublishConfirmedTicketVersion(ctx context.Context, version domain.TicketVersion) error
 }
 
 // VerificationTicketReader 提供“这个版本到底有几张票”的可信事实。

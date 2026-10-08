@@ -63,6 +63,8 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 		{name: "缺少 Executor", mutate: func(dependencies *runtimeDependencies) { dependencies.Executor = nil }},
 		{name: "缺少 Verifier", mutate: func(dependencies *runtimeDependencies) { dependencies.Verifier = nil }},
 		{name: "缺少 Spec Generator", mutate: func(dependencies *runtimeDependencies) { dependencies.SpecGenerator = nil }},
+		{name: "缺少 Ticket Generator", mutate: func(dependencies *runtimeDependencies) { dependencies.TicketGenerator = nil }},
+		{name: "缺少 Ticket Publisher", mutate: func(dependencies *runtimeDependencies) { dependencies.TicketPublisher = nil }},
 		{name: "缺少 ID 生成器", mutate: func(dependencies *runtimeDependencies) { dependencies.NewID = nil }},
 		{name: "缺少时钟", mutate: func(dependencies *runtimeDependencies) { dependencies.Now = nil }},
 		{name: "并发数为零", mutate: func(dependencies *runtimeDependencies) { dependencies.Concurrency = 0 }},
@@ -86,16 +88,18 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 
 func validRuntimeDependencies() runtimeDependencies {
 	return runtimeDependencies{
-		Store:          memory.New(),
-		Artifacts:      runtimeArtifactReader{},
-		ExecutionFacts: runtimeExecutionFactsReader{},
-		Workspaces:     runtimeWorkspaceManager{},
-		Executor:       runtimeExecutor{},
-		Verifier:       runtimeVerifier{},
-		SpecGenerator:  runtimeSpecGenerator{},
-		NewID:          func() string { return "run-1" },
-		Now:            func() time.Time { return time.Unix(1, 0).UTC() },
-		Concurrency:    2,
+		Store:           memory.New(),
+		Artifacts:       runtimeArtifactReader{},
+		ExecutionFacts:  runtimeExecutionFactsReader{},
+		Workspaces:      runtimeWorkspaceManager{},
+		Executor:        runtimeExecutor{},
+		Verifier:        runtimeVerifier{},
+		SpecGenerator:   runtimeSpecGenerator{},
+		TicketGenerator: runtimeTicketGenerator{},
+		TicketPublisher: runtimeTicketPublisher{},
+		NewID:           func() string { return "run-1" },
+		Now:             func() time.Time { return time.Unix(1, 0).UTC() },
+		Concurrency:     2,
 	}
 }
 
@@ -162,11 +166,29 @@ type runtimeVerifier struct{}
 
 type runtimeSpecGenerator struct{}
 
+type runtimeTicketGenerator struct{}
+
+type runtimeTicketPublisher struct{}
+
 func (runtimeSpecGenerator) Generate(
 	context.Context,
 	app.SpecGenerationInput,
 ) (domain.SpecDocument, error) {
 	return domain.SpecDocument{}, nil
+}
+
+func (runtimeTicketGenerator) GenerateTickets(
+	context.Context,
+	app.TicketGenerationInput,
+) (app.GeneratedTicketPlan, error) {
+	return app.GeneratedTicketPlan{}, nil
+}
+
+func (runtimeTicketPublisher) PublishConfirmedTicketVersion(
+	context.Context,
+	domain.TicketVersion,
+) error {
+	return nil
 }
 
 func (runtimeVerifier) Verify(
