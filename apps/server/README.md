@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～18B 已完成，下一步是 19 前端切换 Go HTTP + SSE
+## 当前进度：练习 1～19B 已完成，下一步是 19C 前端 SSE 重放与缓存收敛
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -377,7 +377,9 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 17D 真实 Adapter 与进程生命周期（已完成）
 → 18A 持久化事件 SSE replay（已完成）
 → 18B Verification 实际执行与交付门禁（已完成）
-→ 19 前端改用 Go HTTP + SSE（下一步）
+→ 19A 前端 Go API Client 与 DTO（已完成）
+→ 19B Go 资源页面 Query/Mutation 切换（已完成）
+→ 19C 前端 SSE 重放与缓存收敛（下一步）
 → 20 Vite SPA + Go embed + 单命令启动
 → 21 Playwright、故障演示、benchmark、面试材料
 ```

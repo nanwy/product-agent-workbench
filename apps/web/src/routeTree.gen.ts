@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as GoControlRouteImport } from './routes/go-control'
 import { Route as ApiEventsRouteImport } from './routes/api.events'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GoControlRoute = GoControlRouteImport.update({
+  id: '/go-control',
+  path: '/go-control',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEventsRoute = ApiEventsRouteImport.update({
@@ -25,27 +31,31 @@ const ApiEventsRoute = ApiEventsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/go-control': typeof GoControlRoute
   '/api/events': typeof ApiEventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/go-control': typeof GoControlRoute
   '/api/events': typeof ApiEventsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/go-control': typeof GoControlRoute
   '/api/events': typeof ApiEventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/events'
+  fullPaths: '/' | '/go-control' | '/api/events'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/events'
-  id: '__root__' | '/' | '/api/events'
+  to: '/' | '/go-control' | '/api/events'
+  id: '__root__' | '/' | '/go-control' | '/api/events'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  GoControlRoute: typeof GoControlRoute
   ApiEventsRoute: typeof ApiEventsRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/go-control': {
+      id: '/go-control'
+      path: '/go-control'
+      fullPath: '/go-control'
+      preLoaderRoute: typeof GoControlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/events': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  GoControlRoute: GoControlRoute,
   ApiEventsRoute: ApiEventsRoute,
 }
 export const routeTree = rootRouteImport

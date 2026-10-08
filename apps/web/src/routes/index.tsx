@@ -328,6 +328,7 @@ function WorkbenchPage() {
         <div className="target-chip">
           <span className="status-dot" data-status={snapshot.process.status} />
           <span>{snapshot.target?.name ?? "目标项目未配置"}</span>
+          <a className="go-control-link" href="/go-control">Go 19B</a>
         </div>
       </header>
       {error ? (

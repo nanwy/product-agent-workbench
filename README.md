@@ -30,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **92%**；学习脚手架已经闭合 Verification 执行门禁，
-约覆盖后端迁移路线的 **97%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **95%**；学习脚手架已覆盖前端 Query/Mutation 切流，
+约覆盖迁移路线的 **98%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -50,7 +50,7 @@ docs/         架构、面试与学习文档
 | 真实 Codex Adapter 与进程装配 | 已完成 | 现有 Node 高权限模块与进程生命周期 |
 | Verification 执行门禁 | 已完成候选 Git 检查、宿主命令、三值证据、历史报告和 acceptance 门禁 | `verification.ts` 与交付前检查 |
 | 持久化 SSE | 已完成全局游标、断线重放、heartbeat 和游标失效通知 | Node 进程内事件订阅与浏览器状态同步 |
-| 前端切流 | 待完成 | Server Functions、Node 执行入口与 React Query 订阅 |
+| 前端切流 | 19A Client/DTO、19B Go 资源页 Query/Mutation 已完成；SSE 待切换 | Server Functions、Node 执行入口与 React Query 订阅 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 
@@ -89,6 +89,8 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 ## 代码地图
 
 - `apps/web/src/domain/`：Requirement 聚合、阶段和公共数据契约；
+- `apps/web/src/api/`：Go HTTP DTO、统一 fetch client 与错误边界；
+- `apps/web/src/routes/go-control.tsx`：直接消费 Go Requirement、TaskRun 与 Verification 的迁移页面；
 - `apps/web/src/server/`：迁移期间的 Node 配置、持久化、规则探索、进程和预览网关；
 - `apps/web/src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
 - `apps/web/src/server/codex-app-server.ts`：app-server 子进程、JSON-RPC、Thread 续接、Turn 中断与清理；
