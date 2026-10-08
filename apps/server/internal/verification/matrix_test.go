@@ -3,15 +3,19 @@ package verification
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestBuildMatrixNormalizesAndCopiesRecords(t *testing.T) {
 	input := []Evidence{{
-		ID:       " check-1 ",
-		Label:    " Go tests ",
-		Status:   StatusNotRun,
-		Reason:   " CI unavailable ",
-		Required: true,
+		ID:          " check-1 ",
+		Label:       " Go tests ",
+		Status:      StatusNotRun,
+		Reason:      " CI unavailable ",
+		Required:    true,
+		Source:      SourceCandidate,
+		StartedAt:   time.Unix(1, 0).UTC(),
+		CompletedAt: time.Unix(2, 0).UTC(),
 	}}
 
 	matrix, err := BuildMatrix(input)
@@ -37,15 +41,25 @@ func TestBuildMatrixRejectsInvalidEvidence(t *testing.T) {
 		name     string
 		evidence []Evidence
 	}{
-		{name: "blank id", evidence: []Evidence{{Label: "test", Status: StatusVerified}}},
-		{name: "blank label", evidence: []Evidence{{ID: "test", Status: StatusVerified}}},
-		{name: "unknown status", evidence: []Evidence{{ID: "test", Label: "test", Status: "success"}}},
-		{name: "not-run without reason", evidence: []Evidence{{ID: "test", Label: "test", Status: StatusNotRun}}},
+		{name: "blank id", evidence: []Evidence{validEvidence("", "test", StatusVerified)}},
+		{name: "blank label", evidence: []Evidence{validEvidence("test", "", StatusVerified)}},
+		{name: "unknown status", evidence: []Evidence{validEvidence("test", "test", "success")}},
+		{name: "not-run without reason", evidence: []Evidence{validEvidence("test", "test", StatusNotRun)}},
+		{name: "unknown source", evidence: []Evidence{func() Evidence {
+			evidence := validEvidence("test", "test", StatusVerified)
+			evidence.Source = "browser"
+			return evidence
+		}()}},
+		{name: "invalid time", evidence: []Evidence{func() Evidence {
+			evidence := validEvidence("test", "test", StatusVerified)
+			evidence.CompletedAt = time.Time{}
+			return evidence
+		}()}},
 		{
 			name: "duplicate normalized id",
 			evidence: []Evidence{
-				{ID: "test", Label: "first", Status: StatusVerified},
-				{ID: " test ", Label: "second", Status: StatusVerified},
+				validEvidence("test", "first", StatusVerified),
+				validEvidence(" test ", "second", StatusVerified),
 			},
 		},
 	}
@@ -57,6 +71,14 @@ func TestBuildMatrixRejectsInvalidEvidence(t *testing.T) {
 				t.Fatalf("BuildMatrix() error = %v, want ErrInvalidEvidence", err)
 			}
 		})
+	}
+}
+
+func validEvidence(id string, label string, status Status) Evidence {
+	return Evidence{
+		ID: id, Label: label, Status: status,
+		Source:    SourceCandidate,
+		StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC(),
 	}
 }
 

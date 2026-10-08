@@ -22,7 +22,10 @@ type Workspace struct {
 type Integration struct {
 	RequirementBranch string
 	Revision          string
-	ChangedFiles      []string
+	// WorktreePath 指向 Requirement 分支的受管整合目录。所有 Ticket 都完成后，验证命令
+	// 必须在这里运行，不能在某一张 Ticket 的局部 Worktree 中验证不完整候选。
+	WorktreePath string
+	ChangedFiles []string
 }
 
 // IntegrateRequest 描述一次受控整合。

@@ -111,15 +111,17 @@ func (r *ManagedRunner) Run(
 		return RunResult{}, fmt.Errorf("整合 TaskRun %q 到 Requirement 分支: %w", request.TaskRun.ID, err)
 	}
 	if strings.TrimSpace(integration.Revision) == "" ||
+		strings.TrimSpace(integration.WorktreePath) == "" ||
 		integration.RequirementBranch != request.Workspace.RequirementBranch ||
 		len(integration.ChangedFiles) == 0 ||
 		len(filesOutsideScopes(integration.ChangedFiles, request.Workspace.ModificationScopes)) > 0 {
 		return RunResult{}, fmt.Errorf("%w: Worktree Manager 返回的整合事实不完整", ErrInvalidWorkspacePlan)
 	}
 
-	// WorktreePath 和 Revision 是后续验证、恢复和交付需要引用的可审计事实。
+	// 验证必须看到所有 Ticket 已整合后的 Requirement 分支，因此保存整合 Worktree 路径，
+	// 不能保存只含当前 Ticket 修改的 prepared.Path。
 	// CodexThreadID 和 Summary 仍由底层 Executor 提供。
-	runResult.Result.WorktreePath = prepared.Path
+	runResult.Result.WorktreePath = integration.WorktreePath
 	runResult.Result.Revision = integration.Revision
 	return runResult, nil
 }

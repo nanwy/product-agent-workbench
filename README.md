@@ -30,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **88%**；学习脚手架已经闭合持久化 SSE replay，
-约覆盖后端迁移路线的 **96%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **92%**；学习脚手架已经闭合 Verification 执行门禁，
+约覆盖后端迁移路线的 **97%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -48,7 +48,7 @@ docs/         架构、面试与学习文档
 | 有界多 Worker + Worktree 编排 | 已完成固定槽位、范围门禁、整合 seam 与完成后 DAG 重算 | Node 当前串行执行，无对应并行能力 |
 | 真实 Git Worktree Adapter | 已完成 ownership、隔离提交、非快进整合、冲突回滚和重启恢复 | `git-workspace.ts` 当前占用用户 checkout |
 | 真实 Codex Adapter 与进程装配 | 已完成 | 现有 Node 高权限模块与进程生命周期 |
-| Verification 执行门禁 | 纯规则已完成；真实证据采集与交付接线待完成 | `verification.ts` 与交付前检查 |
+| Verification 执行门禁 | 已完成候选 Git 检查、宿主命令、三值证据、历史报告和 acceptance 门禁 | `verification.ts` 与交付前检查 |
 | 持久化 SSE | 已完成全局游标、断线重放、heartbeat 和游标失效通知 | Node 进程内事件订阅与浏览器状态同步 |
 | 前端切流 | 待完成 | Server Functions、Node 执行入口与 React Query 订阅 |
 

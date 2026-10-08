@@ -22,7 +22,7 @@ type CompleteTaskRunInput struct {
 // 范围检查通过后，把当前 Ticket 标记 completed 的那一小段。以下职责仍不在本用例中：
 //
 //   - 选择并启动下一张 Ticket：以后由 Runner 循环负责；
-//   - 执行 typecheck/test/build：以后由 verification 模块负责；
+//   - 执行 typecheck/test/build：由 18B verification 用例在全部 Ticket 完成后负责；
 //   - 发布 SSE：以后由事件写入和 HTTP 层负责。
 //
 // 建议按以下顺序实现：

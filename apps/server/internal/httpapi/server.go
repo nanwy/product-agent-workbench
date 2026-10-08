@@ -11,6 +11,7 @@ import (
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/scheduler"
+	"product-agent-workbench/internal/verification"
 )
 
 // ErrInvalidDependencies 表示 HTTP Server 缺少必需的应用用例依赖。
@@ -60,6 +61,19 @@ type TaskEventApplication interface {
 	) (app.TaskEventReplay, error)
 }
 
+// VerificationApplication 是浏览器触发真实验证时使用的用例 seam。
+type VerificationApplication interface {
+	VerifyRequirement(
+		ctx context.Context,
+		input app.VerifyRequirementInput,
+	) (app.VerifyRequirementResult, error)
+	GetLatestVerification(
+		ctx context.Context,
+		requirementID string,
+		ticketVersionID string,
+	) (verification.Report, error)
+}
+
 const (
 	defaultEventPollInterval      = 250 * time.Millisecond
 	defaultEventHeartbeatInterval = 15 * time.Second
@@ -68,10 +82,11 @@ const (
 
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
-	Application RequirementApplication
-	TaskRuns    TaskRunApplication
-	Scheduler   TaskScheduler
-	Events      TaskEventApplication
+	Application  RequirementApplication
+	TaskRuns     TaskRunApplication
+	Scheduler    TaskScheduler
+	Events       TaskEventApplication
+	Verification VerificationApplication
 
 	// 下面三个值主要用于测试注入短周期；生产装配传零值即可使用安全默认值。
 	EventPollInterval      time.Duration
@@ -84,11 +99,12 @@ type Dependencies struct {
 // Server 只负责路由、JSON、状态码和 header；输入规则、状态迁移与持久化都不属于这里。
 // mux 和 application 在构造后只读，因此 Server 可以被 net/http 并发调用。
 type Server struct {
-	mux         *http.ServeMux
-	application RequirementApplication
-	taskRuns    TaskRunApplication
-	scheduler   TaskScheduler
-	events      TaskEventApplication
+	mux          *http.ServeMux
+	application  RequirementApplication
+	taskRuns     TaskRunApplication
+	scheduler    TaskScheduler
+	events       TaskEventApplication
+	verification VerificationApplication
 
 	eventPollInterval      time.Duration
 	eventHeartbeatInterval time.Duration
@@ -126,11 +142,12 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 
 	mux := http.NewServeMux()
 	server := &Server{
-		mux:         mux,
-		application: dependencies.Application,
-		taskRuns:    dependencies.TaskRuns,
-		scheduler:   dependencies.Scheduler,
-		events:      dependencies.Events,
+		mux:          mux,
+		application:  dependencies.Application,
+		taskRuns:     dependencies.TaskRuns,
+		scheduler:    dependencies.Scheduler,
+		events:       dependencies.Events,
+		verification: dependencies.Verification,
 
 		eventPollInterval:      pollInterval,
 		eventHeartbeatInterval: heartbeatInterval,
@@ -150,6 +167,16 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	}
 	if server.events != nil {
 		mux.HandleFunc(http.MethodGet+" "+PathEvents, server.handleEvents)
+	}
+	if server.verification != nil {
+		mux.HandleFunc(
+			http.MethodPost+" "+PathRequirements+"/{id}/verify",
+			server.handleVerifyRequirement,
+		)
+		mux.HandleFunc(
+			http.MethodGet+" "+PathRequirements+"/{id}/verification",
+			server.handleGetLatestVerification,
+		)
 	}
 
 	return server, nil

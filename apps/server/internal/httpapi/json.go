@@ -9,6 +9,7 @@ import (
 
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/store"
+	"product-agent-workbench/internal/verification"
 )
 
 const maxJSONBodyBytes int64 = 1 << 20 // 1 MiB，防止客户端用超大 body 占用本地进程内存。
@@ -94,7 +95,7 @@ func mapError(err error) (int, ErrorResponse) {
 			Message: "请求无效",
 		}
 	}
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, verification.ErrReportNotFound) {
 		return http.StatusNotFound, ErrorResponse{
 			Code:    "not_found",
 			Message: "资源不存在",

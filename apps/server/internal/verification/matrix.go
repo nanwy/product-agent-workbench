@@ -79,7 +79,9 @@ func (m Matrix) BlocksDelivery() bool {
 //  1. strings.TrimSpace 后的 ID 和 Label 都不能为空；
 //  2. 用 switch item.Status，只接受三个 Status 常量；
 //  3. StatusNotRun 时，trim 后的 Reason 不能为空；
-//  4. 以上都通过才 return nil。
+//  4. Source 只能是 command/candidate；真实证据必须带开始和结束时间；
+//  5. command 证据必须保存展示命令和退出码；
+//  6. 以上都通过才 return nil。
 //
 // 返回错误时使用 fmt.Errorf("%w: ...", ErrInvalidEvidence)，这样调用方既能读懂具体原因，
 // 又能通过 errors.Is(err, ErrInvalidEvidence) 做稳定判断。
@@ -95,6 +97,18 @@ func validateEvidence(item Evidence) error {
 	}
 	if item.Status == StatusNotRun && strings.TrimSpace(item.Reason) == "" {
 		return fmt.Errorf("%w: not-run 状态必须填写 Reason", ErrInvalidEvidence)
+	}
+	switch item.Source {
+	case SourceCommand:
+		if strings.TrimSpace(item.Command) == "" || item.ExitCode == nil {
+			return fmt.Errorf("%w: command 证据缺少命令或退出码", ErrInvalidEvidence)
+		}
+	case SourceCandidate:
+	default:
+		return fmt.Errorf("%w: 未知证据来源 %q", ErrInvalidEvidence, item.Source)
+	}
+	if item.StartedAt.IsZero() || item.CompletedAt.IsZero() || item.CompletedAt.Before(item.StartedAt) {
+		return fmt.Errorf("%w: 证据时间无效", ErrInvalidEvidence)
 	}
 	return nil
 }

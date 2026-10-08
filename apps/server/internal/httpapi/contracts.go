@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/verification"
 )
 
 // 路径常量先固定浏览器与 Go 之间的语言，具体 handler 等领域用例稳定后再实现。
@@ -101,6 +102,42 @@ type ReplayResetResponse struct {
 	LatestEventID int64  `json:"latestEventId"`
 }
 
+type VerifyRequirementRequest struct {
+	TicketVersionID string `json:"ticketVersionId"`
+}
+
+// VerificationEvidenceResponse 是前端验证矩阵的一行。
+type VerificationEvidenceResponse struct {
+	ID          string              `json:"id"`
+	Label       string              `json:"label"`
+	Status      verification.Status `json:"status"`
+	Detail      string              `json:"detail"`
+	Reason      string              `json:"reason,omitempty"`
+	Required    bool                `json:"required"`
+	Source      verification.Source `json:"source"`
+	Command     string              `json:"command,omitempty"`
+	ExitCode    *int                `json:"exitCode,omitempty"`
+	StartedAt   time.Time           `json:"startedAt"`
+	CompletedAt time.Time           `json:"completedAt"`
+}
+
+type VerificationReportResponse struct {
+	ID                string                         `json:"id"`
+	RequirementID     string                         `json:"requirementId"`
+	TicketVersionID   string                         `json:"ticketVersionId"`
+	CandidateRevision string                         `json:"candidateRevision,omitempty"`
+	Status            verification.ReportStatus      `json:"status"`
+	Records           []VerificationEvidenceResponse `json:"records"`
+	StartedAt         time.Time                      `json:"startedAt"`
+	CompletedAt       time.Time                      `json:"completedAt"`
+}
+
+type VerifyRequirementResponse struct {
+	Requirement RequirementResponse        `json:"requirement"`
+	Report      VerificationReportResponse `json:"report"`
+	Deliverable bool                       `json:"deliverable"`
+}
+
 // ErrorResponse 是所有 HTTP 错误使用的稳定 JSON 结构。
 //
 // Code 给前端程序判断，Message 给本地用户阅读；不要把原始 SQL、文件路径或秘密直接放入
@@ -167,5 +204,39 @@ func newTaskEventResponse(event domain.TaskEvent) TaskEventResponse {
 		Type:      event.Type,
 		Payload:   string(event.Payload),
 		CreatedAt: event.CreatedAt,
+	}
+}
+
+func newVerificationReportResponse(report verification.Report) VerificationReportResponse {
+	records := make([]VerificationEvidenceResponse, 0, len(report.Matrix.Records))
+	for _, evidence := range report.Matrix.Records {
+		var exitCode *int
+		if evidence.ExitCode != nil {
+			value := *evidence.ExitCode
+			exitCode = &value
+		}
+		records = append(records, VerificationEvidenceResponse{
+			ID:          evidence.ID,
+			Label:       evidence.Label,
+			Status:      evidence.Status,
+			Detail:      evidence.Detail,
+			Reason:      evidence.Reason,
+			Required:    evidence.Required,
+			Source:      evidence.Source,
+			Command:     evidence.Command,
+			ExitCode:    exitCode,
+			StartedAt:   evidence.StartedAt,
+			CompletedAt: evidence.CompletedAt,
+		})
+	}
+	return VerificationReportResponse{
+		ID:                report.ID,
+		RequirementID:     report.RequirementID,
+		TicketVersionID:   report.TicketVersionID,
+		CandidateRevision: report.CandidateRevision,
+		Status:            report.Status,
+		Records:           records,
+		StartedAt:         report.StartedAt,
+		CompletedAt:       report.CompletedAt,
 	}
 }

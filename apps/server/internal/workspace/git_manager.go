@@ -252,7 +252,7 @@ func (m *GitManager) Integrate(ctx context.Context, request IntegrateRequest) (I
 		if err != nil || !containsRecordedIntegration {
 			return Integration{}, ErrInvalidOwnership
 		}
-		return integrationFromRecord(record), nil
+		return integrationFromRecord(record, integrationRecord.Path), nil
 	}
 
 	// 第三步：重启恢复时先检查 Ticket commit 是否已经成为 Requirement 分支祖先。
@@ -307,7 +307,7 @@ func (m *GitManager) Integrate(ctx context.Context, request IntegrateRequest) (I
 	if err := m.writeOwnership(record); err != nil {
 		return Integration{}, err
 	}
-	return integrationFromRecord(record), nil
+	return integrationFromRecord(record, integrationRecord.Path), nil
 }
 
 // Release 只删除有有效 ownership 记录且实时 Git 事实匹配的 Worktree。

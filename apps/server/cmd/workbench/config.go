@@ -25,29 +25,31 @@ var errInvalidConfig = errors.New("Workbench 启动配置无效")
 // 前端类比：它类似 Vite 在启动时读取的环境配置。区别是这些路径和可执行文件会授予后端
 // 访问本机资源的能力，因此只能来自部署环境，不能来自浏览器请求。
 type processConfig struct {
-	Address         string
-	DatabasePath    string
-	ArtifactRoot    string
-	WorktreeRoot    string
-	CodexExecutable string
-	GitExecutable   string
-	Concurrency     int
-	DrainInterval   time.Duration
-	ShutdownTimeout time.Duration
+	Address          string
+	DatabasePath     string
+	ArtifactRoot     string
+	WorktreeRoot     string
+	TargetConfigPath string
+	CodexExecutable  string
+	GitExecutable    string
+	Concurrency      int
+	DrainInterval    time.Duration
+	ShutdownTimeout  time.Duration
 }
 
 // loadProcessConfig 只在进程启动时读取一次环境变量。
 func loadProcessConfig() (processConfig, error) {
 	config := processConfig{
-		Address:         valueOrDefault("WORKBENCH_ADDRESS", defaultAddress),
-		DatabasePath:    valueOrDefault("WORKBENCH_DATABASE_PATH", ".data/server/workbench.db"),
-		ArtifactRoot:    valueOrDefault("WORKBENCH_ARTIFACT_ROOT", ".data/server/artifacts"),
-		WorktreeRoot:    valueOrDefault("WORKBENCH_WORKTREE_ROOT", ".data/server/worktrees"),
-		CodexExecutable: valueOrDefault("WORKBENCH_CODEX_COMMAND", "codex"),
-		GitExecutable:   valueOrDefault("WORKBENCH_GIT_COMMAND", "git"),
-		Concurrency:     defaultConcurrency,
-		DrainInterval:   defaultDrainInterval,
-		ShutdownTimeout: defaultShutdownTimeout,
+		Address:          valueOrDefault("WORKBENCH_ADDRESS", defaultAddress),
+		DatabasePath:     valueOrDefault("WORKBENCH_DATABASE_PATH", ".data/server/workbench.db"),
+		ArtifactRoot:     valueOrDefault("WORKBENCH_ARTIFACT_ROOT", ".data/server/artifacts"),
+		WorktreeRoot:     valueOrDefault("WORKBENCH_WORKTREE_ROOT", ".data/server/worktrees"),
+		TargetConfigPath: valueOrDefault("WORKBENCH_TARGET_CONFIG", "config/target-project.json"),
+		CodexExecutable:  valueOrDefault("WORKBENCH_CODEX_COMMAND", "codex"),
+		GitExecutable:    valueOrDefault("WORKBENCH_GIT_COMMAND", "git"),
+		Concurrency:      defaultConcurrency,
+		DrainInterval:    defaultDrainInterval,
+		ShutdownTimeout:  defaultShutdownTimeout,
 	}
 
 	if raw := strings.TrimSpace(os.Getenv("WORKBENCH_CONCURRENCY")); raw != "" {
@@ -70,6 +72,10 @@ func loadProcessConfig() (processConfig, error) {
 	config.WorktreeRoot, err = absolutePath(config.WorktreeRoot)
 	if err != nil {
 		return processConfig{}, fmt.Errorf("%w: worktree root: %v", errInvalidConfig, err)
+	}
+	config.TargetConfigPath, err = absolutePath(config.TargetConfigPath)
+	if err != nil {
+		return processConfig{}, fmt.Errorf("%w: target config path: %v", errInvalidConfig, err)
 	}
 
 	if err := validateProcessConfig(config); err != nil {

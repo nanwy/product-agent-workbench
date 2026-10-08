@@ -302,10 +302,11 @@ func (m *GitManager) refExists(ctx context.Context, cwd string, ref string) (boo
 	return false, fmt.Errorf("检查 Git 引用: %w", err)
 }
 
-func integrationFromRecord(record ownershipRecord) Integration {
+func integrationFromRecord(record ownershipRecord, worktreePath string) Integration {
 	return Integration{
 		RequirementBranch: record.RequirementBranch,
 		Revision:          record.IntegratedRevision,
+		WorktreePath:      worktreePath,
 		ChangedFiles:      append([]string(nil), record.ChangedFiles...),
 	}
 }

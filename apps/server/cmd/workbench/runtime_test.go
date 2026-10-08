@@ -13,6 +13,7 @@ import (
 	"product-agent-workbench/internal/runner"
 	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store/memory"
+	"product-agent-workbench/internal/verification"
 	"product-agent-workbench/internal/workspace"
 )
 
@@ -59,6 +60,7 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 		{name: "缺少 ExecutionFactsReader", mutate: func(dependencies *runtimeDependencies) { dependencies.ExecutionFacts = nil }},
 		{name: "缺少 Workspace Manager", mutate: func(dependencies *runtimeDependencies) { dependencies.Workspaces = nil }},
 		{name: "缺少 Executor", mutate: func(dependencies *runtimeDependencies) { dependencies.Executor = nil }},
+		{name: "缺少 Verifier", mutate: func(dependencies *runtimeDependencies) { dependencies.Verifier = nil }},
 		{name: "缺少 ID 生成器", mutate: func(dependencies *runtimeDependencies) { dependencies.NewID = nil }},
 		{name: "缺少时钟", mutate: func(dependencies *runtimeDependencies) { dependencies.Now = nil }},
 		{name: "并发数为零", mutate: func(dependencies *runtimeDependencies) { dependencies.Concurrency = 0 }},
@@ -87,6 +89,7 @@ func validRuntimeDependencies() runtimeDependencies {
 		ExecutionFacts: runtimeExecutionFactsReader{},
 		Workspaces:     runtimeWorkspaceManager{},
 		Executor:       runtimeExecutor{},
+		Verifier:       runtimeVerifier{},
 		NewID:          func() string { return "run-1" },
 		Now:            func() time.Time { return time.Unix(1, 0).UTC() },
 		Concurrency:    2,
@@ -150,4 +153,21 @@ func (runtimeExecutor) Run(
 	runner.SessionSink,
 ) (runner.RunResult, error) {
 	return runner.RunResult{}, nil
+}
+
+type runtimeVerifier struct{}
+
+func (runtimeVerifier) Verify(
+	context.Context,
+	verification.VerifyRequest,
+) (verification.Report, error) {
+	return verification.Report{}, nil
+}
+
+func (runtimeVerifier) LatestReport(
+	context.Context,
+	string,
+	string,
+) (verification.Report, error) {
+	return verification.Report{}, verification.ErrReportNotFound
 }

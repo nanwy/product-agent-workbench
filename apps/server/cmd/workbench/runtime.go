@@ -26,6 +26,7 @@ type runtimeDependencies struct {
 	ExecutionFacts runner.ExecutionFactsReader
 	Workspaces     workspace.Manager
 	Executor       runner.Runner
+	Verifier       app.DeliveryVerifier
 	NewID          func() string
 	Now            func() time.Time
 	Concurrency    int
@@ -55,7 +56,7 @@ type runtimeComponents struct {
 //
 // 实现前先画出依赖图：
 //
-//	Store ───────────────→ Application ────────┐
+//	Store ───────────────→ Application ← Verification
 //	  │                         │               │
 //	  ├─→ Scheduler ← Artifacts │               ├─→ HTTP Server
 //	  │        ↑                │               │
@@ -70,7 +71,7 @@ type runtimeComponents struct {
 // 按下面顺序实现，每完成一步先编译：
 //
 //  1. 校验所有接口/函数不是 nil，Concurrency >= 1；错误返回 runner.ErrInvalidDependencies；
-//  2. app.New：注入同一个 Store、NewID、Now；
+//  2. app.New：注入同一个 Store、Ticket artifact reader、Verification、NewID、Now；
 //  3. scheduler.New：注入 Artifacts、Store、NewID、Now；
 //  4. runner.NewStoreEventSink：把同一个 Store 适配为 EventSink；
 //  5. runner.NewTrustedRequestBuilder：把 ExecutionFacts reader 适配为 RequestBuilder；
@@ -78,7 +79,7 @@ type runtimeComponents struct {
 //  7. 创建 runner.WorkerFactory 闭包。闭包会捕获前面创建的 Application、ManagedRunner、
 //     RequestBuilder、EventSink 和 Scheduler；每次 Supervisor 调用它时返回一个新 Worker；
 //  8. runner.NewSupervisor：传入 Concurrency 和 WorkerFactory；
-//  9. httpapi.NewServer：Application 同时作为 RequirementApplication 和 TaskRunApplication，
+//  9. httpapi.NewServer：Application 同时提供 Requirement、TaskRun、Verification 用例，
 //     Scheduler 作为 TaskScheduler；
 //
 // 10. 返回 runtimeComponents{Handler: server, Supervisor: supervisor}, nil。
@@ -93,9 +94,11 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	// 前端类比：先创建共享的 queryClient。后面的 HTTP Server 和每个 Worker 都引用同一个
 	// Application，因此状态变更会经过同一套用例规则和同一个 Store。
 	application, err := app.New(app.Dependencies{
-		Store: dependencies.Store,
-		NewID: dependencies.NewID,
-		Now:   dependencies.Now,
+		Store:        dependencies.Store,
+		Tickets:      dependencies.Artifacts,
+		Verification: dependencies.Verifier,
+		NewID:        dependencies.NewID,
+		Now:          dependencies.Now,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 Application: %w", err)
@@ -160,10 +163,11 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	}
 
 	server, err := httpapi.NewServer(httpapi.Dependencies{
-		Application: application,
-		TaskRuns:    application,
-		Scheduler:   reconciler,
-		Events:      application,
+		Application:  application,
+		TaskRuns:     application,
+		Scheduler:    reconciler,
+		Events:       application,
+		Verification: application,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 HTTP Server: %w", err)
@@ -186,6 +190,7 @@ func validateRuntimeDependencies(dependencies runtimeDependencies) error {
 		dependencies.ExecutionFacts == nil ||
 		dependencies.Workspaces == nil ||
 		dependencies.Executor == nil ||
+		dependencies.Verifier == nil ||
 		dependencies.NewID == nil ||
 		dependencies.Now == nil
 	if missingDependency || dependencies.Concurrency < 1 {

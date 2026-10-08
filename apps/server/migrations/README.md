@@ -53,13 +53,15 @@
 
 ### 4. 当前 migration 后的逻辑模型
 
-只创建当前 Store 契约已经使用的三张表，不提前创建 Project、Ticket、Validation 等未来表。
+`000001` 只创建 Store 当时使用的三张表；18B 再通过独立 `000002` 增加验证报告，已经应用
+`000001` 的数据库不需要改写历史 migration。
 
 | 表 | 字段 | 约束目的 |
 | --- | --- | --- |
 | `requirements` | `id`, `project_id`, `title`, `stage`, `revision` | `id` 唯一；`revision >= 1`；stage 只能取领域枚举 |
 | `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、四个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
 | `task_events` | `id`, `task_run_id`, `sequence`, `type`, `payload`, `created_at` | `id` 是全局 SSE 游标；sequence 正数 |
+| `verification_reports` | 报告身份、Requirement/TicketVersion、候选 revision、状态、Matrix JSON、时间 | 每次验证只追加；保留失败/not-run 历史，支持读取最新报告 |
 
 额外业务约束：
 
@@ -143,6 +145,7 @@ SQLite 没有 `SELECT FOR UPDATE`。claim 使用一个 immediate 写事务：
 5. 用至少两个物理连接验证原子 claim 和 revision 并发，不只依赖 `go test -race`。（已完成）
 6. 实现 TaskEvent 整批事务契约。（已完成）
 7. Store 稳定后再实现 Ticket DAG Scheduler；依赖图仍来自版本化 artifact，不提前建 Ticket 表。（已完成）
+8. 18B 使用第二份只向前 migration 保存 Verification 报告，不修改已经发布的 `000001`。（已完成）
 
 对应旧 TypeScript：`requirement-store.ts` 的 JSON 快照和 Promise 写队列会被事务与约束替代，
 但 Spec/Ticket Markdown 仍是文件 artifact，不迁入这些表。切流前禁止同时写 JSON 和 SQLite。

@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～18 已完成，下一步是 19 Verification 执行门禁
+## 当前进度：练习 1～18B 已完成，下一步是 19 前端切换 Go HTTP + SSE
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -375,8 +375,11 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 17B RequestBuilder + EventSink Adapter（已完成）
 → 17C main 进程入口依赖装配（已完成）
 → 17D 真实 Adapter 与进程生命周期（已完成）
-→ 18 持久化事件 SSE replay（已完成）
-→ 19 Verification 证据执行与交付门禁（下一步）
+→ 18A 持久化事件 SSE replay（已完成）
+→ 18B Verification 实际执行与交付门禁（已完成）
+→ 19 前端改用 Go HTTP + SSE（下一步）
+→ 20 Vite SPA + Go embed + 单命令启动
+→ 21 Playwright、故障演示、benchmark、面试材料
 ```
 
 练习 15B 已实现真实 Git Adapter：Ticket 和 Requirement 分别使用受管 Worktree；Git 命令
@@ -446,7 +449,7 @@ Thread ID 会在 Turn 开始前写入 TaskRun；新 attempt 从同一 Ticket 的
   但不会自动重跑可能已有副作用的任务；
 - 当前 API 无鉴权，因此配置层拒绝绑定非 loopback 地址。
 
-### 练习 18：持久化事件 SSE replay（已完成）
+### 练习 18A：持久化事件 SSE replay（已完成）
 
 - `TaskEvent.ID` 是跨所有 TaskRun 的全局游标；单个 TaskRun 内的 `Sequence` 继续负责检查
   局部事件是否连续，两者不能混用；
@@ -463,6 +466,23 @@ Thread ID 会在 Turn 开始前写入 TaskRun；新 attempt 从同一 Ticket 的
 前端可以把这一步理解为“React Query 的 cursor 恢复”：`Last-Event-ID` 类似分页 cursor，
 replay 先补缓存缺口，随后实时事件继续增量更新；收到 `replay-reset` 时不要猜缺失内容，
 而是 invalidate/refetch 页面快照。
+
+### 练习 18B：Verification 实际执行与交付门禁（已完成）
+
+- 验证命令只从受信任的目标项目配置读取，HTTP 请求不能提供 executable、args 或路径；
+- 命令使用参数数组启动，不经过 Shell；具有独立超时、进程组回收、4 KiB 输出上限、秘密
+  脱敏和环境变量允许列表；
+- 最终检查运行在 Requirement 整合 Worktree，而不是只包含一张票的 Ticket Worktree；
+- Git HEAD、dirty 状态、typecheck/test/build 分别形成可审计 Evidence；
+- 标记 `requiresRuntime` 的检查会先探测受信任 loopback health URL；不可访问时记录 not-run；
+- `failed` 表示检查实际发现问题，`not-run` 表示工具、超时等环境原因没有形成完整证据；
+- 每轮报告写入 `verification_reports`，重新验证不会覆盖旧报告；
+- 必要项阻塞时 Ticket 保持 completed、Requirement 保持 implementation；全部通过后才使用
+  revision 乐观锁推进到 acceptance；
+- 新增 `POST /api/v1/requirements/{id}/verify`，请求只包含 `ticketVersionId`；GET verification
+  endpoint 让页面刷新后恢复最新报告。
+
+完整逐步引导和前端对照见 `internal/verification/README.md`。
 
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
@@ -484,14 +504,14 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | 有界 Worker/Worktree 编排（已完成） | 固定并发排空 ready 队列；每票隔离执行后整合 | 原串行 `executeQueue` 暂无对应能力 | 并发数量受控；完成后重新计算 DAG |
 | 真实 Git Worktree Adapter（已完成） | ownership、范围门禁、提交、非快进整合、冲突回滚和重启恢复 | `git-workspace.ts` 直接占用用户 checkout | 用户 checkout 不切分支；只清理可证明归属的受管目录 |
 | 真实 Codex Adapter（已完成） | JSONL、进程、握手、Thread、Turn、事件和中断 | `codex-app-server.ts` 与 `codex-adapter.ts` | 协议、进程和业务事件分层；每张 Ticket 可拥有独立进程与连续 Thread |
-| Verification Matrix（17A 已完成） | 校验证据并计算必要项是否阻止交付 | `verification.ts` 的 records 与 blocking 判断 | 先提取纯规则；命令、Git、浏览器证据收集留在后续 Adapter |
+| Verification（17A + 18B 已完成） | 校验证据、执行宿主命令、检查候选 Git 状态、持久化报告并推进验收门禁 | `verification.ts` 的 records、命令与 blocking 判断 | 实现成功和验证结果分离；环境 not-run 不会篡改 completed Ticket |
 | 运行时 Adapter（17B 已完成） | 从可信事实构造 RunRequest，并把 EventSink 接到 Store | `workbench-execution.ts` 中混合的配置读取和事件写入 | 浏览器不再提供执行路径；函数回调通过小接口接入持久化 |
 | 依赖装配（17C 已完成） | 在唯一 composition root 连接 Application、Scheduler、Runner、Supervisor 和 HTTP | 前端入口中的 Provider 组合与 Node 模块级单例 | 使用显式构造函数和闭包工厂，不引入 DI 框架或全局 service locator |
 | 进程生命周期（17D 已完成） | 打开 SQLite、构造真实 Adapter、运行 HTTP/Worker 并优雅退出 | Node 入口、进程 signal 与模块级后台任务 | 单一应用 context 传播取消；资源由创建者关闭；HTTP 仅绑定 loopback |
-| 持久化 SSE replay（18 已完成） | 全局游标分页、Last-Event-ID、heartbeat、replay-reset | Node 进程内事件订阅与断线后快照恢复 | 先从 SQLite 补历史再追实时事件，服务重启不丢已落库事件 |
+| 持久化 SSE replay（18A 已完成） | 全局游标分页、Last-Event-ID、heartbeat、replay-reset | Node 进程内事件订阅与断线后快照恢复 | 先从 SQLite 补历史再追实时事件，服务重启不丢已落库事件 |
 
-当前 Go 进程已经能够装配 SQLite、版本化 Ticket artifact、真实 Git/Codex Adapter、HTTP
-与有界 Worker，并向浏览器提供可恢复 SSE。下一阶段补 verification 执行门禁和前端切流，之后 Go 控制面才能
+当前 Go 进程已经能够装配 SQLite、版本化 Ticket artifact、真实 Git/Codex Adapter、HTTP、
+有界 Worker、可恢复 SSE 和 Verification 门禁。下一阶段把现有 React 前端切到这些 Go 接口，之后 Go 控制面才能
 替代当前 Node 执行链路。
 
 ### 学习目标
@@ -517,6 +537,8 @@ POST /api/v1/task-runs
 GET  /api/v1/task-runs/{id}
 POST /api/v1/task-runs/{id}/cancel
 GET  /api/v1/events
+POST /api/v1/requirements/{id}/verify
+GET  /api/v1/requirements/{id}/verification?ticketVersionId=...
 ```
 
 claim/start/complete/fail 只供 Worker 在进程内部调用，不是浏览器 endpoint。
@@ -567,6 +589,6 @@ internal/httpapi/
 - request 被取消后，Store 调用能收到 context cancellation。
 - `go test -race ./apps/server/internal/app/... ./apps/server/internal/httpapi/...` 通过。
 
-TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree 与 SSE replay 已完成。前端暂不切流：下一步
-先把 Verification Matrix 接到真实证据执行和交付门禁，再迁移浏览器读写入口，避免页面已经
-切到 Go、交付正确性仍依赖旧 Node 路径。
+TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree、SSE replay 与 Verification 门禁均已完成。
+前端暂未切流；步骤 19 会把浏览器读写入口从 Node Server Functions 改为这些 Go HTTP/SSE
+接口，并保留 React Query 作为服务端状态投影。

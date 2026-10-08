@@ -15,6 +15,8 @@ import (
 	"product-agent-workbench/internal/codex"
 	"product-agent-workbench/internal/runner"
 	storeadapter "product-agent-workbench/internal/store/sqlite"
+	"product-agent-workbench/internal/verification"
+	verificationsqlite "product-agent-workbench/internal/verification/sqlite"
 	"product-agent-workbench/internal/workspace"
 )
 
@@ -70,12 +72,41 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return fmt.Errorf("创建 Codex Executor: %w", err)
 	}
+	verificationPlan, err := verification.LoadPlan(config.TargetConfigPath)
+	if err != nil {
+		return fmt.Errorf("读取 Verification 计划: %w", err)
+	}
+	verificationReports, err := verificationsqlite.NewRepository(db)
+	if err != nil {
+		return fmt.Errorf("创建 Verification Repository: %w", err)
+	}
+	candidateInspector, err := verification.NewGitCandidateInspector(config.GitExecutable)
+	if err != nil {
+		return fmt.Errorf("创建候选版本检查器: %w", err)
+	}
+	runtimeProbe, err := verification.NewHTTPRuntimeProbe(verificationPlan.HealthURL)
+	if err != nil {
+		return fmt.Errorf("创建目标运行时健康检查: %w", err)
+	}
+	verifier, err := verification.NewService(verification.ServiceDependencies{
+		Commands:  verificationPlan.Commands,
+		Executor:  verification.NewHostCommandExecutor(),
+		Candidate: candidateInspector,
+		Reports:   verificationReports,
+		Runtime:   runtimeProbe,
+		NewID:     uuid.NewString,
+		Now:       time.Now,
+	})
+	if err != nil {
+		return fmt.Errorf("创建 Verification Service: %w", err)
+	}
 	components, err := buildRuntime(runtimeDependencies{
 		Store:          persistence,
 		Artifacts:      artifacts,
 		ExecutionFacts: artifacts,
 		Workspaces:     workspaces,
 		Executor:       executor,
+		Verifier:       verifier,
 		NewID:          uuid.NewString,
 		Now:            time.Now,
 		Concurrency:    config.Concurrency,

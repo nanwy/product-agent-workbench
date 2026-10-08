@@ -1,10 +1,13 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"time"
 
+	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store"
+	"product-agent-workbench/internal/verification"
 )
 
 // ErrInvalidDependencies 表示创建 Application 时缺少必需依赖。
@@ -30,9 +33,11 @@ type Clock func() time.Time
 // 的构造细节。这里只放当前用例真实使用的依赖；Runner 要等到执行用例出现后再加入，
 // 不要把未来可能使用的模块预先塞进依赖工具箱。
 type Dependencies struct {
-	Store store.Store
-	NewID IDGenerator
-	Now   Clock
+	Store        store.Store
+	Tickets      VerificationTicketReader
+	Verification DeliveryVerifier
+	NewID        IDGenerator
+	Now          Clock
 }
 
 // Application 是 HTTP 层调用的用例入口。
@@ -40,9 +45,11 @@ type Dependencies struct {
 // HTTP handler 以后只调用这里公开的用例，不直接操作 Store 或领域状态机。这样 HTTP、CLI
 // 或测试都能复用相同规则，也避免把业务判断散落到不同入口。
 type Application struct {
-	store store.Store
-	newID IDGenerator
-	now   Clock
+	store        store.Store
+	tickets      VerificationTicketReader
+	verification DeliveryVerifier
+	newID        IDGenerator
+	now          Clock
 }
 
 // New 创建应用用例模块。
@@ -58,8 +65,30 @@ func New(dependencies Dependencies) (*Application, error) {
 		return nil, ErrInvalidDependencies
 	}
 	return &Application{
-		store: dependencies.Store,
-		newID: dependencies.NewID,
-		now:   dependencies.Now,
+		store:        dependencies.Store,
+		tickets:      dependencies.Tickets,
+		verification: dependencies.Verification,
+		newID:        dependencies.NewID,
+		now:          dependencies.Now,
 	}, nil
+}
+
+// VerificationTicketReader 提供“这个版本到底有几张票”的可信事实。
+// 只检查数据库里已有记录会把缺失 Ticket 误认为全部完成，因此必须同时读取确认 artifact。
+type VerificationTicketReader interface {
+	ReadConfirmedTicketVersion(
+		ctx context.Context,
+		requirementID string,
+		ticketVersionID string,
+	) (scheduler.TicketVersion, error)
+}
+
+// DeliveryVerifier 执行并持久化 18B 的验证报告。
+type DeliveryVerifier interface {
+	Verify(ctx context.Context, request verification.VerifyRequest) (verification.Report, error)
+	LatestReport(
+		ctx context.Context,
+		requirementID string,
+		ticketVersionID string,
+	) (verification.Report, error)
 }
