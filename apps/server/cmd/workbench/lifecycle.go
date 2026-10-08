@@ -152,24 +152,47 @@ func serveRuntimeOnListener(
 			config.ShutdownTimeout,
 		)
 		shutdownErr := server.Shutdown(shutdownContext)
-		cancelShutdown()
 		if shutdownErr != nil {
 			// Shutdown 超时后强制关闭监听与现存连接，不能让进程无限挂住。
 			shutdownErr = errors.Join(shutdownErr, server.Close())
 		}
-		serveErr := <-serverErrors
-		<-workerDone
+		serveErr := waitServerExit(shutdownContext, serverErrors)
+		workerErr := waitWorkerExit(shutdownContext, workerDone)
+		cancelShutdown()
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			return errors.Join(shutdownErr, fmt.Errorf("HTTP Server: %w", serveErr))
+			return errors.Join(shutdownErr, workerErr, fmt.Errorf("HTTP Server: %w", serveErr))
 		}
-		return shutdownErr
+		return errors.Join(shutdownErr, workerErr)
 	case serveErr := <-serverErrors:
 		cancel()
-		<-workerDone
+		shutdownContext, cancelShutdown := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			config.ShutdownTimeout,
+		)
+		workerErr := waitWorkerExit(shutdownContext, workerDone)
+		cancelShutdown()
 		if errors.Is(serveErr, http.ErrServerClosed) {
-			return nil
+			return workerErr
 		}
-		return fmt.Errorf("HTTP Server: %w", serveErr)
+		return errors.Join(fmt.Errorf("HTTP Server: %w", serveErr), workerErr)
+	}
+}
+
+func waitServerExit(ctx context.Context, serverErrors <-chan error) error {
+	select {
+	case err := <-serverErrors:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("等待 HTTP Server 退出: %w", ctx.Err())
+	}
+}
+
+func waitWorkerExit(ctx context.Context, workerDone <-chan struct{}) error {
+	select {
+	case <-workerDone:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("等待 Worker 退出: %w", ctx.Err())
 	}
 }
 

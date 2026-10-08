@@ -86,6 +86,7 @@ type AppServerProcess struct {
 	exit    AppServerExit
 
 	shutdownOnce  sync.Once
+	shutdownDone  chan struct{}
 	shutdownErrMu sync.Mutex
 	shutdownErr   error
 	killOnce      sync.Once
@@ -152,11 +153,12 @@ func LaunchAppServer(ctx context.Context, config AppServerLaunchConfig) (*AppSer
 	}
 
 	process := &AppServerProcess{
-		command:    command,
-		connection: connection,
-		stderr:     stderr,
-		pid:        command.Process.Pid,
-		done:       make(chan struct{}),
+		command:      command,
+		connection:   connection,
+		stderr:       stderr,
+		pid:          command.Process.Pid,
+		done:         make(chan struct{}),
+		shutdownDone: make(chan struct{}),
 		exit: AppServerExit{
 			PID:      command.Process.Pid,
 			ExitCode: -1,
@@ -214,7 +216,14 @@ func (p *AppServerProcess) Wait(ctx context.Context) (AppServerExit, error) {
 
 	select {
 	case <-p.done:
-		return p.result()
+		// 子进程退出通常会让 stdio 循环一起结束，但回调可能仍在阻塞。继续等待协议层时
+		// 仍然服从调用方 deadline，不能在已经选中 p.done 后丢失 ctx 的控制权。
+		select {
+		case <-p.connection.Done():
+			return p.result()
+		case <-ctx.Done():
+			return AppServerExit{PID: p.pid, ExitCode: -1, StderrTail: p.stderr.String()}, ctx.Err()
+		}
 	case <-ctx.Done():
 		return AppServerExit{PID: p.pid, ExitCode: -1, StderrTail: p.stderr.String()}, ctx.Err()
 	}
@@ -230,20 +239,36 @@ func (p *AppServerProcess) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("关闭 Codex app-server: context 不能为空")
 	}
 	p.shutdownOnce.Do(func() {
-		err := p.connection.Close()
-		p.shutdownErrMu.Lock()
-		p.shutdownErr = err
-		p.shutdownErrMu.Unlock()
+		// Connection.Close 会等待读写循环退出；NotificationSink 或 RequestHandler 如果阻塞，
+		// 这个等待也可能阻塞。因此把它放进受跟踪 goroutine，让下面的 ctx 仍能触发强杀。
+		go func() {
+			err := p.connection.Close()
+			p.shutdownErrMu.Lock()
+			p.shutdownErr = err
+			p.shutdownErrMu.Unlock()
+			close(p.shutdownDone)
+		}()
 	})
 
-	select {
-	case <-p.done:
-		_, waitErr := p.result()
-		return errors.Join(p.connectionShutdownError(), waitErr)
-	case <-ctx.Done():
-		killErr := p.forceKill()
-		return errors.Join(ctx.Err(), killErr)
+	processDone := false
+	connectionDone := false
+	processDoneSignal := p.done
+	connectionDoneSignal := p.shutdownDone
+	for !processDone || !connectionDone {
+		select {
+		case <-processDoneSignal:
+			processDone = true
+			processDoneSignal = nil
+		case <-connectionDoneSignal:
+			connectionDone = true
+			connectionDoneSignal = nil
+		case <-ctx.Done():
+			killErr := p.forceKill()
+			return errors.Join(ctx.Err(), killErr)
+		}
 	}
+	_, waitErr := p.result()
+	return errors.Join(p.connectionShutdownError(), waitErr)
 }
 
 func (p *AppServerProcess) wait() {
@@ -325,11 +350,7 @@ func normalizeAppServerConfig(config AppServerLaunchConfig) (string, AppServerLa
 		return "", config, fmt.Errorf("启动 Codex app-server: %w: WorkingDirectory 不是目录", ErrInvalidAppServerConfig)
 	}
 
-	if config.Environment == nil {
-		config.Environment = os.Environ()
-	} else {
-		config.Environment = append([]string(nil), config.Environment...)
-	}
+	config.Environment = codexProcessEnvironment(config.Environment)
 	config.PrefixArgs = append([]string(nil), config.PrefixArgs...)
 
 	if config.StderrLimitBytes == 0 {

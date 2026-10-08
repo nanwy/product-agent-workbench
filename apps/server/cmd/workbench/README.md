@@ -137,6 +137,10 @@ main
 | `WORKBENCH_GIT_COMMAND` | `git` | 受信任 Git 可执行文件 |
 | `WORKBENCH_CONCURRENCY` | `2` | 固定 Worker 数量 |
 
+Codex 子进程只继承 PATH、HOME、语言、临时目录、证书和代理等白名单环境变量，不会继承
+`AWS_SECRET_ACCESS_KEY`、`GITHUB_TOKEN`、`DATABASE_URL` 或 `NODE_ENV`。因此生产运行前应先用
+Codex 自己的登录机制完成认证，不依赖把通用宿主凭据暴露给 Worktree 中执行的命令。
+
 ### TicketVersion artifact 格式
 
 文件位置是 `<artifact-root>/<requirementId>/<ticketVersionId>.json`。它是一份确认后不可变的

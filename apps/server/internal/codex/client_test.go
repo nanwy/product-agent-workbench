@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -108,6 +109,49 @@ func TestJSONRPCRequestCancellationKeepsConnectionUsable(t *testing.T) {
 	}
 	if !result.OK {
 		t.Fatal("Request(ping) result OK = false")
+	}
+}
+
+func TestJSONRPCConcurrentRequestsMatchResponsesByID(t *testing.T) {
+	connection, stop := newScriptedConnection(t, func(message jsonRPCMessage) (any, bool) {
+		if message.Method != "echo" {
+			return nil, false
+		}
+		var params struct {
+			Value int `json:"value"`
+		}
+		if err := json.Unmarshal(message.Params, &params); err != nil {
+			return map[string]any{"value": -1}, true
+		}
+		return params, true
+	})
+	defer stop()
+
+	const requestCount = 20
+	errorsChannel := make(chan error, requestCount)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(requestCount)
+	for value := range requestCount {
+		go func() {
+			defer waitGroup.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			var result struct {
+				Value int `json:"value"`
+			}
+			if err := connection.Request(ctx, "echo", map[string]int{"value": value}, &result); err != nil {
+				errorsChannel <- err
+				return
+			}
+			if result.Value != value {
+				errorsChannel <- fmt.Errorf("echo result = %d, want %d", result.Value, value)
+			}
+		}()
+	}
+	waitGroup.Wait()
+	close(errorsChannel)
+	for err := range errorsChannel {
+		t.Error(err)
 	}
 }
 

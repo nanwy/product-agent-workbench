@@ -390,6 +390,8 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 练习 16B 已实现 app-server 子进程生命周期：受信任配置直接组成 argv，不经过 Shell；stdout
 只交给 JSON-RPC，stderr 只保留有上限的诊断尾部。父 context 取消或主动 Shutdown 时先关闭
 stdin 请求优雅退出，超过宽限期后在 Unix 终止进程组，内部唯一 goroutine 负责 Wait 和回收退出状态。
+协议关闭和进程退出都纳入同一个截止时间，阻塞的通知处理器不会让 Shutdown 永久挂住。
+子进程环境使用白名单，不会默认继承 AWS、GitHub、数据库等宿主凭据。
 
 练习 16C 已实现有状态协议 Client：必须先等待 initialize 成功，再发送 initialized；随后按
 受信任 RunRequest 中是否存在 Thread ID 选择 thread/start 或 thread/resume，并校验响应中的 Thread ID。

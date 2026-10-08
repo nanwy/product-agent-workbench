@@ -201,7 +201,12 @@ func (e *Executor) Run(
 		}
 		return runner.RunResult{}, connectionErr
 	case <-process.Done():
-		exit, processErr := process.Wait(context.WithoutCancel(ctx))
+		waitContext, cancelWait := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			normalizedShutdownGrace(e.config.ShutdownGrace),
+		)
+		exit, processErr := process.Wait(waitContext)
+		cancelWait()
 		if processErr == nil {
 			processErr = fmt.Errorf("Codex app-server 在 Turn 完成前退出（exitCode=%d）", exit.ExitCode)
 		}
@@ -277,16 +282,29 @@ func normalizedShutdownGrace(value time.Duration) time.Duration {
 	return value
 }
 
-// codexProcessEnvironment 清除宿主开发模式，避免 Codex 在目标 Worktree 中执行前端命令时
-// 继承 NODE_ENV=development，并把开发构建误当成生产验证结果。
+// codexProcessEnvironment 只保留启动 Codex 和基础工具链所需的环境变量。
+//
+// Codex 会在 Worktree 中启动命令；如果直接继承 os.Environ，AWS、GitHub、数据库等宿主凭据
+// 也会进入子进程。需要额外变量时必须先加入这里的白名单，而不是恢复“全部继承”。
 func codexProcessEnvironment(source []string) []string {
 	if source == nil {
 		source = os.Environ()
 	}
+	allowed := map[string]struct{}{
+		"ALL_PROXY": {}, "CODEX_HOME": {}, "COLORTERM": {}, "FORCE_COLOR": {},
+		"HOME": {}, "HTTPS_PROXY": {}, "HTTP_PROXY": {}, "LANG": {}, "LC_ALL": {},
+		"LC_CTYPE": {}, "LOGNAME": {}, "NO_COLOR": {}, "NO_PROXY": {}, "PATH": {},
+		"SHELL": {}, "SSL_CERT_DIR": {}, "SSL_CERT_FILE": {}, "TEMP": {}, "TERM": {},
+		"TMP": {}, "TMPDIR": {}, "USER": {}, "XDG_CACHE_HOME": {}, "XDG_CONFIG_HOME": {},
+		"XDG_DATA_HOME": {},
+	}
 	environment := make([]string, 0, len(source))
 	for _, entry := range source {
 		key, _, ok := strings.Cut(entry, "=")
-		if ok && strings.EqualFold(key, "NODE_ENV") {
+		if !ok {
+			continue
+		}
+		if _, keep := allowed[strings.ToUpper(key)]; !keep {
 			continue
 		}
 		environment = append(environment, entry)

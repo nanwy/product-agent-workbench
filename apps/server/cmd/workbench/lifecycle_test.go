@@ -2,11 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestRuntimeExitWaitsHonorContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	if err := waitWorkerExit(ctx, make(chan struct{})); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitWorkerExit() error = %v, want context deadline", err)
+	}
+	serverErrors := make(chan error)
+	if err := waitServerExit(ctx, serverErrors); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitServerExit() error = %v, want context deadline", err)
+	}
+}
 
 func TestServeRuntimeStopsWhenContextIsCancelled(t *testing.T) {
 	components, err := buildRuntime(validRuntimeDependencies())
