@@ -11,6 +11,18 @@
 精确失效 React Query，游标断档时重新拉取全部活动 Go 资源。迁移期间 `/api/events`
 继续属于旧 Node 页面，只有 `/api/v1` 由 Vite 代理到 Go。
 
+练习 20 新增独立 `src/spa/main.tsx` 和 `vite.spa.config.ts`。该构建只包含 Go 控制面，
+输出到 `apps/server/internal/webui/dist` 并由 Go `embed.FS` 打进二进制：
+
+```bash
+pnpm build:spa
+pnpm build:standalone
+pnpm workbench
+```
+
+旧 `pnpm dev` 仍启动 TanStack Start 行为参考；`pnpm dev:spa` 用于在 3001 端口单独调试
+新 SPA，并把 `/api/v1` 代理给 8080 的 Go 服务。
+
 在仓库根目录运行：
 
 ```bash

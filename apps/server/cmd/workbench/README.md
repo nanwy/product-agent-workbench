@@ -141,6 +141,19 @@ Codex 子进程只继承 PATH、HOME、语言、临时目录、证书和代理�
 `AWS_SECRET_ACCESS_KEY`、`GITHUB_TOKEN`、`DATABASE_URL` 或 `NODE_ENV`。因此生产运行前应先用
 Codex 自己的登录机制完成认证，不依赖把通用宿主凭据暴露给 Worktree 中执行的命令。
 
+### 练习 20：同一进程交付 SPA
+
+`buildRuntime` 最后用 `internal/webui` 包装 `httpapi.Server`：`/api/*` 保持应用接口语义，
+其它 GET/HEAD 请求读取编译期嵌入的 Vite 文件。无扩展名路径回退 `index.html`，静态资源
+缺失则返回 404。前端、API、SSE 和 Supervisor 因而共享同一个进程生命周期和监听地址。
+
+从仓库根目录运行：
+
+```bash
+pnpm workbench        # 构建 SPA 后运行 Go
+pnpm build:standalone # 生成 apps/server/workbench 单二进制
+```
+
 ### TicketVersion artifact 格式
 
 文件位置是 `<artifact-root>/<requirementId>/<ticketVersionId>.json`。它是一份确认后不可变的

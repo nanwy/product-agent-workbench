@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～19C 已完成，下一步是 20 Vite SPA + Go embed
+## 当前进度：练习 1～20 已完成，下一步是 21 交付强化
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -380,8 +380,7 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 19A 前端 Go API Client 与 DTO（已完成）
 → 19B Go 资源页面 Query/Mutation 切换（已完成）
 → 19C 前端 SSE 重放与缓存收敛（已完成）
-→ 20 Vite SPA + Go embed + 单命令启动（下一步）
-→ 20 Vite SPA + Go embed + 单命令启动
+→ 20 Vite SPA + Go embed + 单命令启动（已完成）
 → 21 Playwright、故障演示、benchmark、面试材料
 ```
 
@@ -514,8 +513,8 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | 持久化 SSE replay（18A 已完成） | 全局游标分页、Last-Event-ID、heartbeat、replay-reset | Node 进程内事件订阅与断线后快照恢复 | 先从 SQLite 补历史再追实时事件，服务重启不丢已落库事件 |
 
 当前 Go 进程已经能够装配 SQLite、版本化 Ticket artifact、真实 Git/Codex Adapter、HTTP、
-有界 Worker、可恢复 SSE 和 Verification 门禁。下一阶段把现有 React 前端切到这些 Go 接口，之后 Go 控制面才能
-替代当前 Node 执行链路。
+有界 Worker、可恢复 SSE 和 Verification 门禁。步骤 19 已把 Go 控制面页面切到这些接口，
+步骤 20 又把该页面编译并嵌入 Go，因此已迁移的执行链路不再依赖 Node 进程。
 
 ### 学习目标
 
@@ -593,5 +592,5 @@ internal/httpapi/
 - `go test -race ./apps/server/internal/app/... ./apps/server/internal/httpapi/...` 通过。
 
 TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree、SSE replay 与 Verification 门禁均已完成。
-前端暂未切流；步骤 19 会把浏览器读写入口从 Node Server Functions 改为这些 Go HTTP/SSE
-接口，并保留 React Query 作为服务端状态投影。
+步骤 19 已将 Go 控制面浏览器入口切到这些 HTTP/SSE 接口，并保留 React Query 作为服务端
+状态投影；步骤 20 已把该 SPA 与 Go 服务编译为同一份交付物。

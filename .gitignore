@@ -17,3 +17,7 @@ test-results
 playwright-report
 .data
 /apps/server/workbench
+# Vite SPA 在单命令构建时写入这里；源码只保留 go:embed 的说明锚点。
+!apps/server/internal/webui/dist/
+apps/server/internal/webui/dist/*
+!apps/server/internal/webui/dist/README.txt

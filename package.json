@@ -14,12 +14,16 @@
   },
   "scripts": {
     "dev": "pnpm --filter @product-agent-workbench/web dev",
+    "dev:spa": "pnpm --filter @product-agent-workbench/web dev:spa",
     "build": "pnpm --filter @product-agent-workbench/web build",
+    "build:spa": "pnpm --filter @product-agent-workbench/web build:spa",
+    "build:standalone": "pnpm build:spa && go build -o apps/server/workbench ./apps/server/cmd/workbench",
+    "workbench": "pnpm build:spa && go run ./apps/server/cmd/workbench",
     "start": "pnpm --filter @product-agent-workbench/web start",
     "typecheck": "pnpm --filter @product-agent-workbench/web typecheck",
     "test": "pnpm --filter @product-agent-workbench/web test",
     "test:e2e": "pnpm --filter @product-agent-workbench/web test:e2e",
     "test:server": "go test ./apps/server/...",
-    "check": "pnpm typecheck && pnpm test && pnpm test:server && pnpm build"
+    "check": "pnpm typecheck && pnpm test && pnpm build:spa && pnpm test:server && pnpm build"
   }
 }

@@ -14,6 +14,8 @@
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
     "build": "vite build",
+    "build:spa": "vite build --config vite.spa.config.ts",
+    "dev:spa": "vite --config vite.spa.config.ts --port 3001",
     "start": "node .output/server/index.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

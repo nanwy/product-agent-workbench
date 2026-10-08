@@ -8,19 +8,20 @@
 2. 每次只把一组 Server Function 替换为带类型的 HTTP client。
 3. 对应 Go endpoint 通过契约测试后，再迁移路由和展示模块。
 4. Zustand 只保存瞬时 UI 状态；Requirement、TaskRun、事件和验证记录由 TanStack Query 管理。
-5. 所有 Server Function 移除后，再把本目录构建为 Vite SPA，并把生产资源嵌入 Go 可执行文件。
+5. 把已经迁入 Go 的控制面提取为独立 Vite SPA 并嵌入 Go；旧 Server Functions 暂时作为
+   尚未迁移产品规划能力的行为参考，不进入单二进制生产包。
 
 开发形态：
 
 ```text
-Vite 浏览器页面 → /api proxy → Go 控制面
+Vite 浏览器页面 → /api/v1 proxy → Go 控制面
                  → EventSource → Go SSE endpoint
 ```
 
 生产形态：
 
 ```text
-Go 可执行文件 → 嵌入式 SPA 资源 + /api + /events
+Go 可执行文件 → 嵌入式 SPA 资源 + /api/v1（包含 SSE）
 ```
 
 ## 练习 19A：Go API Client（已完成）
@@ -32,7 +33,7 @@ React 页面（暂未切换）
         ↓ 以后只调用业务方法
 src/api/client.ts
         ↓ fetch + JSON + HTTP error
-Vite /api proxy
+Vite /api/v1 proxy
         ↓
 Go net/http :8080
 ```
@@ -44,7 +45,7 @@ Go net/http :8080
 | `src/api/contracts.ts` | OpenAPI 生成的 `types.ts` | 镜像 Go JSON DTO 和枚举 |
 | `src/api/client.ts` | 配置好的 axios instance | 统一 URL、fetch、AbortSignal、JSON 和错误 |
 | `tests/go-api-client.test.ts` | MSW/axios adapter 契约测试 | 不启动 Go 进程也能验证请求协议 |
-| `vite.config.ts` | `devServer.proxy` | 开发时把同源 `/api` 转发到 `127.0.0.1:8080` |
+| `vite.config.ts` | `devServer.proxy` | 开发时把同源 `/api/v1` 转发到 `127.0.0.1:8080` |
 
 ### 逐步阅读
 
@@ -166,4 +167,71 @@ pnpm --filter @product-agent-workbench/web test
 pnpm --filter @product-agent-workbench/web build
 ```
 
-下一步进入练习 20：把前端构建为 Vite SPA，嵌入 Go 可执行文件，并收敛为一个启动命令。
+## 练习 20：Vite SPA + Go embed + 单命令启动（已完成）
+
+步骤 20 没有直接把整个 TanStack Start 项目塞进 Go。旧构建包含 SSR、Nitro、Server
+Functions 和 Node-only Codex 模块，浏览器不需要这些依赖。实现先把 19B/19C 的 Go 控制面
+提取成共享组件，再为生产新增一个只导入浏览器依赖的入口。
+
+```text
+src/components/go-control-page.tsx
+              │
+       ┌──────┴─────────┐
+       │                │
+TanStack 迁移路由    src/spa/main.tsx
+  /go-control            │
+                         ▼
+                  vite.spa.config.ts
+                         │
+                         ▼
+          apps/server/internal/webui/dist
+                         │ go:embed
+                         ▼
+                  Go 单一可执行文件
+```
+
+### 从前端视角理解 Go embed
+
+1. Vite 仍然负责 TypeScript、React、Tailwind 和浏览器 bundle；Go 不编译 TSX。
+2. `go:embed` 在 Go 编译阶段把 Vite 输出复制进二进制，类似把静态资源打进桌面应用安装包。
+3. 浏览器请求 `/assets/app.js` 时，文件来自二进制内的只读 `embed.FS`，不是运行时磁盘目录。
+4. `/api/*` 始终转发给 `httpapi.Server`；`/` 和无扩展名路径回退 `index.html`；缺失的
+   `.js/.css` 返回真正 404，不能错误返回 HTML。
+5. SPA 和 API 同源后，生产环境不再需要 CORS 或 Vite proxy；proxy 只服务 `dev:spa`。
+
+### 为什么有 `dist/README.txt` 和 fallback
+
+`go:embed` 的 pattern 必须至少匹配一个文件。生成产物默认不提交，因此仓库保留一个说明文件，
+让纯 Go 测试仍能编译。若直接运行 Go 而没有先构建 SPA，根页面返回 503 和明确操作提示；
+`pnpm workbench` 会先执行 Vite 构建，所以正常启动不会看到 fallback。
+
+### 单命令
+
+```bash
+# 开发者直接启动完整 Go 工作台
+pnpm workbench
+
+# 或使用 Makefile
+make start
+
+# 生成包含 SPA 的单一二进制 apps/server/workbench
+pnpm build:standalone
+```
+
+完整构建顺序是：
+
+```text
+Vite build:spa → Go go:embed → go run / go build → 同端口提供 SPA + API + SSE
+```
+
+### 20 验收命令
+
+```bash
+pnpm build:spa
+go test ./apps/server/internal/webui ./apps/server/cmd/workbench
+pnpm build:standalone
+curl http://127.0.0.1:8080/
+curl http://127.0.0.1:8080/api/v1/health
+```
+
+下一步练习 21 只做交付强化：Playwright 单二进制验收、故障演示、benchmark 和面试材料。

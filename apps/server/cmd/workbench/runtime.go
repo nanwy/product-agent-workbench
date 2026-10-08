@@ -10,6 +10,7 @@ import (
 	"product-agent-workbench/internal/runner"
 	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store"
+	"product-agent-workbench/internal/webui"
 	"product-agent-workbench/internal/workspace"
 )
 
@@ -172,10 +173,16 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 HTTP Server: %w", err)
 	}
+	// 练习 20：API 与嵌入式 SPA 在这里合成一个 Handler。前端类比是生产反向代理：
+	// /api 仍进入 Go handler，其它 GET/HEAD 请求由静态资源与 SPA fallback 处理。
+	handler, err := webui.New(server)
+	if err != nil {
+		return runtimeComponents{}, fmt.Errorf("创建嵌入式 Web UI: %w", err)
+	}
 
 	return runtimeComponents{
 		Application: application,
-		Handler:     server,
+		Handler:     handler,
 		Supervisor:  supervisor,
 	}, nil
 }

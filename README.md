@@ -26,13 +26,14 @@ config/       仓库级目标项目配置
 docs/         架构、面试与学习文档
 ```
 
-根目录使用 pnpm workspace 统一编排。当前产品仍由 `apps/web` 完整运行；`apps/server` 是渐进迁移目标，不把尚未实现的 Go 能力描述成已完成。
+根目录使用 pnpm workspace 统一编排。旧 TanStack Start 产品仍用于尚未迁入 Go 的规划流程；
+已迁移的 Requirement、TaskRun、Verification 和 SSE 控制面可由 Go 单二进制独立运行。
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **97%**；学习脚手架已覆盖前端 HTTP 与 SSE 切流，
-约覆盖迁移路线的 **99%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
-该能力已经替代 Node 实现。
+截至当前，计划中的 Go 全栈重构约完成 **99%**；步骤 1～20 的学习脚手架已经全部落地，
+剩余约 1% 是步骤 21 的交付强化。旧产品规划流程仍保留在 Node；当前单二进制承载的是
+已经迁入 Go 的 Requirement、TaskRun、Verification 和 SSE 控制面，不能把两者混称为完整替换。
 
 | 阶段 | 状态 | 对应旧实现 |
 | --- | --- | --- |
@@ -51,6 +52,7 @@ docs/         架构、面试与学习文档
 | Verification 执行门禁 | 已完成候选 Git 检查、宿主命令、三值证据、历史报告和 acceptance 门禁 | `verification.ts` 与交付前检查 |
 | 持久化 SSE | 已完成全局游标、断线重放、heartbeat 和游标失效通知 | Node 进程内事件订阅与浏览器状态同步 |
 | 前端切流 | 19A Client/DTO、19B Query/Mutation、19C 持久化 SSE 已完成 | Server Functions、Node 执行入口与 React Query 订阅 |
+| 单二进制交付 | Vite SPA、embed.FS、路由 fallback 和单命令启动已完成 | 原 TanStack Start/Nitro 独立 Node 进程 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 
@@ -59,8 +61,13 @@ docs/         架构、面试与学习文档
 ```bash
 fnm use 24
 pnpm install
-pnpm dev
+pnpm workbench
 ```
+
+浏览器打开 `http://127.0.0.1:8080`。该命令先构建 Vite SPA，再启动同时提供页面、API、
+SSE 和 Worker 的 Go 进程。生成独立二进制使用 `pnpm build:standalone`。
+
+旧产品规划流程仍可通过 `pnpm dev` 启动；它是迁移参考，不会进入 Go 单二进制。
 
 默认连接相邻目录中的 `Mysterious-Realm-v2/apps/front`。目标仓库、启动命令、健康地址和预览地址由 `config/target-project.json` 显式配置，产品输入不能修改命令。
 
@@ -91,6 +98,8 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 - `apps/web/src/domain/`：Requirement 聚合、阶段和公共数据契约；
 - `apps/web/src/api/`：Go HTTP DTO、统一 fetch client 与错误边界；
 - `apps/web/src/routes/go-control.tsx`：直接消费 Go Requirement、TaskRun 与 Verification 的迁移页面；
+- `apps/web/src/spa/`：不包含 Node Server Functions 的嵌入式浏览器入口；
+- `apps/server/internal/webui/`：Go embed 静态文件、API 分流和 SPA 路由 fallback；
 - `apps/web/src/server/`：迁移期间的 Node 配置、持久化、规则探索、进程和预览网关；
 - `apps/web/src/server/git-workspace.ts`：Git 起点记录、脏工作区保护和需求分支；
 - `apps/web/src/server/codex-app-server.ts`：app-server 子进程、JSON-RPC、Thread 续接、Turn 中断与清理；
