@@ -80,4 +80,20 @@ type Store interface {
 		taskRunID string,
 		afterSequence int64,
 	) ([]domain.TaskEvent, error)
+
+	// TaskEventIDBounds 返回当前仍可读取的最小、最大全局事件 ID。
+	//
+	// 空表返回 (0, 0, nil)。SSE 用它判断浏览器带来的 Last-Event-ID 是否已经落在
+	// 可重放窗口之外；Sequence 是单个 TaskRun 的局部编号，不能用于这个判断。
+	TaskEventIDBounds(ctx context.Context) (oldestID int64, latestID int64, err error)
+
+	// ListTaskEventsAfterID 按全局 ID 读取一页事件，供 SSE 断线重连时重放。
+	//
+	// 返回 id > afterID 的前 limit 条事件，并严格按 ID 升序排列。afterID 必须非负，
+	// limit 必须大于零。
+	ListTaskEventsAfterID(
+		ctx context.Context,
+		afterID int64,
+		limit int,
+	) ([]domain.TaskEvent, error)
 }

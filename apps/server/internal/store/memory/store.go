@@ -22,7 +22,10 @@ type Store struct {
 	tasks        map[string]domain.TaskRun
 	taskOrder    []string
 	eventsByTask map[string][]domain.TaskEvent
-	nextEventID  int64
+	// events 按全局 ID 保存所有 TaskRun 的事件。前端类比：eventsByTask 是详情页索引，
+	// events 是消息中心的总时间线；SSE 的 Last-Event-ID 只能查询后者。
+	events      []domain.TaskEvent
+	nextEventID int64
 }
 
 // 编译期检查：当 Store interface 变化时，这一行会立即指出 Adapter 缺少的方法。
@@ -37,6 +40,7 @@ func New() *Store {
 		tasks:        make(map[string]domain.TaskRun),
 		taskOrder:    []string{},
 		eventsByTask: make(map[string][]domain.TaskEvent),
+		events:       []domain.TaskEvent{},
 	}
 }
 
@@ -365,6 +369,7 @@ func (s *Store) AppendTaskEvents(ctx context.Context, events []domain.TaskEvent)
 		storedEvent := cloneTaskEvent(event)
 		storedEvent.ID = s.nextEventID
 		s.eventsByTask[taskRunID] = append(s.eventsByTask[taskRunID], storedEvent)
+		s.events = append(s.events, cloneTaskEvent(storedEvent))
 	}
 
 	return s.nextEventID, nil
@@ -405,6 +410,53 @@ func (s *Store) ListTaskEvents(
 		events = append(events, cloneTaskEvent(event))
 	}
 
+	return events, nil
+}
+
+// TaskEventIDBounds 返回全局事件时间线当前可读取的首尾 ID。
+func (s *Store) TaskEventIDBounds(ctx context.Context) (int64, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	if len(s.events) == 0 {
+		return 0, 0, nil
+	}
+	return s.events[0].ID, s.events[len(s.events)-1].ID, nil
+}
+
+// ListTaskEventsAfterID 返回全局游标之后的一页事件。
+func (s *Store) ListTaskEventsAfterID(
+	ctx context.Context,
+	afterID int64,
+	limit int,
+) ([]domain.TaskEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if afterID < 0 || limit < 1 {
+		return nil, domain.ErrInvalidInput
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	events := make([]domain.TaskEvent, 0, min(limit, len(s.events)))
+	for _, event := range s.events {
+		if event.ID <= afterID {
+			continue
+		}
+		events = append(events, cloneTaskEvent(event))
+		if len(events) == limit {
+			break
+		}
+	}
 	return events, nil
 }
 

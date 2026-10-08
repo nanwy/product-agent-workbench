@@ -79,6 +79,28 @@ type TaskRunResponse struct {
 	FailureReason   string              `json:"failureReason,omitempty"`
 }
 
+// TaskEventResponse 是 SSE 中 task-event 事件的 JSON 数据。
+//
+// Payload 使用字符串而不是 json.RawMessage：Store 允许保存任意命令输出字节，脏数据也
+// 只能影响这一字段，不能破坏整条 SSE JSON。
+type TaskEventResponse struct {
+	TaskRunID string    `json:"taskRunId"`
+	Sequence  int64     `json:"sequence"`
+	Type      string    `json:"type"`
+	Payload   string    `json:"payload"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ReplayResetResponse 告诉前端：本地游标已经无法从当前事件表连续恢复。
+//
+// 收到它后，前端应重新 GET 页面快照，再用最新游标建立新连接。它类似前端缓存失效，
+// 不是普通的 task-event。
+type ReplayResetResponse struct {
+	Reason        string `json:"reason"`
+	OldestEventID int64  `json:"oldestEventId"`
+	LatestEventID int64  `json:"latestEventId"`
+}
+
 // ErrorResponse 是所有 HTTP 错误使用的稳定 JSON 结构。
 //
 // Code 给前端程序判断，Message 给本地用户阅读；不要把原始 SQL、文件路径或秘密直接放入
@@ -138,4 +160,12 @@ func newTaskRunResponse(run domain.TaskRun) TaskRunResponse {
 	return response
 }
 
-// Requirement 与 TaskRun 普通 JSON endpoint 已完成；SSE 留到持久化 Adapter 稳定之后。
+func newTaskEventResponse(event domain.TaskEvent) TaskEventResponse {
+	return TaskEventResponse{
+		TaskRunID: event.TaskRunID,
+		Sequence:  event.Sequence,
+		Type:      event.Type,
+		Payload:   string(event.Payload),
+		CreatedAt: event.CreatedAt,
+	}
+}

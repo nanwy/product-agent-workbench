@@ -151,4 +151,97 @@ func runTaskEventStoreContract(t *testing.T, factory storeFactory) {
 			t.Fatalf("无 Payload AppendTaskEvents() error = %v", err)
 		}
 	})
+
+	t.Run("全局游标跨 TaskRun 分页且返回深拷贝", func(t *testing.T) {
+		subject := factory(t)
+		ctx := context.Background()
+		createRequirementForTask(t, ctx, subject, "req-1")
+		createdAt := testTime()
+
+		firstRun := queuedTaskFixture(t, "run-global-1", createdAt)
+		secondRun, err := domain.NewTaskRun(domain.NewTaskRunInput{
+			ID:              "run-global-2",
+			RequirementID:   "req-1",
+			TicketVersionID: "req-1-tickets-v1",
+			TicketID:        "ticket-2",
+			Attempt:         1,
+		}, createdAt)
+		if err != nil {
+			t.Fatalf("NewTaskRun() error = %v", err)
+		}
+		for _, run := range []domain.TaskRun{firstRun, secondRun} {
+			if err := subject.EnqueueTask(ctx, run); err != nil {
+				t.Fatalf("EnqueueTask(%s) error = %v", run.ID, err)
+			}
+		}
+
+		oldestID, latestID, err := subject.TaskEventIDBounds(ctx)
+		if err != nil || oldestID != 0 || latestID != 0 {
+			t.Fatalf("空表 TaskEventIDBounds() = (%d, %d, %v), want (0, 0, nil)", oldestID, latestID, err)
+		}
+
+		appendOne := func(runID string, eventType string, payload string) {
+			t.Helper()
+			events, listErr := subject.ListTaskEvents(ctx, runID, 0)
+			if listErr != nil {
+				t.Fatalf("ListTaskEvents(%s) error = %v", runID, listErr)
+			}
+			_, appendErr := subject.AppendTaskEvents(ctx, []domain.TaskEvent{{
+				TaskRunID: runID,
+				Sequence:  int64(len(events) + 1),
+				Type:      eventType,
+				Payload:   []byte(payload),
+				CreatedAt: createdAt.Add(time.Duration(len(events)+1) * time.Second),
+			}})
+			if appendErr != nil {
+				t.Fatalf("AppendTaskEvents(%s) error = %v", runID, appendErr)
+			}
+		}
+		appendOne(firstRun.ID, "task.started", "first")   // 全局 ID 1
+		appendOne(secondRun.ID, "task.started", "second") // 全局 ID 2
+		appendOne(firstRun.ID, "task.output", "third")    // 全局 ID 3
+
+		oldestID, latestID, err = subject.TaskEventIDBounds(ctx)
+		if err != nil || oldestID != 1 || latestID != 3 {
+			t.Fatalf("TaskEventIDBounds() = (%d, %d, %v), want (1, 3, nil)", oldestID, latestID, err)
+		}
+		page, err := subject.ListTaskEventsAfterID(ctx, 1, 1)
+		if err != nil {
+			t.Fatalf("ListTaskEventsAfterID() error = %v", err)
+		}
+		if len(page) != 1 || page[0].ID != 2 || page[0].TaskRunID != secondRun.ID {
+			t.Fatalf("第一页 = %#v, want global event 2", page)
+		}
+		page[0].Payload[0] = '!'
+		nextPage, err := subject.ListTaskEventsAfterID(ctx, page[0].ID, 2)
+		if err != nil {
+			t.Fatalf("下一页 ListTaskEventsAfterID() error = %v", err)
+		}
+		if len(nextPage) != 1 || nextPage[0].ID != 3 || string(nextPage[0].Payload) != "third" {
+			t.Fatalf("下一页 = %#v, want global event 3", nextPage)
+		}
+		unmodified, err := subject.ListTaskEventsAfterID(ctx, 1, 1)
+		if err != nil || string(unmodified[0].Payload) != "second" {
+			t.Fatalf("修改返回 Payload 污染 Store: %#v, error = %v", unmodified, err)
+		}
+		none, err := subject.ListTaskEventsAfterID(ctx, 3, 10)
+		if err != nil || none == nil || len(none) != 0 {
+			t.Fatalf("游标到末尾 = %#v, %v, want non-nil empty", none, err)
+		}
+		if _, err := subject.ListTaskEventsAfterID(ctx, -1, 1); !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("负游标 error = %v, want ErrInvalidInput", err)
+		}
+		if _, err := subject.ListTaskEventsAfterID(ctx, 0, 0); !errors.Is(err, domain.ErrInvalidInput) {
+			t.Fatalf("零 limit error = %v, want ErrInvalidInput", err)
+		}
+
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		if _, _, err := subject.TaskEventIDBounds(cancelled); !errors.Is(err, context.Canceled) {
+			t.Fatalf("TaskEventIDBounds(cancelled) error = %v, want context.Canceled", err)
+		}
+		if _, err := subject.ListTaskEventsAfterID(cancelled, 0, 1); !errors.Is(err, context.Canceled) {
+			t.Fatalf("ListTaskEventsAfterID(cancelled) error = %v, want context.Canceled", err)
+		}
+	})
 }

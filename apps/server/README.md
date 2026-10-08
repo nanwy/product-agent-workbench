@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～17D 已完成，下一步是 18A SSE replay
+## 当前进度：练习 1～18 已完成，下一步是 19 Verification 执行门禁
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -375,7 +375,8 @@ Supervisor、轮询、并发上限、重启恢复和 Codex Adapter。
 → 17B RequestBuilder + EventSink Adapter（已完成）
 → 17C main 进程入口依赖装配（已完成）
 → 17D 真实 Adapter 与进程生命周期（已完成）
-→ 18A 持久化事件 SSE replay（下一步）
+→ 18 持久化事件 SSE replay（已完成）
+→ 19 Verification 证据执行与交付门禁（下一步）
 ```
 
 练习 15B 已实现真实 Git Adapter：Ticket 和 Requirement 分别使用受管 Worktree；Git 命令
@@ -445,6 +446,24 @@ Thread ID 会在 Turn 开始前写入 TaskRun；新 attempt 从同一 Ticket 的
   但不会自动重跑可能已有副作用的任务；
 - 当前 API 无鉴权，因此配置层拒绝绑定非 loopback 地址。
 
+### 练习 18：持久化事件 SSE replay（已完成）
+
+- `TaskEvent.ID` 是跨所有 TaskRun 的全局游标；单个 TaskRun 内的 `Sequence` 继续负责检查
+  局部事件是否连续，两者不能混用；
+- Store 新增全局 ID 范围与分页读取，Memory 和 SQLite 通过同一套契约；SQLite 直接利用
+  `task_events` 自增主键，不需要新增 migration；
+- `GET /api/v1/events` 读取浏览器的 `Last-Event-ID`，先分页补齐持久化历史，再轮询新事件；
+- 每条业务事件使用固定 `event: task-event`，真实业务类型放在 JSON 的 `type` 字段，避免
+  数据中的换行破坏 SSE 帧；
+- 空闲连接发送不带 ID 的 heartbeat，不会错误推进浏览器游标；
+- 游标落在当前可重放窗口之外时发送 `replay-reset`，前端应重新读取权威快照；
+- 每个连接只占用当前 HTTP handler，不创建独立事件 hub 或额外 goroutine。慢客户端只会
+  反压自己的连接，SQLite 仍是重启后的事件事实源。
+
+前端可以把这一步理解为“React Query 的 cursor 恢复”：`Last-Event-ID` 类似分页 cursor，
+replay 先补缓存缺口，随后实时事件继续增量更新；收到 `replay-reset` 时不要猜缺失内容，
+而是 invalidate/refetch 页面快照。
+
 ### Go 迁移步骤与原 TypeScript 实现的对应关系
 
 Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Promise 都塞在一个 Requirement
@@ -459,7 +478,7 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | complete 动作（已完成） | 保存成功结果和完成时间 | `executeQueue` 中当前 Ticket 成功收尾 | 状态迁移统一经过领域状态机；调度下一票与验证仍留给 Runner |
 | fail/cancel 动作（已完成） | 保存失败原因或取消终态 | `recordExecutionFailure`、`cancelRequirementExecution` | 失败与取消不再通过对象展开手写状态；状态 CAS 防止旧快照覆盖并发终态 |
 | TaskRun HTTP（已完成） | 浏览器创建、查询和取消执行 | `startRequirementExecution`、`cancelRequirementExecution` 等 Server Function | 前端改为普通 HTTP client；handler 只处理协议 |
-| SQLite Store（进行中） | Requirement 与 TaskRun 基础已完成；活动唯一约束已降到 Ticket 级 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队 |
+| SQLite Store（已完成） | Requirement、TaskRun、原子 claim、TaskEvent 与全局事件游标 | `requirement-store.ts` 的 JSON 文件和 Promise 写队列 | 同一 Requirement 的多个 ready Ticket 可同时排队；事件可跨重启重放 |
 | Ticket DAG Scheduler（已完成） | 从确认 artifact 和执行历史计算 ready 集合 | `confirmTicketVersion` 与 `executeQueue` 的状态推进 | pending Ticket 不进队列；完成前置票后幂等解锁后继票 |
 | 最小 Worker（已完成） | 同步编排一次 fake 执行 | `prepareExecution`、`executeQueue` | 先验证闭环，再增加并发和真实 Codex |
 | 有界 Worker/Worktree 编排（已完成） | 固定并发排空 ready 队列；每票隔离执行后整合 | 原串行 `executeQueue` 暂无对应能力 | 并发数量受控；完成后重新计算 DAG |
@@ -469,14 +488,15 @@ Go 版本不是逐文件翻译。原项目把 Ticket、Codex 状态和后台 Pro
 | 运行时 Adapter（17B 已完成） | 从可信事实构造 RunRequest，并把 EventSink 接到 Store | `workbench-execution.ts` 中混合的配置读取和事件写入 | 浏览器不再提供执行路径；函数回调通过小接口接入持久化 |
 | 依赖装配（17C 已完成） | 在唯一 composition root 连接 Application、Scheduler、Runner、Supervisor 和 HTTP | 前端入口中的 Provider 组合与 Node 模块级单例 | 使用显式构造函数和闭包工厂，不引入 DI 框架或全局 service locator |
 | 进程生命周期（17D 已完成） | 打开 SQLite、构造真实 Adapter、运行 HTTP/Worker 并优雅退出 | Node 入口、进程 signal 与模块级后台任务 | 单一应用 context 传播取消；资源由创建者关闭；HTTP 仅绑定 loopback |
+| 持久化 SSE replay（18 已完成） | 全局游标分页、Last-Event-ID、heartbeat、replay-reset | Node 进程内事件订阅与断线后快照恢复 | 先从 SQLite 补历史再追实时事件，服务重启不丢已落库事件 |
 
 当前 Go 进程已经能够装配 SQLite、版本化 Ticket artifact、真实 Git/Codex Adapter、HTTP
-与有界 Worker。下一阶段补 SSE replay、verification 门禁和前端切流，之后 Go 控制面才能
+与有界 Worker，并向浏览器提供可恢复 SSE。下一阶段补 verification 执行门禁和前端切流，之后 Go 控制面才能
 替代当前 Node 执行链路。
 
 ### 学习目标
 
-让浏览器能通过普通 HTTP 调用 Go，但先不做 SSE 和长任务执行。HTTP 层只处理协议，`internal/app` 负责编排领域与 Store。
+让浏览器通过普通 HTTP 和 SSE 调用 Go。HTTP 层只处理协议，`internal/app` 负责编排领域与 Store。
 
 需要掌握：
 
@@ -496,6 +516,7 @@ GET  /api/v1/requirements/{id}
 POST /api/v1/task-runs
 GET  /api/v1/task-runs/{id}
 POST /api/v1/task-runs/{id}/cancel
+GET  /api/v1/events
 ```
 
 claim/start/complete/fail 只供 Worker 在进程内部调用，不是浏览器 endpoint。
@@ -546,6 +567,6 @@ internal/httpapi/
 - request 被取消后，Store 调用能收到 context cancellation。
 - `go test -race ./apps/server/internal/app/... ./apps/server/internal/httpapi/...` 通过。
 
-TaskRun HTTP 已完成，但暂不切换前端：Memory Store 无法跨重启保存数据，执行也还没有 Worker
-消费。SQLite 和最小 fake Worker 已有后续骨架；SSE replay、真实 Codex 子进程、Git Worktree
-和前端迁移仍然留到这些基础契约完成之后。
+TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree 与 SSE replay 已完成。前端暂不切流：下一步
+先把 Verification Matrix 接到真实证据执行和交付门禁，再迁移浏览器读写入口，避免页面已经
+切到 Go、交付正确性仍依赖旧 Node 路径。

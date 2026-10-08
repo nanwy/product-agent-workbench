@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
@@ -49,11 +50,33 @@ type TaskScheduler interface {
 	) (scheduler.ReconcileResult, error)
 }
 
+// TaskEventApplication 是 SSE endpoint 消费的持久化重放用例。
+//
+// HTTP 只认识全局游标，不直接访问 Store；游标是否失效由应用层统一判断。
+type TaskEventApplication interface {
+	ReplayTaskEvents(
+		ctx context.Context,
+		input app.ReplayTaskEventsInput,
+	) (app.TaskEventReplay, error)
+}
+
+const (
+	defaultEventPollInterval      = 250 * time.Millisecond
+	defaultEventHeartbeatInterval = 15 * time.Second
+	defaultEventReplayLimit       = 100
+)
+
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
 	Application RequirementApplication
 	TaskRuns    TaskRunApplication
 	Scheduler   TaskScheduler
+	Events      TaskEventApplication
+
+	// 下面三个值主要用于测试注入短周期；生产装配传零值即可使用安全默认值。
+	EventPollInterval      time.Duration
+	EventHeartbeatInterval time.Duration
+	EventReplayLimit       int
 }
 
 // Server 把 HTTP 协议翻译为应用用例调用。
@@ -65,6 +88,11 @@ type Server struct {
 	application RequirementApplication
 	taskRuns    TaskRunApplication
 	scheduler   TaskScheduler
+	events      TaskEventApplication
+
+	eventPollInterval      time.Duration
+	eventHeartbeatInterval time.Duration
+	eventReplayLimit       int
 }
 
 // NewServer 校验依赖、注册路由并返回 HTTP handler。
@@ -78,6 +106,23 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	if dependencies.Application == nil {
 		return nil, ErrInvalidDependencies
 	}
+	if dependencies.EventPollInterval < 0 ||
+		dependencies.EventHeartbeatInterval < 0 ||
+		dependencies.EventReplayLimit < 0 {
+		return nil, ErrInvalidDependencies
+	}
+	pollInterval := dependencies.EventPollInterval
+	if pollInterval == 0 {
+		pollInterval = defaultEventPollInterval
+	}
+	heartbeatInterval := dependencies.EventHeartbeatInterval
+	if heartbeatInterval == 0 {
+		heartbeatInterval = defaultEventHeartbeatInterval
+	}
+	replayLimit := dependencies.EventReplayLimit
+	if replayLimit == 0 {
+		replayLimit = defaultEventReplayLimit
+	}
 
 	mux := http.NewServeMux()
 	server := &Server{
@@ -85,6 +130,11 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 		application: dependencies.Application,
 		taskRuns:    dependencies.TaskRuns,
 		scheduler:   dependencies.Scheduler,
+		events:      dependencies.Events,
+
+		eventPollInterval:      pollInterval,
+		eventHeartbeatInterval: heartbeatInterval,
+		eventReplayLimit:       replayLimit,
 	}
 
 	mux.HandleFunc(http.MethodGet+" "+PathHealth, server.handleHealth)
@@ -97,6 +147,9 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	}
 	if server.scheduler != nil {
 		mux.HandleFunc(http.MethodPost+" "+PathTaskRuns, server.handleReconcileTaskRuns)
+	}
+	if server.events != nil {
+		mux.HandleFunc(http.MethodGet+" "+PathEvents, server.handleEvents)
 	}
 
 	return server, nil

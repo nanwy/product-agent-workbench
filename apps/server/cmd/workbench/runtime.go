@@ -163,6 +163,7 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 		Application: application,
 		TaskRuns:    application,
 		Scheduler:   reconciler,
+		Events:      application,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 HTTP Server: %w", err)

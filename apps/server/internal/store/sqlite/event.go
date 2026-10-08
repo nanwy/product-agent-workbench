@@ -175,3 +175,72 @@ func (s *Store) ListTaskEvents(
 	}
 	return events, nil
 }
+
+// TaskEventIDBounds 返回 SSE 当前可重放的全局 ID 范围。
+//
+// MIN/MAX 是聚合查询，只返回一行，所以使用 QueryRowContext；COALESCE 把空表产生的
+// NULL 转成 0，调用方不必处理 sql.NullInt64。
+func (s *Store) TaskEventIDBounds(ctx context.Context) (int64, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	var oldestID, latestID int64
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(MIN(id), 0), COALESCE(MAX(id), 0) FROM task_events`,
+	).Scan(&oldestID, &latestID); err != nil {
+		return 0, 0, fmt.Errorf("读取 TaskEvent ID 范围: %w", err)
+	}
+	return oldestID, latestID, nil
+}
+
+// ListTaskEventsAfterID 按全局 ID 读取一页事件。
+//
+// 前端类比：afterID 就像分页请求的 cursor，limit 是 pageSize。这里不能按 Sequence
+// 查询，因为不同 TaskRun 都会从 Sequence=1 开始，无法组成一条全局消息流。
+func (s *Store) ListTaskEventsAfterID(
+	ctx context.Context,
+	afterID int64,
+	limit int,
+) ([]domain.TaskEvent, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if afterID < 0 || limit < 1 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, task_run_id, sequence, type, payload, created_at
+		FROM task_events
+		WHERE id > ?
+		ORDER BY id ASC
+		LIMIT ?`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("按全局 ID 查询 TaskEvent: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]domain.TaskEvent, 0, limit)
+	for rows.Next() {
+		var event domain.TaskEvent
+		var createdAt int64
+		if err := rows.Scan(
+			&event.ID,
+			&event.TaskRunID,
+			&event.Sequence,
+			&event.Type,
+			&event.Payload,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("扫描全局 TaskEvent: %w", err)
+		}
+		event.CreatedAt = time.Unix(0, createdAt).UTC()
+		event.Payload = append([]byte(nil), event.Payload...)
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历全局 TaskEvent: %w", err)
+	}
+	return events, nil
+}
