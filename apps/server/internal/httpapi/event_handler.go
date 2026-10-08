@@ -19,7 +19,7 @@ const replayResetReason = "cursor_outside_retained_window"
 // 前端类比：初次 replay 相当于先恢复 query cache，后面的轮询相当于订阅增量更新。
 // handler 本身不保存客户端进度；浏览器断线后通过 Last-Event-ID 把进度重新带回来。
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
-	afterID, err := parseLastEventID(r.Header.Get("Last-Event-ID"))
+	afterID, err := parseEventCursor(r)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -126,6 +126,18 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// parseEventCursor 同时支持 SSE 标准请求头和首次连接的查询参数。
+//
+// 浏览器自动重连时会携带 Last-Event-ID，因此请求头优先。页面刷新后，新创建的原生
+// EventSource 不能手动设置请求头，前端只能把 localStorage 中的游标放进 ?after=。
+// 两种入口最终都进入同一个严格整数解析，不能出现两套游标规则。
+func parseEventCursor(r *http.Request) (int64, error) {
+	if lastEventID := strings.TrimSpace(r.Header.Get("Last-Event-ID")); lastEventID != "" {
+		return parseLastEventID(lastEventID)
+	}
+	return parseLastEventID(r.URL.Query().Get("after"))
 }
 
 func parseLastEventID(value string) (int64, error) {

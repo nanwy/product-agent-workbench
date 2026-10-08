@@ -112,10 +112,24 @@ export type HealthResponse = {
   status: string
 }
 
+// 练习 19C：SSE 外层事件固定叫 task-event，真正的 Codex 业务类型放在 type 字段。
+export type TaskEventResponse = {
+  taskRunId: string
+  sequence: number
+  type: string
+  payload: string
+  createdAt: string
+}
+
+export type ReplayResetResponse = {
+  reason: 'cursor_outside_retained_window' | string
+  oldestEventId: number
+  latestEventId: number
+}
+
 // 第三步：错误也属于 API 合约。页面应判断 code，而不是解析中文 message。
 export type ErrorResponse = {
   code: 'invalid_request' | 'not_found' | 'conflict' | 'internal_error' | string
   message: string
   requestId?: string
 }
-

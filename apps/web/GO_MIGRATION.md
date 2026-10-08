@@ -117,5 +117,53 @@ pnpm --filter @product-agent-workbench/web test
 pnpm --filter @product-agent-workbench/web build
 ```
 
-下一步 19C 会把 `GET /api/v1/events` 接入 `EventSource`：SSE 只负责推进或失效 Query Cache，
-断线时携带全局事件游标恢复，收到 `replay-reset` 时重新拉取权威资源。
+## 练习 19C：SSE 重放与缓存收敛（已完成）
+
+本步把 `GET /api/v1/events` 接入原生 `EventSource`。SSE 不把增量 payload 当作完整
+TaskRun，而是精确失效对应 Query；React Query 随后通过 19A HTTP Client 回源。
+
+```text
+Codex / Worker
+      ↓ 持久化 TaskEvent
+SQLite 全局事件 ID
+      ↓ GET /api/v1/events
+EventSource
+      ↓ task-event(taskRunId)
+invalidate ['go-control-plane', 'task-run', taskRunId]
+      ↓
+GET /api/v1/task-runs/{id}
+```
+
+### 从前端视角理解断线恢复
+
+1. 同一个 `EventSource` 网络闪断时，浏览器自动重连并发送 `Last-Event-ID`。
+2. 页面刷新会创建新实例，浏览器不会替新实例恢复旧游标，因此前端把最后确认的全局 ID
+   存入版本化 localStorage key，并在首次 URL 中发送 `?after=`。
+3. Go 优先读取标准 `Last-Event-ID` 请求头；请求头不存在时才读取 `?after=`。这样首次恢复
+   和浏览器自动重连共用同一套服务端校验。
+4. `task-event` 只失效对应 TaskRun，不能整页刷新。
+5. `replay-reset` 表示本地游标已不属于数据库保留窗口。此时保存服务端最新边界，并失效
+   全部 Go Query，不能猜测遗漏了哪些业务状态。
+6. SSE 正常时，活动 TaskRun 的轮询降到 30 秒校准；SSE 断线时自动退化为 1 秒轮询。
+
+### 为什么不手写重连定时器
+
+原生 `EventSource` 已实现重连和 `Last-Event-ID`。如果 `onerror` 中再次 `new EventSource()`，
+旧实例也可能仍在自动重连，最终形成重复连接和重复失效。19C 的 `onerror` 只更新 UI 状态，
+组件卸载时才调用 `close()`。
+
+### 迁移期代理边界
+
+Vite 只把 `/api/v1` 代理给 Go。旧页面仍使用 TanStack Start 的 `/api/events`，因此两个 SSE
+入口在迁移期可以并存，不会因宽泛的 `/api` proxy 互相截获。
+
+### 19C 验收命令
+
+```bash
+go test ./apps/server/internal/httpapi
+pnpm --filter @product-agent-workbench/web typecheck
+pnpm --filter @product-agent-workbench/web test
+pnpm --filter @product-agent-workbench/web build
+```
+
+下一步进入练习 20：把前端构建为 Vite SPA，嵌入 Go 可执行文件，并收敛为一个启动命令。

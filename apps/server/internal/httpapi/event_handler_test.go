@@ -104,6 +104,41 @@ func TestServer_EventsRejectsInvalidCursorAndResetsStaleCursor(t *testing.T) {
 	}
 }
 
+func TestServer_EventsAcceptsBrowserCursorQueryAndPrefersReconnectHeader(t *testing.T) {
+	source := &recordingEventApplication{events: []domain.TaskEvent{
+		{ID: 1, TaskRunID: "run-1", Sequence: 1, Type: "task.started", CreatedAt: time.Unix(1, 0).UTC()},
+		{ID: 2, TaskRunID: "run-1", Sequence: 2, Type: "task.output", CreatedAt: time.Unix(2, 0).UTC()},
+	}}
+	server := newEventTestServer(t, source, time.Hour, time.Hour, 10)
+
+	queryResponse, queryCancel, queryDone := startEventStreamAtPath(
+		server,
+		httpapi.PathEvents+"?after=1",
+		"",
+	)
+	waitForSSE(t, queryResponse, "id: 2", 2*time.Second)
+	queryCancel()
+	<-queryDone
+	if got := source.firstAfterID(); got != 1 {
+		t.Fatalf("查询参数 replay AfterID = %d, want 1", got)
+	}
+
+	source.mu.Lock()
+	source.calls = nil
+	source.mu.Unlock()
+	headerResponse, headerCancel, headerDone := startEventStreamAtPath(
+		server,
+		httpapi.PathEvents+"?after=99",
+		"1",
+	)
+	waitForSSE(t, headerResponse, "id: 2", 2*time.Second)
+	headerCancel()
+	<-headerDone
+	if got := source.firstAfterID(); got != 1 {
+		t.Fatalf("请求头优先时 AfterID = %d, want 1", got)
+	}
+}
+
 func newEventTestServer(
 	t *testing.T,
 	events *recordingEventApplication,
@@ -129,8 +164,16 @@ func startEventStream(
 	server *httpapi.Server,
 	lastEventID string,
 ) (*streamingResponse, context.CancelFunc, <-chan struct{}) {
+	return startEventStreamAtPath(server, httpapi.PathEvents, lastEventID)
+}
+
+func startEventStreamAtPath(
+	server *httpapi.Server,
+	path string,
+	lastEventID string,
+) (*streamingResponse, context.CancelFunc, <-chan struct{}) {
 	ctx, cancel := context.WithCancel(context.Background())
-	request := httptest.NewRequest(http.MethodGet, httpapi.PathEvents, nil).WithContext(ctx)
+	request := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 	request.Header.Set("Last-Event-ID", lastEventID)
 	response := newStreamingResponse()
 	done := make(chan struct{})

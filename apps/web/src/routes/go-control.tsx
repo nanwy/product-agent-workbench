@@ -1,8 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router'
 import type { FormEvent } from 'react'
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { WorkbenchApiError } from '../api/client'
+import { useGoTaskEventStream } from '../api/events'
 import {
   useCancelTaskRunMutation,
   useCreateRequirementMutation,
@@ -37,9 +39,11 @@ function GoControlPage() {
   const [taskRunId, setTaskRunId] = useState('')
 
   // 第二步：所有服务端事实从 Query Cache 读取。空 ID 时 hook 会保持 disabled。
+  const queryClient = useQueryClient()
+  const eventStream = useGoTaskEventStream(queryClient)
   const health = useGoHealthQuery()
   const requirement = useGoRequirementQuery(requirementId.trim())
-  const taskRun = useGoTaskRunQuery(taskRunId.trim())
+  const taskRun = useGoTaskRunQuery(taskRunId.trim(), eventStream.status === 'connected')
   const verification = useGoVerificationQuery(
     requirementId.trim(),
     ticketVersionId.trim(),
@@ -95,11 +99,15 @@ function GoControlPage() {
           <span className="go-health" data-ready={health.data?.status === 'ok'}>
             Go {health.data?.status === 'ok' ? '已连接' : '未连接'}
           </span>
+          <span className="go-stream" data-status={eventStream.status}>
+            SSE {streamStatusLabel(eventStream.status)}
+          </span>
           <a className="secondary-button" href="/">返回旧工作台</a>
         </div>
       </header>
 
       {health.error ? <ErrorBanner error={health.error} prefix="连接 Go 服务失败" /> : null}
+      {eventStream.error ? <ErrorBanner error={eventStream.error} prefix="解析 SSE 失败" /> : null}
       {actionError ? <ErrorBanner error={actionError} prefix="操作失败" /> : null}
 
       <section className="go-control-grid" aria-label="Go API 资源控制面">
@@ -272,3 +280,11 @@ function formatTime(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN')
 }
 
+function streamStatusLabel(status: 'connecting' | 'connected' | 'reconnecting' | 'error') {
+  switch (status) {
+    case 'connecting': return '连接中'
+    case 'connected': return '已连接'
+    case 'reconnecting': return '重连中'
+    case 'error': return '数据错误'
+  }
+}

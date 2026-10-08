@@ -9,11 +9,11 @@ import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
-  // 练习 19A：浏览器继续请求同源 /api，Vite 在开发环境转发给 Go 控制面。
-  // 前端类比：这和常见的 devServer.proxy 相同，既避免组件硬编码 8080，也避免开发期 CORS。
+  // 练习 19A/19C：只有新版 /api/v1 转发给 Go。旧页面的 /api/events 仍由 TanStack
+  // Start 处理，迁移期间两条链路不会互相截获。前端类比：这就是 devServer.proxy 的窄匹配。
   server: {
     proxy: {
-      '/api': {
+      '/api/v1': {
         target: 'http://127.0.0.1:8080',
         changeOrigin: false,
       },

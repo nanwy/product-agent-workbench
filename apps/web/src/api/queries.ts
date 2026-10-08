@@ -49,14 +49,17 @@ export function useGoRequirementQuery(requirementId: string) {
   })
 }
 
-export function useGoTaskRunQuery(taskRunId: string) {
+export function useGoTaskRunQuery(taskRunId: string, eventStreamConnected = false) {
   return useQuery({
     queryKey: goQueryKeys.taskRun(taskRunId),
     queryFn: ({ signal }) => api.getTaskRun(taskRunId, { signal }),
     enabled: taskRunId.length > 0,
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return status === 'queued' || status === 'claimed' || status === 'running' ? 1_000 : false
+      const active = status === 'queued' || status === 'claimed' || status === 'running'
+      if (!active) return false
+      // SSE 连接正常时事件负责即时失效，30 秒轮询只做最终校准；断线时退化为 1 秒轮询。
+      return eventStreamConnected ? 30_000 : 1_000
     },
     retry: false,
   })
@@ -140,4 +143,3 @@ export function writeVerificationCache(
     report,
   )
 }
-

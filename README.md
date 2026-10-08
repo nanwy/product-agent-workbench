@@ -30,8 +30,8 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，实际可运行的 Go 重构约完成 **95%**；学习脚手架已覆盖前端 Query/Mutation 切流，
-约覆盖迁移路线的 **98%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
+截至当前，实际可运行的 Go 重构约完成 **97%**；学习脚手架已覆盖前端 HTTP 与 SSE 切流，
+约覆盖迁移路线的 **99%**。两者必须区分：有类型、注释和编排代码只表示下一步可学习，不表示
 该能力已经替代 Node 实现。
 
 | 阶段 | 状态 | 对应旧实现 |
@@ -50,7 +50,7 @@ docs/         架构、面试与学习文档
 | 真实 Codex Adapter 与进程装配 | 已完成 | 现有 Node 高权限模块与进程生命周期 |
 | Verification 执行门禁 | 已完成候选 Git 检查、宿主命令、三值证据、历史报告和 acceptance 门禁 | `verification.ts` 与交付前检查 |
 | 持久化 SSE | 已完成全局游标、断线重放、heartbeat 和游标失效通知 | Node 进程内事件订阅与浏览器状态同步 |
-| 前端切流 | 19A Client/DTO、19B Go 资源页 Query/Mutation 已完成；SSE 待切换 | Server Functions、Node 执行入口与 React Query 订阅 |
+| 前端切流 | 19A Client/DTO、19B Query/Mutation、19C 持久化 SSE 已完成 | Server Functions、Node 执行入口与 React Query 订阅 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 
