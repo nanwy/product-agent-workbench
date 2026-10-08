@@ -41,6 +41,56 @@ export type RequirementResponse = {
   revision: number
 }
 
+export type ConfirmGrillingRequest = {
+  expectedRevision: number
+  summary: string
+  desiredOutcome: string
+  changeBoundary: string
+  acceptanceSignal: string
+}
+
+export type GenerateSpecRequest = {
+  expectedRevision: number
+  instruction: string
+}
+
+export type ConfirmSpecRequest = {
+  expectedRevision: number
+}
+
+export type GrillingUnderstandingResponse = {
+  summary: string
+  desiredOutcome: string
+  changeBoundary: string
+  acceptanceSignal: string
+  confirmedAt: string
+}
+
+export type SpecDocumentResponse = {
+  problem: string
+  solution: string
+  userStories: string[]
+  implementationDecisions: string[]
+  testingDecisions: string[]
+  outOfScope: string[]
+  furtherNotes: string[]
+}
+
+export type SpecVersionResponse = {
+  id: string
+  version: number
+  status: 'draft' | 'confirmed' | 'superseded'
+  document: SpecDocumentResponse
+  createdAt: string
+  confirmedAt?: string
+}
+
+export type PlanningResponse = {
+  requirement: RequirementResponse
+  understanding?: GrillingUnderstandingResponse
+  specVersions: SpecVersionResponse[]
+}
+
 export type ReconcileTaskRunsRequest = {
   requirementId: string
   ticketVersionId: string

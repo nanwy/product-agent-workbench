@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"product-agent-workbench/internal/domain"
@@ -75,6 +76,11 @@ func writeJSON(
 // writeError 把内部错误转换为稳定、不会泄漏实现细节的 JSON 错误响应。
 func writeError(w http.ResponseWriter, err error) {
 	status, response := mapError(err)
+	// 浏览器只能看到稳定错误码；本地服务日志保留包装后的调用链，才能诊断 Codex、SQLite
+	// 或文件系统故障。错误对象本身仍不进入 JSON 响应。
+	if status == http.StatusInternalServerError {
+		log.Printf("HTTP 请求失败: %v", err)
+	}
 	logWriteError(writeJSON(w, status, response))
 }
 

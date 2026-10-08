@@ -13,6 +13,7 @@ import (
 
 	"product-agent-workbench/internal/artifact"
 	"product-agent-workbench/internal/codex"
+	"product-agent-workbench/internal/planning"
 	"product-agent-workbench/internal/runner"
 	storeadapter "product-agent-workbench/internal/store/sqlite"
 	"product-agent-workbench/internal/verification"
@@ -68,9 +69,28 @@ func run(ctx context.Context, config processConfig) error {
 
 	executor, err := codex.NewExecutor(codex.ExecutorConfig{
 		Executable: config.CodexExecutable,
+		PrefixArgs: config.CodexPrefixArgs,
 	})
 	if err != nil {
 		return fmt.Errorf("创建 Codex Executor: %w", err)
+	}
+	// 21B 的规划 Turn 与执行 Turn 使用同一套 app-server 协议，但权限固定为 read-only，
+	// 也不会经过 Worktree Manager。前端可以把它理解为两个共享 transport 的 API client。
+	readOnlyPlanner, err := codex.NewReadOnlyPlanner(codex.ExecutorConfig{
+		Executable:    config.CodexExecutable,
+		PrefixArgs:    config.CodexPrefixArgs,
+		ThreadTimeout: 5 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("创建只读 Codex Planner: %w", err)
+	}
+	targetRepositoryRoot, err := planning.LoadRepositoryRoot(config.TargetConfigPath)
+	if err != nil {
+		return err
+	}
+	specGenerator, err := planning.NewGenerator(readOnlyPlanner, targetRepositoryRoot)
+	if err != nil {
+		return fmt.Errorf("创建 Spec Generator: %w", err)
 	}
 	verificationPlan, err := verification.LoadPlan(config.TargetConfigPath)
 	if err != nil {
@@ -107,6 +127,7 @@ func run(ctx context.Context, config processConfig) error {
 		Workspaces:     workspaces,
 		Executor:       executor,
 		Verifier:       verifier,
+		SpecGenerator:  specGenerator,
 		NewID:          uuid.NewString,
 		Now:            time.Now,
 		Concurrency:    config.Concurrency,

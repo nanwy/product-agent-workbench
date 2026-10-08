@@ -31,6 +31,34 @@ type Store interface {
 		expectedRevision int64,
 	) (int64, error)
 
+	// ConfirmGrilling 原子保存共同理解，并把 Requirement 从 grilling 推进到 spec。
+	ConfirmGrilling(
+		ctx context.Context,
+		requirement domain.Requirement,
+		expectedRevision int64,
+		understanding domain.GrillingUnderstanding,
+	) (int64, error)
+
+	GetGrillingUnderstanding(ctx context.Context, requirementID string) (domain.GrillingUnderstanding, error)
+
+	// CreateSpecVersion 原子保存新草稿、失效旧草稿并推进 Requirement revision。
+	CreateSpecVersion(
+		ctx context.Context,
+		requirement domain.Requirement,
+		expectedRevision int64,
+		version domain.SpecVersion,
+	) (int64, error)
+	ListSpecVersions(ctx context.Context, requirementID string) ([]domain.SpecVersion, error)
+
+	// ConfirmSpecVersion 原子冻结当前草稿，并把 Requirement 推进到 tickets。
+	ConfirmSpecVersion(
+		ctx context.Context,
+		requirement domain.Requirement,
+		expectedRevision int64,
+		versionID string,
+		confirmedAt time.Time,
+	) (int64, error)
+
 	// EnqueueTask 首次保存 queued TaskRun。
 	//
 	// 同一 Requirement 的不同 Ticket 可以同时活动；同一 Ticket 已有 queued、claimed 或

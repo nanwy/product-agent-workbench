@@ -6,21 +6,26 @@ import { WorkbenchApiError } from '../api/client'
 import { useGoTaskEventStream } from '../api/events'
 import {
   useCancelTaskRunMutation,
+  useConfirmGrillingMutation,
+  useConfirmSpecMutation,
   useCreateRequirementMutation,
   useGoHealthQuery,
+  useGoPlanningQuery,
   useGoRequirementQuery,
   useGoTaskRunQuery,
   useGoVerificationQuery,
+  useGenerateSpecMutation,
   useReconcileTaskRunsMutation,
   useVerifyRequirementMutation,
 } from '../api/queries'
 import type {
+  SpecDocumentResponse,
   TaskRunResponse,
   VerificationReportResponse,
 } from '../api/contracts'
 
 /**
- * 练习 19B 页面：只消费 Go 已经实现的 HTTP 资源。
+ * 步骤 21B 页面：在 19B 控制面的基础上加入 Grilling 与版本化 Spec。
  *
  * 前端视角：
  * - React Query 保存 Requirement、TaskRun、Verification 这些服务端状态；
@@ -34,12 +39,18 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const [requirementId, setRequirementId] = useState('')
   const [ticketVersionId, setTicketVersionId] = useState('')
   const [taskRunId, setTaskRunId] = useState('')
+  const [summary, setSummary] = useState('')
+  const [desiredOutcome, setDesiredOutcome] = useState('')
+  const [changeBoundary, setChangeBoundary] = useState('')
+  const [acceptanceSignal, setAcceptanceSignal] = useState('')
+  const [specInstruction, setSpecInstruction] = useState('')
 
   // 第二步：所有服务端事实从 Query Cache 读取。空 ID 时 hook 会保持 disabled。
   const queryClient = useQueryClient()
   const eventStream = useGoTaskEventStream(queryClient)
   const health = useGoHealthQuery()
   const requirement = useGoRequirementQuery(requirementId.trim())
+  const planning = useGoPlanningQuery(requirementId.trim())
   const taskRun = useGoTaskRunQuery(taskRunId.trim(), eventStream.status === 'connected')
   const verification = useGoVerificationQuery(
     requirementId.trim(),
@@ -51,6 +62,9 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const reconcileTaskRuns = useReconcileTaskRunsMutation()
   const cancelTaskRun = useCancelTaskRunMutation()
   const verifyRequirement = useVerifyRequirementMutation()
+  const confirmGrilling = useConfirmGrillingMutation()
+  const generateSpec = useGenerateSpecMutation()
+  const confirmSpec = useConfirmSpecMutation()
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -78,17 +92,51 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
     )
   }
 
+  function handleConfirmGrilling(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!requirement.data) return
+    confirmGrilling.mutate({
+      requirementId: requirement.data.id,
+      request: {
+        expectedRevision: requirement.data.revision,
+        summary,
+        desiredOutcome,
+        changeBoundary,
+        acceptanceSignal,
+      },
+    })
+  }
+
+  function handleGenerateSpec(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!requirement.data) return
+    generateSpec.mutate({
+      requirementId: requirement.data.id,
+      request: {
+        expectedRevision: requirement.data.revision,
+        instruction: specInstruction,
+      },
+    })
+  }
+
+  const activeSpec = planning.data?.specVersions.find((version) => version.status === 'draft')
+  const latestSpec = planning.data?.specVersions[planning.data.specVersions.length - 1]
+  const visibleSpec = activeSpec ?? latestSpec
+
   const actionError =
     createRequirement.error ??
     reconcileTaskRuns.error ??
     cancelTaskRun.error ??
-    verifyRequirement.error
+    verifyRequirement.error ??
+    confirmGrilling.error ??
+    generateSpec.error ??
+    confirmSpec.error
 
   return (
     <main className="go-control-shell">
       <header className="go-control-header">
         <div>
-          <span>{standalone ? 'STEP 20 · GO EMBED' : 'STEP 19B · GO HTTP'}</span>
+          <span>{standalone ? 'STEP 21B · GO PLANNING' : 'STEP 21B · GO HTTP'}</span>
           <h1>Go 控制面</h1>
           <p>
             {standalone
@@ -148,10 +196,66 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
               <Fact label="Revision" value={String(requirement.data.revision)} />
             </dl>
           ) : null}
+          {requirement.data?.stage === 'grilling' ? (
+            <form onSubmit={handleConfirmGrilling}>
+              <p className="form-note">
+                21A：把讨论收敛成四个稳定字段。确认后服务端才允许生成 Spec。
+              </p>
+              <label><span>共同理解摘要</span><textarea value={summary} onChange={(event) => setSummary(event.target.value)} required /></label>
+              <label><span>期望结果</span><textarea value={desiredOutcome} onChange={(event) => setDesiredOutcome(event.target.value)} required /></label>
+              <label><span>修改边界</span><input value={changeBoundary} onChange={(event) => setChangeBoundary(event.target.value)} placeholder="例如 apps/web" required /></label>
+              <label><span>验收信号</span><textarea value={acceptanceSignal} onChange={(event) => setAcceptanceSignal(event.target.value)} required /></label>
+              <button className="primary-button" disabled={confirmGrilling.isPending}>确认 Grilling</button>
+            </form>
+          ) : null}
         </article>
 
         <article className="go-control-card">
-          <header><span>02</span><div><h2>Ticket Queue</h2><p>让 Scheduler 计算 ready Ticket</p></div></header>
+          <header><span>02</span><div><h2>Spec</h2><p>只读检查仓库，生成并冻结版本化规格</p></div></header>
+          {planning.data?.understanding ? (
+            <div className="go-result-block">
+              <strong>已确认共同理解</strong>
+              <p>{planning.data.understanding.summary}</p>
+            </div>
+          ) : <p className="form-note">先在 Requirement 卡片完成 21A。</p>}
+          {requirement.data?.stage === 'spec' ? (
+            <form onSubmit={handleGenerateSpec}>
+              <label>
+                <span>修订要求（第一版可留空）</span>
+                <textarea value={specInstruction} onChange={(event) => setSpecInstruction(event.target.value)} />
+              </label>
+              <button className="primary-button" disabled={generateSpec.isPending}>
+                {generateSpec.isPending ? 'Codex 正在只读分析…' : '生成 Spec 草稿'}
+              </button>
+            </form>
+          ) : null}
+          {visibleSpec ? (
+            <div className="go-result-block">
+              <strong>v{visibleSpec.version} · {visibleSpec.status}</strong>
+              <SpecDocument document={visibleSpec.document} />
+              {activeSpec ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={confirmSpec.isPending || !requirement.data}
+                  onClick={() => requirement.data && confirmSpec.mutate({
+                    requirementId: requirement.data.id,
+                    versionId: activeSpec.id,
+                    expectedRevision: requirement.data.revision,
+                  })}
+                >
+                  确认当前 Spec
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {planning.data?.specVersions.filter((version) => version.id !== visibleSpec?.id).map((version) => (
+            <p className="form-note" key={version.id}>v{version.version} · {version.status}</p>
+          ))}
+        </article>
+
+        <article className="go-control-card">
+          <header><span>03</span><div><h2>Ticket Queue</h2><p>让 Scheduler 计算 ready Ticket</p></div></header>
           <form onSubmit={handleReconcile}>
             <label>
               <span>TicketVersion ID</span>
@@ -164,7 +268,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
             </label>
             <p className="form-note">
               这里必须填写已经确认并写入服务端 artifact 的版本 ID，不能临时自定义。
-              当前 Spec/Ticket 确认流程尚未迁入 Go。
+              当前 Ticket 生成与确认流程将在 21C 迁入 Go。
             </p>
             <button
               className="primary-button"
@@ -186,7 +290,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
 
         <article className="go-control-card">
-          <header><span>03</span><div><h2>TaskRun</h2><p>查询执行尝试与取消活动任务</p></div></header>
+          <header><span>04</span><div><h2>TaskRun</h2><p>查询执行尝试与取消活动任务</p></div></header>
           <label className="go-resource-lookup">
             <span>TaskRun ID</span>
             <input
@@ -208,7 +312,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
 
         <article className="go-control-card">
-          <header><span>04</span><div><h2>Verification</h2><p>执行最终候选门禁并读取报告</p></div></header>
+          <header><span>05</span><div><h2>Verification</h2><p>执行最终候选门禁并读取报告</p></div></header>
           <button
             className="primary-button"
             disabled={!requirementId.trim() || !ticketVersionId.trim() || verifyRequirement.isPending}
@@ -227,6 +331,29 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
         </article>
       </section>
     </main>
+  )
+}
+
+function SpecDocument({ document }: { document: SpecDocumentResponse }) {
+  return (
+    <div className="go-spec-document">
+      <SpecSection title="问题" values={[document.problem]} />
+      <SpecSection title="方案" values={[document.solution]} />
+      <SpecSection title="用户故事" values={document.userStories} />
+      <SpecSection title="实现决策" values={document.implementationDecisions} />
+      <SpecSection title="测试决策" values={document.testingDecisions} />
+      <SpecSection title="不做什么" values={document.outOfScope} />
+      <SpecSection title="补充说明" values={document.furtherNotes} />
+    </div>
+  )
+}
+
+function SpecSection({ title, values }: { title: string; values: string[] }) {
+  return (
+    <section>
+      <h3>{title}</h3>
+      <ul>{values.map((value, index) => <li key={`${title}-${index}`}>{value}</li>)}</ul>
+    </section>
   )
 }
 

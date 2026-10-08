@@ -31,9 +31,9 @@ docs/         架构、面试与学习文档
 
 ## Go 重构学习进度
 
-截至当前，计划中的 Go 全栈重构约完成 **99%**；步骤 1～20 的学习脚手架已经全部落地，
-剩余约 1% 是步骤 21 的交付强化。旧产品规划流程仍保留在 Node；当前单二进制承载的是
-已经迁入 Go 的 Requirement、TaskRun、Verification 和 SSE 控制面，不能把两者混称为完整替换。
+截至当前，Go 全栈重构约完成 **90%**：步骤 1～20、21A Grilling 和 21B Spec 已落地。
+剩余工作是 21C Ticket 生成确认、21D 目标预览、21E 删除 Node Server Functions，以及
+步骤 22 的交付强化。旧 Node 工作台仍是迁移对照，不能把当前状态称为完整替换。
 
 | 阶段 | 状态 | 对应旧实现 |
 | --- | --- | --- |
@@ -53,6 +53,8 @@ docs/         架构、面试与学习文档
 | 持久化 SSE | 已完成全局游标、断线重放、heartbeat 和游标失效通知 | Node 进程内事件订阅与浏览器状态同步 |
 | 前端切流 | 19A Client/DTO、19B Query/Mutation、19C 持久化 SSE 已完成 | Server Functions、Node 执行入口与 React Query 订阅 |
 | 单二进制交付 | Vite SPA、embed.FS、路由 fallback 和单命令启动已完成 | 原 TanStack Start/Nitro 独立 Node 进程 |
+| Grilling 迁移 | 21A 共同理解确认、阶段 CAS、SQLite 持久化和 SPA 表单已完成 | Node Grilling 门禁与聚合内字段 |
+| Spec 迁移 | 21B 只读 Codex 生成、不可覆盖版本、确认门禁和 SPA 已完成 | `workbench-spec.ts` 与 Spec Server Functions |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ type processConfig struct {
 	WorktreeRoot     string
 	TargetConfigPath string
 	CodexExecutable  string
+	CodexPrefixArgs  []string
 	GitExecutable    string
 	Concurrency      int
 	DrainInterval    time.Duration
@@ -45,7 +47,6 @@ func loadProcessConfig() (processConfig, error) {
 		ArtifactRoot:     valueOrDefault("WORKBENCH_ARTIFACT_ROOT", ".data/server/artifacts"),
 		WorktreeRoot:     valueOrDefault("WORKBENCH_WORKTREE_ROOT", ".data/server/worktrees"),
 		TargetConfigPath: valueOrDefault("WORKBENCH_TARGET_CONFIG", "config/target-project.json"),
-		CodexExecutable:  valueOrDefault("WORKBENCH_CODEX_COMMAND", "codex"),
 		GitExecutable:    valueOrDefault("WORKBENCH_GIT_COMMAND", "git"),
 		Concurrency:      defaultConcurrency,
 		DrainInterval:    defaultDrainInterval,
@@ -77,11 +78,65 @@ func loadProcessConfig() (processConfig, error) {
 	if err != nil {
 		return processConfig{}, fmt.Errorf("%w: target config path: %v", errInvalidConfig, err)
 	}
+	config.CodexExecutable, config.CodexPrefixArgs, err = resolveCodexLaunch()
+	if err != nil {
+		return processConfig{}, fmt.Errorf("%w: Codex runtime: %v", errInvalidConfig, err)
+	}
 
 	if err := validateProcessConfig(config); err != nil {
 		return processConfig{}, err
 	}
 	return config, nil
+}
+
+// resolveCodexLaunch 让 Go 和旧前端共用 package.json 锁定的 Codex 版本。
+//
+// 前端类比：不能让生产页面偷偷使用全局安装的 React；这里同样通过项目内的
+// node_modules 启动 Codex。WORKBENCH_CODEX_COMMAND 是部署者显式提供的逃生口，设置后
+// 才直接使用 PATH 中的命令。
+func resolveCodexLaunch() (string, []string, error) {
+	if override := strings.TrimSpace(os.Getenv("WORKBENCH_CODEX_COMMAND")); override != "" {
+		return override, nil, nil
+	}
+
+	nodeExecutable, err := exec.LookPath("node")
+	if err != nil {
+		return "", nil, fmt.Errorf("查找 node: %w", err)
+	}
+	workbenchRoot, err := findWorkbenchRoot()
+	if err != nil {
+		return "", nil, err
+	}
+	wrapper := filepath.Join(workbenchRoot, "apps", "web", "node_modules", "@openai", "codex", "bin", "codex.js")
+	info, err := os.Stat(wrapper)
+	if err != nil {
+		return "", nil, fmt.Errorf("查找项目固定的 Codex CLI %s: %w；请先运行 pnpm install", wrapper, err)
+	}
+	if info.IsDir() {
+		return "", nil, fmt.Errorf("项目固定的 Codex CLI 不是文件: %s", wrapper)
+	}
+	return nodeExecutable, []string{wrapper}, nil
+}
+
+func findWorkbenchRoot() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("WORKBENCH_ROOT")); configured != "" {
+		return absolutePath(configured)
+	}
+	current, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("读取当前目录: %w", err)
+	}
+	for {
+		candidate := filepath.Join(current, "apps", "web", "package.json")
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return current, nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", fmt.Errorf("无法从 %s 定位 Workbench 根目录；请设置 WORKBENCH_ROOT", current)
+		}
+		current = parent
+	}
 }
 
 func validateProcessConfig(config processConfig) error {

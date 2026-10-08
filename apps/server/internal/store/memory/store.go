@@ -18,10 +18,12 @@ import (
 type Store struct {
 	mu sync.RWMutex
 
-	requirements map[string]domain.Requirement
-	tasks        map[string]domain.TaskRun
-	taskOrder    []string
-	eventsByTask map[string][]domain.TaskEvent
+	requirements   map[string]domain.Requirement
+	understandings map[string]domain.GrillingUnderstanding
+	specVersions   map[string][]domain.SpecVersion
+	tasks          map[string]domain.TaskRun
+	taskOrder      []string
+	eventsByTask   map[string][]domain.TaskEvent
 	// events 按全局 ID 保存所有 TaskRun 的事件。前端类比：eventsByTask 是详情页索引，
 	// events 是消息中心的总时间线；SSE 的 Last-Event-ID 只能查询后者。
 	events      []domain.TaskEvent
@@ -36,11 +38,13 @@ var _ storecontract.Store = (*Store)(nil)
 // map 必须在构造阶段初始化；nil map 可以读取，却会在第一次写入时 panic。
 func New() *Store {
 	return &Store{
-		requirements: make(map[string]domain.Requirement),
-		tasks:        make(map[string]domain.TaskRun),
-		taskOrder:    []string{},
-		eventsByTask: make(map[string][]domain.TaskEvent),
-		events:       []domain.TaskEvent{},
+		requirements:   make(map[string]domain.Requirement),
+		understandings: make(map[string]domain.GrillingUnderstanding),
+		specVersions:   make(map[string][]domain.SpecVersion),
+		tasks:          make(map[string]domain.TaskRun),
+		taskOrder:      []string{},
+		eventsByTask:   make(map[string][]domain.TaskEvent),
+		events:         []domain.TaskEvent{},
 	}
 }
 

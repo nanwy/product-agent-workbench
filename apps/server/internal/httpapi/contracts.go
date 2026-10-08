@@ -3,6 +3,7 @@ package httpapi
 import (
 	"time"
 
+	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/verification"
 )
@@ -40,6 +41,56 @@ type RequirementResponse struct {
 	Title     string                  `json:"title"`
 	Stage     domain.RequirementStage `json:"stage"`
 	Revision  int64                   `json:"revision"`
+}
+
+type ConfirmGrillingRequest struct {
+	ExpectedRevision int64  `json:"expectedRevision"`
+	Summary          string `json:"summary"`
+	DesiredOutcome   string `json:"desiredOutcome"`
+	ChangeBoundary   string `json:"changeBoundary"`
+	AcceptanceSignal string `json:"acceptanceSignal"`
+}
+
+type GenerateSpecRequest struct {
+	ExpectedRevision int64  `json:"expectedRevision"`
+	Instruction      string `json:"instruction"`
+}
+
+type ConfirmSpecRequest struct {
+	ExpectedRevision int64 `json:"expectedRevision"`
+}
+
+type GrillingUnderstandingResponse struct {
+	Summary          string    `json:"summary"`
+	DesiredOutcome   string    `json:"desiredOutcome"`
+	ChangeBoundary   string    `json:"changeBoundary"`
+	AcceptanceSignal string    `json:"acceptanceSignal"`
+	ConfirmedAt      time.Time `json:"confirmedAt"`
+}
+
+type SpecDocumentResponse struct {
+	Problem                 string   `json:"problem"`
+	Solution                string   `json:"solution"`
+	UserStories             []string `json:"userStories"`
+	ImplementationDecisions []string `json:"implementationDecisions"`
+	TestingDecisions        []string `json:"testingDecisions"`
+	OutOfScope              []string `json:"outOfScope"`
+	FurtherNotes            []string `json:"furtherNotes"`
+}
+
+type SpecVersionResponse struct {
+	ID          string                   `json:"id"`
+	Version     int                      `json:"version"`
+	Status      domain.SpecVersionStatus `json:"status"`
+	Document    SpecDocumentResponse     `json:"document"`
+	CreatedAt   time.Time                `json:"createdAt"`
+	ConfirmedAt *time.Time               `json:"confirmedAt,omitempty"`
+}
+
+type PlanningResponse struct {
+	Requirement   RequirementResponse            `json:"requirement"`
+	Understanding *GrillingUnderstandingResponse `json:"understanding"`
+	SpecVersions  []SpecVersionResponse          `json:"specVersions"`
 }
 
 // ReconcileTaskRunsRequest 是浏览器请求调度一个已确认 TicketVersion 的稳定 JSON 合约。
@@ -166,6 +217,41 @@ func newRequirementResponse(requirement domain.Requirement) RequirementResponse 
 		Stage:     requirement.Stage,
 		Revision:  requirement.Revision,
 	}
+}
+
+func newPlanningResponse(snapshot app.PlanningSnapshot) PlanningResponse {
+	response := PlanningResponse{
+		Requirement:  newRequirementResponse(snapshot.Requirement),
+		SpecVersions: make([]SpecVersionResponse, 0, len(snapshot.SpecVersions)),
+	}
+	if snapshot.Understanding != nil {
+		response.Understanding = &GrillingUnderstandingResponse{
+			Summary:          snapshot.Understanding.Summary,
+			DesiredOutcome:   snapshot.Understanding.DesiredOutcome,
+			ChangeBoundary:   snapshot.Understanding.ChangeBoundary,
+			AcceptanceSignal: snapshot.Understanding.AcceptanceSignal,
+			ConfirmedAt:      snapshot.Understanding.ConfirmedAt,
+		}
+	}
+	for _, version := range snapshot.SpecVersions {
+		response.SpecVersions = append(response.SpecVersions, SpecVersionResponse{
+			ID:      version.ID,
+			Version: version.Version,
+			Status:  version.Status,
+			Document: SpecDocumentResponse{
+				Problem:                 version.Document.Problem,
+				Solution:                version.Document.Solution,
+				UserStories:             append([]string(nil), version.Document.UserStories...),
+				ImplementationDecisions: append([]string(nil), version.Document.ImplementationDecisions...),
+				TestingDecisions:        append([]string(nil), version.Document.TestingDecisions...),
+				OutOfScope:              append([]string(nil), version.Document.OutOfScope...),
+				FurtherNotes:            append([]string(nil), version.Document.FurtherNotes...),
+			},
+			CreatedAt:   version.CreatedAt,
+			ConfirmedAt: version.ConfirmedAt,
+		})
+	}
+	return response
 }
 
 // newTaskRunResponse 显式把领域实体映射为 HTTP DTO。

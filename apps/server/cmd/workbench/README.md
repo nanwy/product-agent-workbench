@@ -133,7 +133,8 @@ main
 | `WORKBENCH_DATABASE_PATH` | `.data/server/workbench.db` | SQLite 文件 |
 | `WORKBENCH_ARTIFACT_ROOT` | `.data/server/artifacts` | 已确认 TicketVersion JSON 根目录 |
 | `WORKBENCH_WORKTREE_ROOT` | `.data/server/worktrees` | 工作台拥有的 Worktree 根目录 |
-| `WORKBENCH_CODEX_COMMAND` | `codex` | 受信任 Codex 可执行文件 |
+| `WORKBENCH_ROOT` | 自动从当前目录向上查找 | 工作台 monorepo 根目录 |
+| `WORKBENCH_CODEX_COMMAND` | 项目固定的 `@openai/codex` | 显式覆盖受信任 Codex 可执行文件 |
 | `WORKBENCH_GIT_COMMAND` | `git` | 受信任 Git 可执行文件 |
 | `WORKBENCH_CONCURRENCY` | `2` | 固定 Worker 数量 |
 

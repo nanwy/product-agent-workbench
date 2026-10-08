@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { createWorkbenchApiClient } from './client'
 import type {
+  ConfirmGrillingRequest,
   CreateRequirementRequest,
+  GenerateSpecRequest,
+  PlanningResponse,
   ReconcileTaskRunsRequest,
   RequirementResponse,
   TaskRunResponse,
@@ -25,6 +28,8 @@ export const goQueryKeys = {
   health: () => [...goQueryKeys.all, 'health'] as const,
   requirement: (requirementId: string) =>
     [...goQueryKeys.all, 'requirement', requirementId] as const,
+  planning: (requirementId: string) =>
+    [...goQueryKeys.all, 'planning', requirementId] as const,
   taskRun: (taskRunId: string) => [...goQueryKeys.all, 'task-run', taskRunId] as const,
   verification: (requirementId: string, ticketVersionId: string) =>
     [...goQueryKeys.all, 'verification', requirementId, ticketVersionId] as const,
@@ -44,6 +49,15 @@ export function useGoRequirementQuery(requirementId: string) {
   return useQuery({
     queryKey: goQueryKeys.requirement(requirementId),
     queryFn: ({ signal }) => api.getRequirement(requirementId, { signal }),
+    enabled: requirementId.length > 0,
+    retry: false,
+  })
+}
+
+export function useGoPlanningQuery(requirementId: string) {
+  return useQuery({
+    queryKey: goQueryKeys.planning(requirementId),
+    queryFn: ({ signal }) => api.getPlanning(requirementId, { signal }),
     enabled: requirementId.length > 0,
     retry: false,
   })
@@ -89,6 +103,35 @@ export function useCreateRequirementMutation() {
   })
 }
 
+export function useConfirmGrillingMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { requirementId: string; request: ConfirmGrillingRequest }) =>
+      api.confirmGrilling(input.requirementId, input.request),
+    onSuccess: (planning) => writePlanningCache(queryClient, planning),
+  })
+}
+
+export function useGenerateSpecMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { requirementId: string; request: GenerateSpecRequest }) =>
+      api.generateSpec(input.requirementId, input.request),
+    onSuccess: (planning) => writePlanningCache(queryClient, planning),
+  })
+}
+
+export function useConfirmSpecMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { requirementId: string; versionId: string; expectedRevision: number }) =>
+      api.confirmSpec(input.requirementId, input.versionId, {
+        expectedRevision: input.expectedRevision,
+      }),
+    onSuccess: (planning) => writePlanningCache(queryClient, planning),
+  })
+}
+
 export function useReconcileTaskRunsMutation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -128,6 +171,11 @@ type QueryCacheWriter = {
 
 export function writeRequirementCache(cache: QueryCacheWriter, requirement: RequirementResponse) {
   cache.setQueryData(goQueryKeys.requirement(requirement.id), requirement)
+}
+
+export function writePlanningCache(cache: QueryCacheWriter, planning: PlanningResponse) {
+  writeRequirementCache(cache, planning.requirement)
+  cache.setQueryData(goQueryKeys.planning(planning.requirement.id), planning)
 }
 
 export function writeTaskRunCache(cache: QueryCacheWriter, run: TaskRunResponse) {

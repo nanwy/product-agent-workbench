@@ -32,6 +32,10 @@ func TestMemoryStoreContract(t *testing.T) {
 		t.Helper()
 		return memory.New()
 	})
+	runPlanningStoreContract(t, func(t *testing.T) store.Store {
+		t.Helper()
+		return memory.New()
+	})
 
 	t.Run("已取消的 context 不允许读取或写入", func(t *testing.T) {
 		subject := memory.New()

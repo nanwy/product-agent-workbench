@@ -30,6 +30,14 @@ type RequirementApplication interface {
 	GetRequirement(ctx context.Context, id string) (domain.Requirement, error)
 }
 
+// PlanningApplication 是步骤 21A/21B 的 Grilling 与 Spec 用例入口。
+type PlanningApplication interface {
+	ConfirmGrilling(ctx context.Context, input app.ConfirmGrillingInput) (app.PlanningSnapshot, error)
+	GenerateSpec(ctx context.Context, input app.GenerateSpecInput) (app.PlanningSnapshot, error)
+	ConfirmSpec(ctx context.Context, input app.ConfirmSpecInput) (app.PlanningSnapshot, error)
+	GetPlanning(ctx context.Context, requirementID string) (app.PlanningSnapshot, error)
+}
+
 // TaskRunApplication 是浏览器查询和取消 TaskRun 使用的用例 seam。
 //
 // claim/start/complete/fail 和原始 EnqueueTaskRun 不暴露给浏览器，避免客户端伪造
@@ -83,6 +91,7 @@ const (
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
 	Application  RequirementApplication
+	Planning     PlanningApplication
 	TaskRuns     TaskRunApplication
 	Scheduler    TaskScheduler
 	Events       TaskEventApplication
@@ -101,6 +110,7 @@ type Dependencies struct {
 type Server struct {
 	mux          *http.ServeMux
 	application  RequirementApplication
+	planning     PlanningApplication
 	taskRuns     TaskRunApplication
 	scheduler    TaskScheduler
 	events       TaskEventApplication
@@ -144,6 +154,7 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	server := &Server{
 		mux:          mux,
 		application:  dependencies.Application,
+		planning:     dependencies.Planning,
 		taskRuns:     dependencies.TaskRuns,
 		scheduler:    dependencies.Scheduler,
 		events:       dependencies.Events,
@@ -157,6 +168,12 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 	mux.HandleFunc(http.MethodGet+" "+PathHealth, server.handleHealth)
 	mux.HandleFunc(http.MethodPost+" "+PathRequirements, server.handleCreateRequirement)
 	mux.HandleFunc(http.MethodGet+" "+PathRequirements+"/{id}", server.handleGetRequirement)
+	if server.planning != nil {
+		mux.HandleFunc(http.MethodGet+" "+PathRequirements+"/{id}/planning", server.handleGetPlanning)
+		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/grilling/confirm", server.handleConfirmGrilling)
+		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/specs/generate", server.handleGenerateSpec)
+		mux.HandleFunc(http.MethodPost+" "+PathRequirements+"/{id}/specs/{versionId}/confirm", server.handleConfirmSpec)
+	}
 	// TaskRuns 与 Scheduler 在渐进迁移期间允许为空，现有 Requirement HTTP 仍可独立测试。
 	if server.taskRuns != nil {
 		mux.HandleFunc(http.MethodGet+" "+PathTaskRuns+"/{id}", server.handleGetTaskRun)

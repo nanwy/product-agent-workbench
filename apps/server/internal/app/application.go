@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store"
 	"product-agent-workbench/internal/verification"
@@ -14,6 +15,12 @@ import (
 //
 // 这是启动期配置错误，不应该映射成面向浏览器的 4xx 响应。main 遇到它时应停止启动。
 var ErrInvalidDependencies = errors.New("应用依赖无效")
+
+// ErrSpecGeneratorUnavailable 表示进程没有装配只读 Spec 生成器。
+var ErrSpecGeneratorUnavailable = errors.New("Spec 生成器不可用")
+
+// ErrInvalidSpecOutput 表示生成器成功返回文本，但没有形成完整结构化 Spec。
+var ErrInvalidSpecOutput = errors.New("Spec 生成结果无效")
 
 // IDGenerator 生成新的领域实体 ID。
 //
@@ -33,11 +40,12 @@ type Clock func() time.Time
 // 的构造细节。这里只放当前用例真实使用的依赖；Runner 要等到执行用例出现后再加入，
 // 不要把未来可能使用的模块预先塞进依赖工具箱。
 type Dependencies struct {
-	Store        store.Store
-	Tickets      VerificationTicketReader
-	Verification DeliveryVerifier
-	NewID        IDGenerator
-	Now          Clock
+	Store         store.Store
+	Tickets       VerificationTicketReader
+	Verification  DeliveryVerifier
+	SpecGenerator SpecGenerator
+	NewID         IDGenerator
+	Now           Clock
 }
 
 // Application 是 HTTP 层调用的用例入口。
@@ -45,11 +53,12 @@ type Dependencies struct {
 // HTTP handler 以后只调用这里公开的用例，不直接操作 Store 或领域状态机。这样 HTTP、CLI
 // 或测试都能复用相同规则，也避免把业务判断散落到不同入口。
 type Application struct {
-	store        store.Store
-	tickets      VerificationTicketReader
-	verification DeliveryVerifier
-	newID        IDGenerator
-	now          Clock
+	store         store.Store
+	tickets       VerificationTicketReader
+	verification  DeliveryVerifier
+	specGenerator SpecGenerator
+	newID         IDGenerator
+	now           Clock
 }
 
 // New 创建应用用例模块。
@@ -65,12 +74,27 @@ func New(dependencies Dependencies) (*Application, error) {
 		return nil, ErrInvalidDependencies
 	}
 	return &Application{
-		store:        dependencies.Store,
-		tickets:      dependencies.Tickets,
-		verification: dependencies.Verification,
-		newID:        dependencies.NewID,
-		now:          dependencies.Now,
+		store:         dependencies.Store,
+		tickets:       dependencies.Tickets,
+		verification:  dependencies.Verification,
+		specGenerator: dependencies.SpecGenerator,
+		newID:         dependencies.NewID,
+		now:           dependencies.Now,
 	}, nil
+}
+
+// SpecGenerationInput 只包含生成 Spec 必需的可信事实。
+// RepositoryRoot、Codex 命令和 sandbox 权限由 Adapter 的启动配置固定，不接受浏览器输入。
+type SpecGenerationInput struct {
+	Requirement   domain.Requirement
+	Understanding domain.GrillingUnderstanding
+	PreviousSpec  *domain.SpecDocument
+	Instruction   string
+}
+
+// SpecGenerator 隔离“业务用例”和“怎样调用 Codex”。测试可以注入 fake，生产使用只读 Turn。
+type SpecGenerator interface {
+	Generate(ctx context.Context, input SpecGenerationInput) (domain.SpecDocument, error)
 }
 
 // VerificationTicketReader 提供“这个版本到底有几张票”的可信事实。

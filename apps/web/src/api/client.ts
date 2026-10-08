@@ -1,7 +1,11 @@
 import type {
+  ConfirmGrillingRequest,
+  ConfirmSpecRequest,
   CreateRequirementRequest,
   ErrorResponse,
   HealthResponse,
+  GenerateSpecRequest,
+  PlanningResponse,
   ReconcileTaskRunsRequest,
   ReconcileTaskRunsResponse,
   RequirementResponse,
@@ -88,6 +92,48 @@ export function createWorkbenchApiClient(options: WorkbenchApiClientOptions = {}
         `/requirements/${encodePathSegment(requirementId)}`,
         { signal: requestOptions?.signal },
       ),
+
+    getPlanning: (requirementId: string, requestOptions?: RequestOptions) =>
+      requestJSON<PlanningResponse>(
+        fetchRequest,
+        baseUrl,
+        `/requirements/${encodePathSegment(requirementId)}/planning`,
+        { signal: requestOptions?.signal },
+      ),
+
+    confirmGrilling: (
+      requirementId: string,
+      input: ConfirmGrillingRequest,
+      requestOptions?: RequestOptions,
+    ) => requestJSON<PlanningResponse>(
+      fetchRequest,
+      baseUrl,
+      `/requirements/${encodePathSegment(requirementId)}/grilling/confirm`,
+      { method: 'POST', body: input, signal: requestOptions?.signal },
+    ),
+
+    generateSpec: (
+      requirementId: string,
+      input: GenerateSpecRequest,
+      requestOptions?: RequestOptions,
+    ) => requestJSON<PlanningResponse>(
+      fetchRequest,
+      baseUrl,
+      `/requirements/${encodePathSegment(requirementId)}/specs/generate`,
+      { method: 'POST', body: input, signal: requestOptions?.signal },
+    ),
+
+    confirmSpec: (
+      requirementId: string,
+      versionId: string,
+      input: ConfirmSpecRequest,
+      requestOptions?: RequestOptions,
+    ) => requestJSON<PlanningResponse>(
+      fetchRequest,
+      baseUrl,
+      `/requirements/${encodePathSegment(requirementId)}/specs/${encodePathSegment(versionId)}/confirm`,
+      { method: 'POST', body: input, signal: requestOptions?.signal },
+    ),
 
     reconcileTaskRuns: (input: ReconcileTaskRunsRequest, requestOptions?: RequestOptions) =>
       requestJSON<ReconcileTaskRunsResponse>(fetchRequest, baseUrl, '/task-runs', {
@@ -213,4 +259,3 @@ function encodePathSegment(value: string) {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
-

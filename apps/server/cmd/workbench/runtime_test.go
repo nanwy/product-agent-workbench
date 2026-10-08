@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/httpapi"
 	"product-agent-workbench/internal/runner"
@@ -61,6 +62,7 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 		{name: "缺少 Workspace Manager", mutate: func(dependencies *runtimeDependencies) { dependencies.Workspaces = nil }},
 		{name: "缺少 Executor", mutate: func(dependencies *runtimeDependencies) { dependencies.Executor = nil }},
 		{name: "缺少 Verifier", mutate: func(dependencies *runtimeDependencies) { dependencies.Verifier = nil }},
+		{name: "缺少 Spec Generator", mutate: func(dependencies *runtimeDependencies) { dependencies.SpecGenerator = nil }},
 		{name: "缺少 ID 生成器", mutate: func(dependencies *runtimeDependencies) { dependencies.NewID = nil }},
 		{name: "缺少时钟", mutate: func(dependencies *runtimeDependencies) { dependencies.Now = nil }},
 		{name: "并发数为零", mutate: func(dependencies *runtimeDependencies) { dependencies.Concurrency = 0 }},
@@ -90,6 +92,7 @@ func validRuntimeDependencies() runtimeDependencies {
 		Workspaces:     runtimeWorkspaceManager{},
 		Executor:       runtimeExecutor{},
 		Verifier:       runtimeVerifier{},
+		SpecGenerator:  runtimeSpecGenerator{},
 		NewID:          func() string { return "run-1" },
 		Now:            func() time.Time { return time.Unix(1, 0).UTC() },
 		Concurrency:    2,
@@ -156,6 +159,15 @@ func (runtimeExecutor) Run(
 }
 
 type runtimeVerifier struct{}
+
+type runtimeSpecGenerator struct{}
+
+func (runtimeSpecGenerator) Generate(
+	context.Context,
+	app.SpecGenerationInput,
+) (domain.SpecDocument, error) {
+	return domain.SpecDocument{}, nil
+}
 
 func (runtimeVerifier) Verify(
 	context.Context,

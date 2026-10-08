@@ -28,6 +28,7 @@ type runtimeDependencies struct {
 	Workspaces     workspace.Manager
 	Executor       runner.Runner
 	Verifier       app.DeliveryVerifier
+	SpecGenerator  app.SpecGenerator
 	NewID          func() string
 	Now            func() time.Time
 	Concurrency    int
@@ -95,11 +96,12 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	// 前端类比：先创建共享的 queryClient。后面的 HTTP Server 和每个 Worker 都引用同一个
 	// Application，因此状态变更会经过同一套用例规则和同一个 Store。
 	application, err := app.New(app.Dependencies{
-		Store:        dependencies.Store,
-		Tickets:      dependencies.Artifacts,
-		Verification: dependencies.Verifier,
-		NewID:        dependencies.NewID,
-		Now:          dependencies.Now,
+		Store:         dependencies.Store,
+		Tickets:       dependencies.Artifacts,
+		Verification:  dependencies.Verifier,
+		SpecGenerator: dependencies.SpecGenerator,
+		NewID:         dependencies.NewID,
+		Now:           dependencies.Now,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 Application: %w", err)
@@ -165,6 +167,7 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 
 	server, err := httpapi.NewServer(httpapi.Dependencies{
 		Application:  application,
+		Planning:     application,
 		TaskRuns:     application,
 		Scheduler:    reconciler,
 		Events:       application,
@@ -198,6 +201,7 @@ func validateRuntimeDependencies(dependencies runtimeDependencies) error {
 		dependencies.Workspaces == nil ||
 		dependencies.Executor == nil ||
 		dependencies.Verifier == nil ||
+		dependencies.SpecGenerator == nil ||
 		dependencies.NewID == nil ||
 		dependencies.Now == nil
 	if missingDependency || dependencies.Concurrency < 1 {

@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～20 已完成，下一步是 21 交付强化
+## 当前进度：练习 1～20、21A 和 21B 已完成，下一步是 21C Tickets
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -594,3 +594,27 @@ internal/httpapi/
 TaskRun HTTP、SQLite、真实 Worker/Codex/Worktree、SSE replay 与 Verification 门禁均已完成。
 步骤 19 已将 Go 控制面浏览器入口切到这些 HTTP/SSE 接口，并保留 React Query 作为服务端
 状态投影；步骤 20 已把该 SPA 与 Go 服务编译为同一份交付物。
+
+### 步骤 21A：Grilling 与阶段推进（已完成）
+
+- 浏览器提交四个稳定字段：摘要、期望结果、修改边界和验收信号；
+- Application 校验 `expectedRevision` 和当前 `grilling` 阶段；
+- SQLite 在同一事务中保存共同理解，并推进为 `spec`；
+- 页面刷新通过 Planning Snapshot 恢复，不依赖组件内存。
+
+### 步骤 21B：Spec 生成、保存与确认（已完成）
+
+- Codex 使用目标仓库和 `read-only` sandbox 生成结构化 Spec，不创建 Worktree；
+- 生成协议缺字段时拒绝保存；完整结果保存为不可覆盖的版本；
+- 新草稿只把旧草稿标记为 `superseded`，不会删除历史；
+- 确认当前草稿后，Requirement 使用 revision 乐观锁推进到 `tickets`；
+- 前端类比：Spec 版本是服务端实体，React Query 只是它的缓存投影。
+
+新增接口：
+
+```text
+GET  /api/v1/requirements/{id}/planning
+POST /api/v1/requirements/{id}/grilling/confirm
+POST /api/v1/requirements/{id}/specs/generate
+POST /api/v1/requirements/{id}/specs/{versionId}/confirm
+```
