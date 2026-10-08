@@ -162,6 +162,10 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
                 required
               />
             </label>
+            <p className="form-note">
+              这里必须填写已经确认并写入服务端 artifact 的版本 ID，不能临时自定义。
+              当前 Spec/Ticket 确认流程尚未迁入 Go。
+            </p>
             <button
               className="primary-button"
               disabled={!requirementId.trim() || reconcileTaskRuns.isPending}

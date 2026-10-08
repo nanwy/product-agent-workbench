@@ -1,6 +1,15 @@
 package scheduler
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrTicketVersionNotFound 表示请求引用的确认版执行票不存在。
+//
+// 它属于 Scheduler 的业务边界，而不是文件系统错误。这样 HTTP 层可以稳定返回 404，
+// 不需要知道生产环境的 artifact 究竟来自 JSON 文件、数据库还是其它存储。
+var ErrTicketVersionNotFound = errors.New("确认版执行票不存在")
 
 // ArtifactReader 是 Scheduler 读取“已确认执行票版本”的 seam。
 //

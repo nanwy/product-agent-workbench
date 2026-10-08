@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,6 +81,30 @@ func TestServer_ReconcileTaskRunsRejectsInvalidJSON(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("非法 JSON 调用了 Application %d 次，want 0", calls)
 	}
+}
+
+func TestServer_ReconcileTaskRunsMapsMissingTicketVersionToNotFound(t *testing.T) {
+	server := newTaskRunSchedulerHTTPServer(t, fakeTaskScheduler{
+		reconcile: func(context.Context, string, string) (scheduler.ReconcileResult, error) {
+			return scheduler.ReconcileResult{}, fmt.Errorf(
+				"读取已确认 TicketVersion: %w",
+				scheduler.ErrTicketVersionNotFound,
+			)
+		},
+	})
+	request := httptest.NewRequest(
+		http.MethodPost,
+		httpapi.PathTaskRuns,
+		strings.NewReader(`{"requirementId":"req-1","ticketVersionId":"missing"}`),
+	)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%q", response.Code, response.Body.String())
+	}
+	assertErrorResponse(t, response, "not_found")
 }
 
 func TestServer_GetAndCancelTaskRun(t *testing.T) {

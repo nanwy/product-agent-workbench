@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store"
 	"product-agent-workbench/internal/verification"
 )
@@ -82,7 +83,7 @@ func writeError(w http.ResponseWriter, err error) {
 // 实现要点：使用 errors.Is，而不是字符串比较。
 //
 //   - ErrInvalidRequest、domain.ErrInvalidInput → 400 / invalid_request
-//   - store.ErrNotFound → 404 / not_found
+//   - store.ErrNotFound、scheduler.ErrTicketVersionNotFound → 404 / not_found
 //   - store.ErrAlreadyExists、store.ErrRevisionConflict、domain.ErrInvalidTransition
 //     → 409 / conflict
 //   - 其它错误 → 500 / internal_error
@@ -95,7 +96,9 @@ func mapError(err error) (int, ErrorResponse) {
 			Message: "请求无效",
 		}
 	}
-	if errors.Is(err, store.ErrNotFound) || errors.Is(err, verification.ErrReportNotFound) {
+	if errors.Is(err, store.ErrNotFound) ||
+		errors.Is(err, scheduler.ErrTicketVersionNotFound) ||
+		errors.Is(err, verification.ErrReportNotFound) {
 		return http.StatusNotFound, ErrorResponse{
 			Code:    "not_found",
 			Message: "资源不存在",

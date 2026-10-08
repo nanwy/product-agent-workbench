@@ -155,6 +155,16 @@ func (s *Store) readDocument(
 	path := filepath.Join(s.root, requirementID, ticketVersionID+".json")
 	file, err := os.Open(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// 前端类比：这是按 ID 查询资源得到空结果，应当一路保留“404”语义；不能把
+			// 底层 ENOENT 直接冒泡，否则 HTTP 层只能把它当作未知故障返回 500。
+			return TicketVersionDocument{}, fmt.Errorf(
+				"%w: requirement=%q ticketVersion=%q",
+				scheduler.ErrTicketVersionNotFound,
+				requirementID,
+				ticketVersionID,
+			)
+		}
 		return TicketVersionDocument{}, fmt.Errorf("打开 TicketVersion artifact: %w", err)
 	}
 	defer file.Close()

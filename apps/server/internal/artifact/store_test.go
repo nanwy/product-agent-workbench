@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/scheduler"
 )
 
 func TestStoreReadsSchedulerAndRunnerProjections(t *testing.T) {
@@ -65,6 +66,18 @@ func TestStoreReadsSchedulerAndRunnerProjections(t *testing.T) {
 		facts.Workspace.TicketBranch != "workbench/req-1/ticket-b/attempt-2" ||
 		facts.Workspace.ModificationScopes[0] != "apps/server" {
 		t.Fatalf("ExecutionFacts = %#v", facts)
+	}
+}
+
+func TestStoreReportsMissingTicketVersion(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+
+	_, err = store.ReadConfirmedTicketVersion(context.Background(), "req-1", "tickets-v1")
+	if !errors.Is(err, scheduler.ErrTicketVersionNotFound) {
+		t.Fatalf("missing TicketVersion error = %v, want ErrTicketVersionNotFound", err)
 	}
 }
 
