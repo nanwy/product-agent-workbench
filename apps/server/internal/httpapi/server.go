@@ -11,6 +11,7 @@ import (
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
 	"product-agent-workbench/internal/scheduler"
+	"product-agent-workbench/internal/targetruntime"
 	"product-agent-workbench/internal/verification"
 )
 
@@ -84,6 +85,19 @@ type VerificationApplication interface {
 	) (verification.Report, error)
 }
 
+// TargetRuntime 是 21D 的进程生命周期 seam。HTTP 层只表达动作，不接收命令参数。
+type TargetRuntime interface {
+	Target() targetruntime.Target
+	Snapshot() targetruntime.Snapshot
+	Start(ctx context.Context, workspacePath string) (targetruntime.Snapshot, error)
+	Stop(ctx context.Context) (targetruntime.Snapshot, error)
+}
+
+// PreviewApplication 把浏览器提交的领域 ID 解析成服务端可信的候选 Worktree。
+type PreviewApplication interface {
+	ResolvePreviewWorkspace(ctx context.Context, requirementID string, ticketVersionID string) (string, error)
+}
+
 const (
 	defaultEventPollInterval      = 250 * time.Millisecond
 	defaultEventHeartbeatInterval = 15 * time.Second
@@ -92,12 +106,14 @@ const (
 
 // Dependencies 是 HTTP Server 启动时必须具备的依赖。
 type Dependencies struct {
-	Application  RequirementApplication
-	Planning     PlanningApplication
-	TaskRuns     TaskRunApplication
-	Scheduler    TaskScheduler
-	Events       TaskEventApplication
-	Verification VerificationApplication
+	Application   RequirementApplication
+	Planning      PlanningApplication
+	TaskRuns      TaskRunApplication
+	Scheduler     TaskScheduler
+	Events        TaskEventApplication
+	Verification  VerificationApplication
+	TargetRuntime TargetRuntime
+	Preview       PreviewApplication
 
 	// 下面三个值主要用于测试注入短周期；生产装配传零值即可使用安全默认值。
 	EventPollInterval      time.Duration
@@ -110,13 +126,15 @@ type Dependencies struct {
 // Server 只负责路由、JSON、状态码和 header；输入规则、状态迁移与持久化都不属于这里。
 // mux 和 application 在构造后只读，因此 Server 可以被 net/http 并发调用。
 type Server struct {
-	mux          *http.ServeMux
-	application  RequirementApplication
-	planning     PlanningApplication
-	taskRuns     TaskRunApplication
-	scheduler    TaskScheduler
-	events       TaskEventApplication
-	verification VerificationApplication
+	mux           *http.ServeMux
+	application   RequirementApplication
+	planning      PlanningApplication
+	taskRuns      TaskRunApplication
+	scheduler     TaskScheduler
+	events        TaskEventApplication
+	verification  VerificationApplication
+	targetRuntime TargetRuntime
+	preview       PreviewApplication
 
 	eventPollInterval      time.Duration
 	eventHeartbeatInterval time.Duration
@@ -154,13 +172,15 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 
 	mux := http.NewServeMux()
 	server := &Server{
-		mux:          mux,
-		application:  dependencies.Application,
-		planning:     dependencies.Planning,
-		taskRuns:     dependencies.TaskRuns,
-		scheduler:    dependencies.Scheduler,
-		events:       dependencies.Events,
-		verification: dependencies.Verification,
+		mux:           mux,
+		application:   dependencies.Application,
+		planning:      dependencies.Planning,
+		taskRuns:      dependencies.TaskRuns,
+		scheduler:     dependencies.Scheduler,
+		events:        dependencies.Events,
+		verification:  dependencies.Verification,
+		targetRuntime: dependencies.TargetRuntime,
+		preview:       dependencies.Preview,
 
 		eventPollInterval:      pollInterval,
 		eventHeartbeatInterval: heartbeatInterval,
@@ -198,6 +218,11 @@ func NewServer(dependencies Dependencies) (*Server, error) {
 			http.MethodGet+" "+PathRequirements+"/{id}/verification",
 			server.handleGetLatestVerification,
 		)
+	}
+	if server.targetRuntime != nil {
+		mux.HandleFunc(http.MethodGet+" "+PathTargetRuntime, server.handleGetTargetRuntime)
+		mux.HandleFunc(http.MethodPost+" "+PathTargetRuntime+"/start", server.handleStartTargetRuntime)
+		mux.HandleFunc(http.MethodPost+" "+PathTargetRuntime+"/stop", server.handleStopTargetRuntime)
 	}
 
 	return server, nil

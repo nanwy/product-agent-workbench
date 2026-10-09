@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest'
 import type {
   RequirementResponse,
   TaskRunResponse,
+  TargetRuntimeResponse,
   VerificationReportResponse,
 } from '../src/api/contracts'
 import {
   goQueryKeys,
   writeRequirementCache,
   writeTaskRunCache,
+  writeTargetRuntimeCache,
   writeVerificationCache,
 } from '../src/api/queries'
 
@@ -27,14 +29,24 @@ describe('Go React Query cache projection', () => {
       id: 'report-1', requirementId: 'req-1', ticketVersionId: 'tickets-v1', status: 'passed',
       records: [], startedAt: '2026-10-08T00:00:00Z', completedAt: '2026-10-08T00:00:01Z',
     }
+    const runtime: TargetRuntimeResponse = {
+      target: { name: 'fixture', modificationScope: 'apps/front' },
+      process: {
+        status: 'stopped', ownership: 'none', pid: null, command: 'pnpm dev',
+        healthUrl: 'http://127.0.0.1:3003', previewUrl: 'http://127.0.0.1:3003',
+        gatewayUrl: 'http://127.0.0.1:3100', startedAt: null, recentOutput: [],
+      },
+    }
 
     writeRequirementCache(queryClient, requirement)
     writeTaskRunCache(queryClient, run)
     writeVerificationCache(queryClient, report)
+    writeTargetRuntimeCache(queryClient, runtime)
 
     expect(queryClient.getQueryData(goQueryKeys.requirement('req-1'))).toBe(requirement)
     expect(queryClient.getQueryData(goQueryKeys.taskRun('run-1'))).toBe(run)
     expect(queryClient.getQueryData(goQueryKeys.verification('req-1', 'tickets-v1'))).toBe(report)
+    expect(queryClient.getQueryData(goQueryKeys.targetRuntime())).toBe(runtime)
   })
 
   it('keeps resources from different requirements in different cache slots', () => {
@@ -44,4 +56,3 @@ describe('Go React Query cache projection', () => {
     )
   })
 })
-

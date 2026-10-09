@@ -62,6 +62,9 @@
 | `task_runs` | `enqueue_seq`, `id`, `requirement_id`, `ticket_version_id`, `ticket_id`, `attempt`, `status`, 四个时间、四个 result 字段、`failure_reason` | `id` 唯一；attempt 正数；状态只能取领域枚举 |
 | `task_events` | `id`, `task_run_id`, `sequence`, `type`, `payload`, `created_at` | `id` 是全局 SSE 游标；sequence 正数 |
 | `verification_reports` | 报告身份、Requirement/TicketVersion、候选 revision、状态、Matrix JSON、时间 | 每次验证只追加；保留失败/not-run 历史，支持读取最新报告 |
+| `conversations` | Requirement、阶段、等待状态、Thread ID、revision、时间 | 一个 Requirement 一条逻辑对话；revision 防止旧页面快照覆盖新状态 |
+| `conversation_turns` | 对话、sequence、阶段、状态、Codex Thread、起止时间 | 重试追加新 Turn；同一对话最多一个 running Turn |
+| `conversation_messages` | 对话、可选 Turn、sequence、角色、状态、Segments JSON、时间 | 页面时间线连续追加；流式消息通过状态 CAS 收口 |
 
 额外业务约束：
 
@@ -112,6 +115,10 @@ SQLite 没有 `SELECT FOR UPDATE`。claim 使用一个 immediate 写事务：
 | Ticket 活动态部分唯一约束 | 防止同一 Ticket 重复执行，同时允许同一 Requirement 多票并行 |
 | `task_events(task_run_id, sequence)` 唯一 | 连续追加、游标读取与稳定排序 |
 | `task_events.id` 全局单调 | 后续 SSE `Last-Event-ID` replay |
+| `conversations.requirement_id` 唯一 | `GetConversationByRequirement` 与 Requirement 1:1 不变量 |
+| `conversation_turns(conversation_id, sequence)` 唯一 | 按稳定业务顺序恢复 Turn 历史 |
+| running Turn 部分唯一索引 | 防止一次对话并发启动两个 Agent Turn |
+| `conversation_messages(conversation_id, sequence)` 唯一 | 按游标恢复统一消息时间线 |
 
 不要添加无法指向具体查询的索引。
 

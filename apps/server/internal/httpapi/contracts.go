@@ -5,15 +5,17 @@ import (
 
 	"product-agent-workbench/internal/app"
 	"product-agent-workbench/internal/domain"
+	"product-agent-workbench/internal/targetruntime"
 	"product-agent-workbench/internal/verification"
 )
 
 // 路径常量先固定浏览器与 Go 之间的语言，具体 handler 等领域用例稳定后再实现。
 const (
-	PathHealth       = "/api/v1/health"
-	PathRequirements = "/api/v1/requirements"
-	PathTaskRuns     = "/api/v1/task-runs"
-	PathEvents       = "/api/v1/events"
+	PathHealth        = "/api/v1/health"
+	PathRequirements  = "/api/v1/requirements"
+	PathTaskRuns      = "/api/v1/task-runs"
+	PathEvents        = "/api/v1/events"
+	PathTargetRuntime = "/api/v1/target-runtime"
 )
 
 // HealthResponse 是健康检查成功时返回的稳定 JSON 结构。
@@ -22,6 +24,19 @@ const (
 // 或环境预检，不要把昂贵检查塞进每一次轻量健康探测。
 type HealthResponse struct {
 	Status string `json:"status"`
+}
+
+// TargetRuntimeResponse 把稳定目标配置与易失进程状态一起返回。
+// 浏览器能展示项目名称，但看不到仓库绝对路径和外部服务复用标记。
+type TargetRuntimeResponse struct {
+	Target  targetruntime.Target   `json:"target"`
+	Process targetruntime.Snapshot `json:"process"`
+}
+
+// StartTargetRuntimeRequest 只允许浏览器提交领域身份，不能提交工作目录或启动命令。
+type StartTargetRuntimeRequest struct {
+	RequirementID   string `json:"requirementId"`
+	TicketVersionID string `json:"ticketVersionId"`
 }
 
 // CreateRequirementRequest 是 POST /requirements 接受的 JSON。

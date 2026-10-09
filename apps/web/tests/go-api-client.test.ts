@@ -49,6 +49,23 @@ describe('Go API client', () => {
     expect(error).toMatchObject({ status: 409, code: 'conflict', requestId: 'request-1' })
   })
 
+  it('starts preview with domain IDs instead of a browser supplied filesystem path', async () => {
+    const fetchRequest = vi.fn(async () => jsonResponse({
+      target: { name: 'fixture', modificationScope: 'apps/front' },
+      process: { status: 'ready', ownership: 'workbench', pid: 42, command: 'pnpm dev',
+        healthUrl: 'http://127.0.0.1:3003', previewUrl: 'http://127.0.0.1:3003',
+        gatewayUrl: 'http://127.0.0.1:3100', startedAt: '2026-10-09T00:00:00Z', recentOutput: [] },
+    }))
+    const client = createWorkbenchApiClient({ fetch: fetchRequest })
+
+    await client.startTargetRuntime({ requirementId: 'req-1', ticketVersionId: 'tickets-v1' })
+
+    expect(fetchRequest).toHaveBeenCalledWith('/api/v1/target-runtime/start', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ requirementId: 'req-1', ticketVersionId: 'tickets-v1' }),
+    }))
+  })
+
   it('reports malformed successful JSON as a protocol error', async () => {
     const client = createWorkbenchApiClient({ fetch: async () => new Response('not-json') })
 

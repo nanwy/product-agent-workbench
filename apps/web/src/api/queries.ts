@@ -10,6 +10,8 @@ import type {
   ReconcileTaskRunsRequest,
   RequirementResponse,
   TaskRunResponse,
+  TargetRuntimeResponse,
+  StartTargetRuntimeRequest,
   VerificationReportResponse,
   VerifyRequirementRequest,
 } from './contracts'
@@ -34,6 +36,7 @@ export const goQueryKeys = {
   taskRun: (taskRunId: string) => [...goQueryKeys.all, 'task-run', taskRunId] as const,
   verification: (requirementId: string, ticketVersionId: string) =>
     [...goQueryKeys.all, 'verification', requirementId, ticketVersionId] as const,
+  targetRuntime: () => [...goQueryKeys.all, 'target-runtime'] as const,
 }
 
 /** 第二步：query hook 只读取服务端事实；enabled 防止拿空 ID 拼出无意义请求。 */
@@ -42,6 +45,17 @@ export function useGoHealthQuery() {
     queryKey: goQueryKeys.health(),
     queryFn: ({ signal }) => api.getHealth({ signal }),
     staleTime: 10_000,
+    retry: false,
+  })
+}
+
+export function useGoTargetRuntimeQuery() {
+  return useQuery({
+    queryKey: goQueryKeys.targetRuntime(),
+    queryFn: ({ signal }) => api.getTargetRuntime({ signal }),
+    // starting/ready 时低频校准，确保子进程自行退出后页面能看到 failed。
+    refetchInterval: (query) =>
+      ['starting', 'ready'].includes(query.state.data?.process.status ?? '') ? 3_000 : false,
     retry: false,
   })
 }
@@ -185,6 +199,22 @@ export function useVerifyRequirementMutation() {
   })
 }
 
+export function useStartTargetRuntimeMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: StartTargetRuntimeRequest) => api.startTargetRuntime(input),
+    onSuccess: (runtime) => writeTargetRuntimeCache(queryClient, runtime),
+  })
+}
+
+export function useStopTargetRuntimeMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.stopTargetRuntime(),
+    onSuccess: (runtime) => writeTargetRuntimeCache(queryClient, runtime),
+  })
+}
+
 // 缓存写入函数保持为小而纯的 adapter，测试无需渲染 React 组件。
 type QueryCacheWriter = {
   setQueryData: (queryKey: readonly unknown[], value: unknown) => unknown
@@ -211,4 +241,8 @@ export function writeVerificationCache(
     goQueryKeys.verification(report.requirementId, report.ticketVersionId),
     report,
   )
+}
+
+export function writeTargetRuntimeCache(cache: QueryCacheWriter, runtime: TargetRuntimeResponse) {
+  cache.setQueryData(goQueryKeys.targetRuntime(), runtime)
 }

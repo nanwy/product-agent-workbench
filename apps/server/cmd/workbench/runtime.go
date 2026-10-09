@@ -31,6 +31,7 @@ type runtimeDependencies struct {
 	SpecGenerator   app.SpecGenerator
 	TicketGenerator app.TicketGenerator
 	TicketPublisher app.TicketPublisher
+	TargetRuntime   httpapi.TargetRuntime
 	NewID           func() string
 	Now             func() time.Time
 	Concurrency     int
@@ -170,12 +171,14 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	}
 
 	server, err := httpapi.NewServer(httpapi.Dependencies{
-		Application:  application,
-		Planning:     application,
-		TaskRuns:     application,
-		Scheduler:    reconciler,
-		Events:       application,
-		Verification: application,
+		Application:   application,
+		Planning:      application,
+		TaskRuns:      application,
+		Scheduler:     reconciler,
+		Events:        application,
+		Verification:  application,
+		TargetRuntime: dependencies.TargetRuntime,
+		Preview:       application,
 	})
 	if err != nil {
 		return runtimeComponents{}, fmt.Errorf("创建 HTTP Server: %w", err)
@@ -208,6 +211,7 @@ func validateRuntimeDependencies(dependencies runtimeDependencies) error {
 		dependencies.SpecGenerator == nil ||
 		dependencies.TicketGenerator == nil ||
 		dependencies.TicketPublisher == nil ||
+		dependencies.TargetRuntime == nil ||
 		dependencies.NewID == nil ||
 		dependencies.Now == nil
 	if missingDependency || dependencies.Concurrency < 1 {

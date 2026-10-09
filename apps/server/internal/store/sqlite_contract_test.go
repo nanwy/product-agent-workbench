@@ -50,6 +50,10 @@ func TestSQLitePlanningStoreContract(t *testing.T) {
 	runPlanningStoreContract(t, newSQLiteStore)
 }
 
+func TestSQLiteConversationStoreContract(t *testing.T) {
+	runConversationStoreContract(t, newSQLiteStore)
+}
+
 // newSQLiteStore 为每个子测试创建独立的磁盘数据库。
 //
 // 不使用 :memory:：database/sql 可能打开多个物理连接，而普通内存库在连接之间不共享。

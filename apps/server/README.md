@@ -16,7 +16,7 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～20、21A～21C 已完成，下一步是 21D 目标预览
+## 当前进度：练习 1～20、21A～21D 已完成，下一步是步骤 21E 接口切流
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -629,3 +629,59 @@ POST /api/v1/requirements/{id}/specs/{versionId}/confirm
 POST /api/v1/requirements/{id}/tickets/generate
 POST /api/v1/requirements/{id}/tickets/{versionId}/confirm
 ```
+
+### 步骤 21D：目标开发服务与真实预览（已完成）
+
+这一阶段把旧 Node 的 `target-runtime.ts` 与 `preview-gateway.ts` 迁入
+`internal/targetruntime`。前端视角可以把它理解成：React 只触发 mutation，Go 保存真正的
+“播放器句柄”；组件卸载或浏览器刷新不会丢失子进程所有权。
+
+关键步骤：
+
+1. `LoadConfig` 只读取仓库内受信任配置，并校验仓库目录、loopback URL、端口和超时；
+2. 浏览器只提交 Requirement/TicketVersion ID，Application 从 completed TaskRun 解析整合
+   Worktree；`Manager.Start` 使用 `exec.Command(command, args...)` 在该候选目录启动，不经过 Shell；
+3. 启动前探测健康地址。只有正文匹配 `runtimeReuse.healthBodyIncludes` 才复用外部服务；
+4. 自有进程在独立进程组运行，stdout/stderr 只保留脱敏后的最近 30 行；
+5. 健康检查成功后启动 localhost 反向代理，转发 HTTP/HMR WebSocket，并移除 iframe 限制；
+6. `Stop` 只终止 Manager 持有的进程组；外部复用服务只断开网关，不按端口误杀；
+7. Workbench 退出时 composition root 调用 `Close`，保证子进程和预览网关一起回收。
+8. Verification 的 `requiresRuntime` 命令调用同一个 Manager，确保检查的是候选 Worktree，
+   而不是端口相同但代码仍停留在原始 checkout 的服务。
+
+新增接口：
+
+```text
+GET  /api/v1/target-runtime
+POST /api/v1/target-runtime/start
+POST /api/v1/target-runtime/stop
+```
+
+对应前端链路：`api/client.ts → api/queries.ts → GoControlPage`。React Query 保存服务端快照，
+`previewPath` 和 iframe 刷新次数仍是纯 UI 状态，所以继续放在组件 `useState`。
+
+### 步骤 21E：默认入口切换（待完成，保留旧 Node 服务）
+
+- `/` 必须保留现有三栏工作台、组件组合和交互逻辑；
+- 只替换 `getWorkbench`、动作函数和事件订阅等接口边界，不新增替代产品页面；
+- Target Runtime 的 GET/start/stop 已接入原页面，adapter 只覆盖 Snapshot 的 target/process；
+- Go 当前资源 DTO 与旧 `WorkbenchSnapshot` 不同，下一步先补兼容读取模型；
+- `src/server/**` 与测试全部保留，方便对照迁移前后设计。
+
+### 步骤 22：对话持久化基础（已完成）
+
+本步只建立后续 Agent Turn 运行时依赖的持久化边界，不启动 Codex、不增加 HTTP，也不改页面。
+
+- `domain.Conversation` 保存 Requirement 级阶段、等待状态、两个 Codex Thread ID 和 revision；
+- `ConversationTurn` 保存一次“用户输入 → Agent 终态”，重试创建新 sequence，不覆盖失败历史；
+- `ConversationMessage` 保存页面统一时间线，`Segments` 与旧页面的 text/activity/gate/spec/tickets 对齐；
+- `000005_conversations.up.sql` 新建三张表，不修改旧 migration，也不导入旧 Node JSON；
+- Memory 与 SQLite 共用同一组契约测试，覆盖 revision CAS、状态 CAS、连续 sequence、活动 Turn
+  唯一约束、消息批次原子性和深拷贝。
+
+前端视角：`Conversation` 类似页面级 server state，`Turn` 类似一次 mutation 的异步任务，
+`Message` 类似按 sequence 排序的 normalized entities。它们分表后，流式更新一条 assistant
+消息不需要重写整个 Requirement JSON。
+
+阶段 23 将在此基础上实现 Turn 的启动、重试、取消、失败恢复与 Codex 事件归一化；跨表的
+业务事务会跟随具体用例加入，阶段 22 不提前猜测 HTTP 请求形状。

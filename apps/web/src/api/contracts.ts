@@ -193,6 +193,32 @@ export type HealthResponse = {
   status: string
 }
 
+export type TargetRuntimeStatus = 'stopped' | 'starting' | 'ready' | 'failed'
+
+export type TargetRuntimeResponse = {
+  target: {
+    name: string
+    modificationScope: string
+  }
+  process: {
+    status: TargetRuntimeStatus
+    ownership: 'none' | 'workbench' | 'external'
+    pid: number | null
+    command: string
+    healthUrl: string
+    previewUrl: string
+    gatewayUrl: string
+    startedAt: string | null
+    error?: string
+    recentOutput: string[]
+  }
+}
+
+export type StartTargetRuntimeRequest = {
+  requirementId: string
+  ticketVersionId: string
+}
+
 // 练习 19C：SSE 外层事件固定叫 task-event，真正的 Codex 业务类型放在 type 字段。
 export type TaskEventResponse = {
   taskRunId: string

@@ -26,14 +26,13 @@ config/       仓库级目标项目配置
 docs/         架构、面试与学习文档
 ```
 
-根目录使用 pnpm workspace 统一编排。旧 TanStack Start 产品仍用于尚未迁入 Go 的规划流程；
-已迁移的 Requirement、TaskRun、Verification 和 SSE 控制面可由 Go 单二进制独立运行。
+根目录使用 pnpm workspace 统一编排。原 TanStack Start 产品工作台仍是默认入口；已经迁入
+Go 的资源接口、SSE 和单二进制页面继续保留，等待 21E 在不改页面逻辑的前提下完成切流。
 
 ## Go 重构学习进度
 
-截至当前，Go 全栈重构约完成 **93%**：步骤 1～20、21A Grilling、21B Spec 和 21C Tickets 已落地。
-剩余工作是 21D 目标预览、21E 删除 Node Server Functions，以及
-步骤 22 的交付强化。旧 Node 工作台仍是迁移对照，不能把当前状态称为完整替换。
+截至当前，Go 全栈重构约完成 **96%**：步骤 1～20，以及 21A～21D 已落地。
+21E 仍需在保留原页面布局和交互逻辑的前提下替换数据边界；旧 Node 服务源码不会删除。
 
 | 阶段 | 状态 | 对应旧实现 |
 | --- | --- | --- |
@@ -56,6 +55,9 @@ docs/         架构、面试与学习文档
 | Grilling 迁移 | 21A 共同理解确认、阶段 CAS、SQLite 持久化和 SPA 表单已完成 | Node Grilling 门禁与聚合内字段 |
 | Spec 迁移 | 21B 只读 Codex 生成、不可覆盖版本、确认门禁和 SPA 已完成 | `workbench-spec.ts` 与 Spec Server Functions |
 | Tickets 迁移 | 21C Ticket DAG 生成、版本持久化、manifest 发布和 SPA 已完成 | `workbench-tickets.ts` 与 Tickets Server Functions |
+| 目标预览迁移 | 21D Go 进程托管、健康检查、安全外部复用、iframe 反向代理和 SPA 控制卡已完成 | `target-runtime.ts` 与 `preview-gateway.ts` |
+| 默认入口切流 | 21E 进行中：原三栏工作台不变，Target Runtime 已切 Go，其余接口按兼容性逐项迁移 | TanStack Start Server Functions 保留为迁移参照 |
+| 对话持久化基础 | 22 已完成 Conversation、Turn、Message 领域模型、SQLite migration 和双 Store 契约 | `workbench-conversation.ts` 中嵌套在 Requirement JSON 的对话状态 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
 
@@ -70,7 +72,8 @@ pnpm workbench
 浏览器打开 `http://127.0.0.1:8080`。该命令先构建 Vite SPA，再启动同时提供页面、API、
 SSE 和 Worker 的 Go 进程。生成独立二进制使用 `pnpm build:standalone`。
 
-旧产品规划流程仍可通过 `pnpm dev` 启动；它是迁移参考，不会进入 Go 单二进制。
+原产品工作台通过 `pnpm dev` 启动并访问 `http://127.0.0.1:3000/`。Go 单二进制仍可用
+`pnpm workbench` 启动在 `127.0.0.1:8080`，用于检查已经迁移的 HTTP/SSE 能力。
 
 默认连接相邻目录中的 `Mysterious-Realm-v2/apps/front`。目标仓库、启动命令、健康地址和预览地址由 `config/target-project.json` 显式配置，产品输入不能修改命令。
 
@@ -100,7 +103,7 @@ Playwright 使用独立 fixture 目标项目，不会启动或修改真实业务
 
 - `apps/web/src/domain/`：Requirement 聚合、阶段和公共数据契约；
 - `apps/web/src/api/`：Go HTTP DTO、统一 fetch client 与错误边界；
-- `apps/web/src/routes/go-control.tsx`：直接消费 Go Requirement、TaskRun 与 Verification 的迁移页面；
+- `apps/web/src/routes/index.tsx`：原产品工作台页面与布局逻辑；
 - `apps/web/src/spa/`：不包含 Node Server Functions 的嵌入式浏览器入口；
 - `apps/server/internal/webui/`：Go embed 静态文件、API 分流和 SPA 路由 fallback；
 - `apps/web/src/server/`：迁移期间的 Node 配置、持久化、规则探索、进程和预览网关；

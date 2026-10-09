@@ -18,6 +18,9 @@ func TestOpenDatabaseAppliesMigrationsOnce(t *testing.T) {
 	assertDatabaseTable(t, db, "task_runs")
 	assertDatabaseTable(t, db, "task_events")
 	assertDatabaseTable(t, db, "verification_reports")
+	assertDatabaseTable(t, db, "conversations")
+	assertDatabaseTable(t, db, "conversation_turns")
+	assertDatabaseTable(t, db, "conversation_messages")
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close() first error = %v", err)
 	}
@@ -47,6 +50,15 @@ func TestOpenDatabaseAppliesMigrationsOnce(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("verification migration count = %d, want 1", count)
+	}
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM schema_migrations WHERE name = ?",
+		"000005_conversations.up.sql",
+	).Scan(&count); err != nil {
+		t.Fatalf("query conversation migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("conversation migration count = %d, want 1", count)
 	}
 }
 

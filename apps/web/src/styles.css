@@ -315,6 +315,12 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 .go-resource-facts dd { margin: 0; overflow-wrap: anywhere; }
 .go-result-block { display: grid; gap: 5px; margin-top: 12px; border-radius: var(--radius-sm); background: var(--surface-muted); padding: 9px; font-size: 9px; }
 .go-result-block button { width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-raised); padding: 7px; color: var(--ink); text-align: left; cursor: pointer; }
+.go-runtime-card { grid-column: 1 / -1; }
+.go-runtime-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.go-runtime-actions a { color: var(--accent-hover); font-size: 10px; }
+.go-runtime-frame { width: 100%; min-height: 520px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: white; }
+.go-runtime-error { border-radius: var(--radius-sm); background: var(--danger-soft); padding: 8px; color: var(--danger); font-size: 10px; }
+.go-runtime-output { max-height: 220px; overflow: auto; border-radius: var(--radius-sm); background: #111827; padding: 10px; color: #dbeafe; font-size: 9px; white-space: pre-wrap; }
 .go-spec-document { display: grid; gap: 10px; font-size: 11px; line-height: 1.55; }
 .go-spec-document section { display: grid; gap: 4px; }
 .go-spec-document h3 { margin: 0; color: var(--muted); font-size: 10px; }

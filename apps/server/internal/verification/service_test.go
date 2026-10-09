@@ -200,7 +200,7 @@ type candidateInspectorStub struct {
 
 type runtimeProbeStub struct{ err error }
 
-func (s runtimeProbeStub) Check(context.Context) error { return s.err }
+func (s runtimeProbeStub) Check(context.Context, string) error { return s.err }
 
 func (s candidateInspectorStub) Inspect(context.Context, string, []string) (Candidate, error) {
 	return s.candidate, s.err

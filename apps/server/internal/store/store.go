@@ -31,6 +31,48 @@ type Store interface {
 		expectedRevision int64,
 	) (int64, error)
 
+	// CreateConversation 为 Requirement 创建唯一逻辑对话。
+	CreateConversation(ctx context.Context, conversation domain.Conversation) error
+
+	// GetConversationByRequirement 读取 Requirement 对应的对话头；消息和 Turn 单独读取。
+	GetConversationByRequirement(ctx context.Context, requirementID string) (domain.Conversation, error)
+
+	// SaveConversation 使用 revision 乐观锁更新对话头。
+	SaveConversation(
+		ctx context.Context,
+		conversation domain.Conversation,
+		expectedRevision int64,
+	) (int64, error)
+
+	// CreateConversationTurn 连续追加一条 running Turn；同一对话最多只能有一条 running Turn。
+	CreateConversationTurn(ctx context.Context, turn domain.ConversationTurn) error
+
+	GetConversationTurn(ctx context.Context, id string) (domain.ConversationTurn, error)
+	ListConversationTurns(ctx context.Context, conversationID string) ([]domain.ConversationTurn, error)
+
+	// SaveConversationTurn 用状态 CAS 结束 Turn，防止取消和完成互相覆盖。
+	SaveConversationTurn(
+		ctx context.Context,
+		turn domain.ConversationTurn,
+		expectedStatus domain.ConversationTurnStatus,
+	) error
+
+	// AppendConversationMessages 原子追加连续消息；任意一条无效时整批不写入。
+	AppendConversationMessages(ctx context.Context, messages []domain.ConversationMessage) error
+
+	// SaveConversationMessage 用状态 CAS 更新流式消息的稳定快照。
+	SaveConversationMessage(
+		ctx context.Context,
+		message domain.ConversationMessage,
+		expectedStatus domain.ConversationMessageStatus,
+	) error
+
+	ListConversationMessages(
+		ctx context.Context,
+		conversationID string,
+		afterSequence int64,
+	) ([]domain.ConversationMessage, error)
+
 	// ConfirmGrilling 原子保存共同理解，并把 Requirement 从 grilling 推进到 spec。
 	ConfirmGrilling(
 		ctx context.Context,

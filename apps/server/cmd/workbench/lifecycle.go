@@ -16,6 +16,7 @@ import (
 	"product-agent-workbench/internal/planning"
 	"product-agent-workbench/internal/runner"
 	storeadapter "product-agent-workbench/internal/store/sqlite"
+	"product-agent-workbench/internal/targetruntime"
 	"product-agent-workbench/internal/verification"
 	verificationsqlite "product-agent-workbench/internal/verification/sqlite"
 	"product-agent-workbench/internal/workspace"
@@ -96,6 +97,23 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return fmt.Errorf("创建 Ticket Generator: %w", err)
 	}
+	// 21D：目标开发服务和预览网关属于 Go 进程级资源。它类似前端应用根节点创建的
+	// WebSocket client：创建者在整个应用卸载时负责关闭，而不是交给某次 HTTP 请求。
+	targetConfig, err := targetruntime.LoadConfig(config.TargetConfigPath)
+	if err != nil {
+		return fmt.Errorf("读取目标运行时配置: %w", err)
+	}
+	targetRuntime, err := targetruntime.NewManager(targetConfig)
+	if err != nil {
+		return fmt.Errorf("创建目标运行时: %w", err)
+	}
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+		defer cancel()
+		if closeErr := targetRuntime.Close(shutdownContext); closeErr != nil {
+			log.Printf("关闭目标运行时失败: %v", closeErr)
+		}
+	}()
 	verificationPlan, err := verification.LoadPlan(config.TargetConfigPath)
 	if err != nil {
 		return fmt.Errorf("读取 Verification 计划: %w", err)
@@ -108,18 +126,16 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return fmt.Errorf("创建候选版本检查器: %w", err)
 	}
-	runtimeProbe, err := verification.NewHTTPRuntimeProbe(verificationPlan.HealthURL)
-	if err != nil {
-		return fmt.Errorf("创建目标运行时健康检查: %w", err)
-	}
 	verifier, err := verification.NewService(verification.ServiceDependencies{
 		Commands:  verificationPlan.Commands,
 		Executor:  verification.NewHostCommandExecutor(),
 		Candidate: candidateInspector,
 		Reports:   verificationReports,
-		Runtime:   runtimeProbe,
-		NewID:     uuid.NewString,
-		Now:       time.Now,
+		// requiresRuntime 命令先确保真正的候选 Worktree 已由 21D Manager 启动，不能只探测
+		// 原始 checkout 的相同端口，否则验证到的可能不是刚刚整合的代码。
+		Runtime: targetRuntime,
+		NewID:   uuid.NewString,
+		Now:     time.Now,
 	})
 	if err != nil {
 		return fmt.Errorf("创建 Verification Service: %w", err)
@@ -134,6 +150,7 @@ func run(ctx context.Context, config processConfig) error {
 		SpecGenerator:   specGenerator,
 		TicketGenerator: ticketGenerator,
 		TicketPublisher: artifacts,
+		TargetRuntime:   targetRuntime,
 		NewID:           uuid.NewString,
 		Now:             time.Now,
 		Concurrency:     config.Concurrency,

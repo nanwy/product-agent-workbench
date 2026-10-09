@@ -14,10 +14,13 @@ import {
   useGoPlanningQuery,
   useGoRequirementQuery,
   useGoTaskRunQuery,
+  useGoTargetRuntimeQuery,
   useGoVerificationQuery,
   useGenerateSpecMutation,
   useGenerateTicketsMutation,
   useReconcileTaskRunsMutation,
+  useStartTargetRuntimeMutation,
+  useStopTargetRuntimeMutation,
   useVerifyRequirementMutation,
 } from '../api/queries'
 import type {
@@ -48,6 +51,8 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const [acceptanceSignal, setAcceptanceSignal] = useState('')
   const [specInstruction, setSpecInstruction] = useState('')
   const [ticketInstruction, setTicketInstruction] = useState('')
+  const [previewPath, setPreviewPath] = useState('/')
+  const [previewRevision, setPreviewRevision] = useState(0)
 
   // 第二步：所有服务端事实从 Query Cache 读取。空 ID 时 hook 会保持 disabled。
   const queryClient = useQueryClient()
@@ -60,6 +65,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
     requirementId.trim(),
     ticketVersionId.trim(),
   )
+  const targetRuntime = useGoTargetRuntimeQuery()
 
   // 第三步：按钮调用 mutation。成功回调只改变“当前选择”，数据本身由 mutation 写缓存。
   const createRequirement = useCreateRequirementMutation()
@@ -71,6 +77,8 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
   const confirmSpec = useConfirmSpecMutation()
   const generateTickets = useGenerateTicketsMutation()
   const confirmTickets = useConfirmTicketsMutation()
+  const startTargetRuntime = useStartTargetRuntimeMutation()
+  const stopTargetRuntime = useStopTargetRuntimeMutation()
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -171,17 +179,29 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
     confirmSpec.error ??
     generateTickets.error ??
     confirmTickets.error
+    ?? startTargetRuntime.error
+    ?? stopTargetRuntime.error
+
+  const normalizedPreviewPath = previewPath.trim().startsWith('/')
+    ? previewPath.trim()
+    : `/${previewPath.trim()}`
+  const previewSource = targetRuntime.data?.process.status === 'ready'
+    ? `${targetRuntime.data.process.gatewayUrl}${normalizedPreviewPath}`
+    : null
+  const previewIdentity = requirementId.trim() && ticketVersionId.trim()
+    ? { requirementId: requirementId.trim(), ticketVersionId: ticketVersionId.trim() }
+    : { requirementId: '', ticketVersionId: '' }
 
   return (
     <main className="go-control-shell">
       <header className="go-control-header">
         <div>
-          <span>{standalone ? 'STEP 21C · GO PLANNING' : 'STEP 21C · GO HTTP'}</span>
+          <span>{standalone ? 'STEP 21E · GO RUNTIME' : 'STEP 21E · GO DEFAULT'}</span>
           <h1>Go 控制面</h1>
           <p>
             {standalone
               ? 'SPA、HTTP API、SSE 与 Worker 由同一个 Go 进程提供。'
-              : 'React Query 现在直接消费 Go API；旧 Node 工作台仍保留在主页面。'}
+              : '默认工作台已切到 Go API；旧 Node 工作台仅保留为迁移对照。'}
           </p>
         </div>
         <div className="go-control-header-actions">
@@ -194,7 +214,7 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
           {standalone ? (
             <span className="go-standalone-badge">Go 单进程模式</span>
           ) : (
-            <a className="secondary-button" href="/">返回旧工作台</a>
+            <a className="secondary-button" href="/legacy">旧 Node 对照</a>
           )}
         </div>
       </header>
@@ -409,6 +429,51 @@ export function GoControlPage({ standalone = false }: { standalone?: boolean }) 
           {verification.data ? <VerificationCard report={verification.data} /> : (
             <p className="form-note">当前版本还没有 Verification 报告。</p>
           )}
+        </article>
+
+        <article className="go-control-card go-runtime-card">
+          <header><span>07</span><div><h2>Target Preview</h2><p>由 Go 管理进程、健康检查与 iframe 网关</p></div></header>
+          {targetRuntime.error ? <InlineError error={targetRuntime.error} /> : null}
+          {targetRuntime.data ? (
+            <>
+              <dl className="go-resource-facts">
+                <Fact label="项目" value={targetRuntime.data.target.name} />
+                <Fact label="状态" value={targetRuntime.data.process.status} />
+                <Fact label="所有权" value={targetRuntime.data.process.ownership} />
+                <Fact label="PID" value={targetRuntime.data.process.pid?.toString() ?? '—'} />
+                <Fact label="健康地址" value={targetRuntime.data.process.healthUrl} />
+              </dl>
+              <label>
+                <span>预览路径（只属于页面 UI，不会改写启动命令）</span>
+                <input value={previewPath} onChange={(event) => setPreviewPath(event.target.value)} />
+              </label>
+              <div className="go-runtime-actions">
+                <button
+                  className="primary-button"
+                  disabled={startTargetRuntime.isPending || ['starting', 'ready'].includes(targetRuntime.data.process.status)}
+                  onClick={() => startTargetRuntime.mutate(previewIdentity)}
+                  type="button"
+                >
+                  {startTargetRuntime.isPending ? '等待健康检查…' : '启动候选预览'}
+                </button>
+                <button
+                  className="risk-button"
+                  disabled={stopTargetRuntime.isPending || targetRuntime.data.process.status === 'stopped'}
+                  onClick={() => stopTargetRuntime.mutate()}
+                  type="button"
+                >停止</button>
+                <button disabled={!previewSource} onClick={() => setPreviewRevision((value) => value + 1)} type="button">刷新 iframe</button>
+                {previewSource ? <a href={`${targetRuntime.data.process.previewUrl}${normalizedPreviewPath}`} rel="noreferrer" target="_blank">外部打开 ↗</a> : null}
+              </div>
+              {targetRuntime.data.process.error ? <p className="go-runtime-error">{targetRuntime.data.process.error}</p> : null}
+              {previewSource ? (
+                <iframe key={previewRevision} className="go-runtime-frame" src={previewSource} title="Go 目标项目预览" />
+              ) : <p className="form-note">启动成功后，iframe 只访问 Go 的 localhost 预览网关。</p>}
+              {targetRuntime.data.process.recentOutput.length ? (
+                <details><summary>最近 30 行进程输出</summary><pre className="go-runtime-output">{targetRuntime.data.process.recentOutput.join('\n')}</pre></details>
+              ) : null}
+            </>
+          ) : <p className="form-note">正在读取目标运行时配置…</p>}
         </article>
       </section>
     </main>

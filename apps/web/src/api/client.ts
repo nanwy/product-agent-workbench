@@ -12,6 +12,8 @@ import type {
   ReconcileTaskRunsResponse,
   RequirementResponse,
   TaskRunResponse,
+  TargetRuntimeResponse,
+  StartTargetRuntimeRequest,
   VerificationReportResponse,
   VerifyRequirementRequest,
   VerifyRequirementResponse,
@@ -77,6 +79,24 @@ export function createWorkbenchApiClient(options: WorkbenchApiClientOptions = {}
   return {
     getHealth: (requestOptions?: RequestOptions) =>
       requestJSON<HealthResponse>(fetchRequest, baseUrl, '/health', {
+        signal: requestOptions?.signal,
+      }),
+
+    getTargetRuntime: (requestOptions?: RequestOptions) =>
+      requestJSON<TargetRuntimeResponse>(fetchRequest, baseUrl, '/target-runtime', {
+        signal: requestOptions?.signal,
+      }),
+
+    startTargetRuntime: (input: StartTargetRuntimeRequest, requestOptions?: RequestOptions) =>
+      requestJSON<TargetRuntimeResponse>(fetchRequest, baseUrl, '/target-runtime/start', {
+        method: 'POST',
+        body: input,
+        signal: requestOptions?.signal,
+      }),
+
+    stopTargetRuntime: (requestOptions?: RequestOptions) =>
+      requestJSON<TargetRuntimeResponse>(fetchRequest, baseUrl, '/target-runtime/stop', {
+        method: 'POST',
         signal: requestOptions?.signal,
       }),
 

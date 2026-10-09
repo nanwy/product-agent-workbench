@@ -14,6 +14,7 @@ import (
 	"product-agent-workbench/internal/runner"
 	"product-agent-workbench/internal/scheduler"
 	"product-agent-workbench/internal/store/memory"
+	"product-agent-workbench/internal/targetruntime"
 	"product-agent-workbench/internal/verification"
 	"product-agent-workbench/internal/workspace"
 )
@@ -65,6 +66,7 @@ func TestBuildRuntimeRejectsInvalidDependencies(t *testing.T) {
 		{name: "缺少 Spec Generator", mutate: func(dependencies *runtimeDependencies) { dependencies.SpecGenerator = nil }},
 		{name: "缺少 Ticket Generator", mutate: func(dependencies *runtimeDependencies) { dependencies.TicketGenerator = nil }},
 		{name: "缺少 Ticket Publisher", mutate: func(dependencies *runtimeDependencies) { dependencies.TicketPublisher = nil }},
+		{name: "缺少目标运行时", mutate: func(dependencies *runtimeDependencies) { dependencies.TargetRuntime = nil }},
 		{name: "缺少 ID 生成器", mutate: func(dependencies *runtimeDependencies) { dependencies.NewID = nil }},
 		{name: "缺少时钟", mutate: func(dependencies *runtimeDependencies) { dependencies.Now = nil }},
 		{name: "并发数为零", mutate: func(dependencies *runtimeDependencies) { dependencies.Concurrency = 0 }},
@@ -97,6 +99,7 @@ func validRuntimeDependencies() runtimeDependencies {
 		SpecGenerator:   runtimeSpecGenerator{},
 		TicketGenerator: runtimeTicketGenerator{},
 		TicketPublisher: runtimeTicketPublisher{},
+		TargetRuntime:   runtimeTargetRuntime{},
 		NewID:           func() string { return "run-1" },
 		Now:             func() time.Time { return time.Unix(1, 0).UTC() },
 		Concurrency:     2,
@@ -169,6 +172,19 @@ type runtimeSpecGenerator struct{}
 type runtimeTicketGenerator struct{}
 
 type runtimeTicketPublisher struct{}
+
+type runtimeTargetRuntime struct{}
+
+func (runtimeTargetRuntime) Target() targetruntime.Target {
+	return targetruntime.Target{Name: "fixture"}
+}
+func (runtimeTargetRuntime) Snapshot() targetruntime.Snapshot { return targetruntime.Snapshot{} }
+func (runtimeTargetRuntime) Start(context.Context, string) (targetruntime.Snapshot, error) {
+	return targetruntime.Snapshot{}, nil
+}
+func (runtimeTargetRuntime) Stop(context.Context) (targetruntime.Snapshot, error) {
+	return targetruntime.Snapshot{}, nil
+}
 
 func (runtimeSpecGenerator) Generate(
 	context.Context,

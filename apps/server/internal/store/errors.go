@@ -22,4 +22,19 @@ var (
 
 	// ErrInvalidEventSequence 表示事件序号不是从上一条事件连续递增。
 	ErrInvalidEventSequence = errors.New("事件序号不连续")
+
+	// ErrConversationConflict 表示调用方使用旧 revision 更新了对话头。
+	ErrConversationConflict = errors.New("对话版本冲突")
+
+	// ErrConversationTurnConflict 表示 Turn 已经被其它路径结束，旧 running 快照不能覆盖终态。
+	ErrConversationTurnConflict = errors.New("对话轮次状态冲突")
+
+	// ErrConversationMessageConflict 表示消息已结束，旧 streaming 快照不能继续覆盖它。
+	ErrConversationMessageConflict = errors.New("对话消息状态冲突")
+
+	// ErrInvalidTurnSequence 表示同一 Conversation 的 Turn 没有连续追加。
+	ErrInvalidTurnSequence = errors.New("对话轮次序号不连续")
+
+	// ErrInvalidMessageSequence 表示同一 Conversation 的消息没有连续追加。
+	ErrInvalidMessageSequence = errors.New("对话消息序号不连续")
 )

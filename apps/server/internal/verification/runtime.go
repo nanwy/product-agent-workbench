@@ -12,7 +12,7 @@ import (
 
 // RuntimeProbe 为 requiresRuntime 命令确认目标服务已经可访问。
 type RuntimeProbe interface {
-	Check(ctx context.Context) error
+	Check(ctx context.Context, workspacePath string) error
 }
 
 type HTTPRuntimeProbe struct {
@@ -36,7 +36,7 @@ func NewHTTPRuntimeProbe(rawURL string) (*HTTPRuntimeProbe, error) {
 	}, nil
 }
 
-func (p *HTTPRuntimeProbe) Check(ctx context.Context) error {
+func (p *HTTPRuntimeProbe) Check(ctx context.Context, _ string) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if err != nil {
 		return err

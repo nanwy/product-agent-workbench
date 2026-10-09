@@ -1,6 +1,7 @@
 # Web 迁移说明
 
-在 Go HTTP 合约稳定前，当前 TanStack Start UI 继续作为可运行产品，不提前改写页面。
+TanStack Start 原产品界面继续作为默认入口。21E 只能替换它的数据边界，不能另写页面绕过
+现有布局与交互逻辑；旧 Node Server Functions 在迁移完成后仍保留作学习对照。
 
 迁移顺序：
 
@@ -8,8 +9,8 @@
 2. 每次只把一组 Server Function 替换为带类型的 HTTP client。
 3. 对应 Go endpoint 通过契约测试后，再迁移路由和展示模块。
 4. Zustand 只保存瞬时 UI 状态；Requirement、TaskRun、事件和验证记录由 TanStack Query 管理。
-5. 把已经迁入 Go 的控制面提取为独立 Vite SPA 并嵌入 Go；旧 Server Functions 暂时作为
-   尚未迁移产品规划能力的行为参考，不进入单二进制生产包。
+5. 把已经迁入 Go 的控制面提取为独立 Vite SPA 并嵌入 Go；21E 再对原页面做接口适配，
+   不能用新的资源页替换产品工作台。
 
 开发形态：
 
@@ -45,7 +46,7 @@ Go net/http :8080
 | `src/api/contracts.ts` | OpenAPI 生成的 `types.ts` | 镜像 Go JSON DTO 和枚举 |
 | `src/api/client.ts` | 配置好的 axios instance | 统一 URL、fetch、AbortSignal、JSON 和错误 |
 | `tests/go-api-client.test.ts` | MSW/axios adapter 契约测试 | 不启动 Go 进程也能验证请求协议 |
-| `vite.config.ts` | `devServer.proxy` | 开发时把同源 `/api/v1` 转发到 `127.0.0.1:8080` |
+| `vite.config.ts` | Nitro `routeRules.proxy` | TanStack 开发与生产服务把同源 `/api/v1` 转发到 `127.0.0.1:8080` |
 
 ### 逐步阅读
 
@@ -73,9 +74,9 @@ pnpm --filter @product-agent-workbench/web build
 
 ## 练习 19B：React Query 页面切流（已完成）
 
-当前 Go 已实现的资源已经形成独立可运行页面 `/go-control`。19B 完成时旧 `/` 页面仍保留，
-因为当时 Grilling、Spec 草稿、Ticket 草稿和目标预览尚无 Go endpoint。21A～21C 已补上
-Grilling、Spec 与 TicketVersion；目标预览仍不能让 Node JSON 与 Go SQLite 同时成为真值来源。
+当前 Go 已实现的资源已经形成独立可运行页面。原 `/` 产品页面仍保留，
+因为当时 Grilling、Spec 草稿、Ticket 草稿和目标预览尚无 Go endpoint。21A～21D 已补上
+Grilling、Spec、TicketVersion 与目标预览；21E 尚缺与原页面读取模型匹配的适配边界。
 
 ```text
 表单输入 / 当前选中 ID              Go 服务端事实
@@ -155,8 +156,10 @@ GET /api/v1/task-runs/{id}
 
 ### 迁移期代理边界
 
-Vite 只把 `/api/v1` 代理给 Go。旧页面仍使用 TanStack Start 的 `/api/events`，因此两个 SSE
-入口在迁移期可以并存，不会因宽泛的 `/api` proxy 互相截获。
+独立 SPA 开发服务器由 Vite 代理 `/api/v1`；TanStack Start 则由 Nitro `routeRules` 代理。
+不能只依赖 `server.proxy`，否则非 HTML 请求可能先进入 SSR handler，并返回
+`Only HTML requests are supported here`。旧页面仍使用 `/api/events`，两个 SSE 入口不会被
+宽泛的 `/api` 规则互相截获。
 
 ### 19C 验收命令
 
@@ -252,5 +255,25 @@ Go 使用只读 Codex 把确认 Spec 拆成 Ticket DAG，SQLite 保存版本历�
 Scheduler 与 Worker 消费的不可变 JSON manifest，并推进到 `implementation`。前端不再猜
 TicketVersion ID，而是从确认响应取得真实 ID 并交给队列 Reconcile。
 
-后续顺序：21D 目标预览、21E 删除 Node Server Functions，
-最后由步骤 22 完成 Playwright 单二进制验收、故障演示、benchmark 和面试材料。
+### 21D 目标预览（已完成）
+
+Go 从受信任配置读取固定启动命令，并根据 completed TaskRun 解析 Requirement 整合 Worktree，
+管理目标开发服务的进程组、健康等待和最近输出；
+localhost 反向代理负责 iframe 与 HMR。已有服务只有在响应正文匹配项目专属标记时才会复用，
+停止时只回收工作台自己启动的进程。React Query 直接读取和修改 Go 运行态。
+
+### 21E 默认接口切流（待完成，旧 Node 服务保留）
+
+- `/` 保持原来的页面布局、组件组合与交互逻辑；
+- 只允许把 `getWorkbench`、动作函数和 `/api/events` 数据边界替换为 Go HTTP/SSE；
+- Target Runtime 的读取、启动和停止已切到 Go，并通过 adapter 只替换旧 Snapshot 的运行态 slice；
+- 当前 Go 资源 DTO 与旧 `WorkbenchSnapshot` 不同，必须先补适配层或等价读取模型；
+- `src/server/**`、Node Server Functions 和原测试不删除，便于逐项学习和回归。
+
+### 22 对话持久化基础（已完成）
+
+Go 已增加 Conversation、Turn、Message 三层模型和 SQLite Store。这里只建立服务端事实，
+尚未替换原页面的 Agent 对话调用。旧 Node 数据不会导入；迁移完成后新建的对话会使用新表。
+
+后续顺序调整为：23 Agent Turn 运行时 → 24 Workbench 聚合 API → 25 原页面完整切流 →
+26 Playwright 单二进制验收、故障演示、benchmark 和面试材料。

@@ -175,7 +175,7 @@ func (s *Service) executeCommand(
 	}
 	if command.RequiresRuntime {
 		probeStartedAt := s.now().UTC()
-		probeErr := s.runtime.Check(ctx)
+		probeErr := s.runtime.Check(ctx, workspacePath)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return Evidence{}, ctxErr
 		}

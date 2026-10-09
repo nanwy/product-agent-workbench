@@ -18,6 +18,12 @@ import {
 } from "../components/workbench-panels";
 import type { ConversationPhase, WorkbenchSnapshot } from "../domain/workbench";
 import {
+  useGoTargetRuntimeQuery,
+  useStartTargetRuntimeMutation,
+  useStopTargetRuntimeMutation,
+} from "../api/queries";
+import { mergeGoRuntimeSnapshot } from "../api/workbench-runtime-adapter";
+import {
   acceptRequirement,
   cancelExecution,
   cancelGrilling,
@@ -38,8 +44,6 @@ import {
   retryTickets,
   rerunVerification,
   executeRequirement,
-  startTarget,
-  stopTarget,
   submitRequirement,
 } from "../server/functions";
 import {
@@ -83,14 +87,17 @@ function WorkbenchPage() {
   const confirmCurrentTickets = useServerFn(confirmTickets);
   const confirm = useServerFn(confirmPlan);
   const confirmRisk = useServerFn(confirmBoundary);
-  const start = useServerFn(startTarget);
-  const stop = useServerFn(stopTarget);
   const execute = useServerFn(executeRequirement);
   const cancel = useServerFn(cancelExecution);
   const rerun = useServerFn(rerunVerification);
   const accept = useServerFn(acceptRequirement);
   const refine = useServerFn(continueRefinement);
   const queryClient = useQueryClient();
+  // 21E 只迁移 Go 已经具备同等语义的运行时 slice。旧页面其余数据仍由原 Snapshot 提供，
+  // 因此 Agent 对话、需求历史和验证区不会因为接口切换而消失。
+  const goRuntimeQuery = useGoTargetRuntimeQuery();
+  const startGoRuntime = useStartTargetRuntimeMutation();
+  const stopGoRuntime = useStopTargetRuntimeMutation();
   const snapshotQuery = useQuery({
     queryKey: workbenchQueryKeys.snapshot,
     queryFn: async () =>
@@ -101,7 +108,10 @@ function WorkbenchPage() {
     initialData: initialSnapshot,
     refetchInterval: sseConnected ? 30_000 : 3_000,
   });
-  const snapshot = snapshotQuery.data;
+  const snapshot = useMemo(
+    () => mergeGoRuntimeSnapshot(snapshotQuery.data, goRuntimeQuery.data),
+    [snapshotQuery.data, goRuntimeQuery.data],
+  );
 
   useEffect(() => setHydrated(true), []);
   // SSE 健康时只做低频校准；断线自动退化为 Query 的三秒轮询。
@@ -157,6 +167,18 @@ function WorkbenchPage() {
           ? actionError.message
           : String(actionError),
       );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function runGoRuntimeAction(name: "start" | "stop", action: () => Promise<unknown>) {
+    setBusyAction(name);
+    setError(null);
+    try {
+      await action();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : String(actionError));
     } finally {
       setBusyAction(null);
     }
@@ -490,21 +512,17 @@ function WorkbenchPage() {
             previewUrl={previewUrl}
             targetPage={requirement?.targetPage}
             onStart={() =>
-              runAction(
+              runGoRuntimeAction(
                 "start",
-                (idempotencyKey) =>
-                  start({
-                    data: { idempotencyKey },
-                  }) as Promise<WorkbenchSnapshot>,
+                // 当前 Node Requirement/Ticket ID 尚未迁入 Go SQLite；传空身份表示从受信任的
+                // 配置仓库启动。等 WorkbenchSnapshot 读取模型迁移后再启用候选 Worktree 预览。
+                () => startGoRuntime.mutateAsync({ requirementId: "", ticketVersionId: "" }),
               )
             }
             onStop={() =>
-              runAction(
+              runGoRuntimeAction(
                 "stop",
-                (idempotencyKey) =>
-                  stop({
-                    data: { idempotencyKey },
-                  }) as Promise<WorkbenchSnapshot>,
+                () => stopGoRuntime.mutateAsync(),
               )
             }
             onRefresh={() => setPreviewRevision((value) => value + 1)}
