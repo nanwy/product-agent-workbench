@@ -4,6 +4,13 @@
 
 This is a pnpm/Go monorepo. `apps/web/` contains the React 19 + TanStack Start UI, browser API clients in `src/api/`, UI components in `src/components/`, Node compatibility code in `src/server/`, and Vitest/Playwright tests in `tests/`. `apps/server/` contains the Go control plane: executable wiring in `cmd/workbench/`, domain and application logic under `internal/`, SQLite migrations in `migrations/`, and the embedded SPA output in `internal/webui/dist/`. Repository-wide configuration lives in `config/`; architecture decisions live in `docs/adr/`. Read `CONTEXT.md` before changing domain terminology.
 
+## Go Migration Steps
+
+Before implementing or describing a numbered migration step, read `docs/go-migration-roadmap.md`. It is the
+single source of truth for step names, scope, order, and completion criteria. Match the requested number to that
+file and current code before editing. Update the roadmap first when the user explicitly changes the plan; do not
+invent intermediate step numbers from conversation memory.
+
 ## Build, Test, and Development Commands
 
 - `pnpm install`: install workspace dependencies (Node 24, pnpm 10).

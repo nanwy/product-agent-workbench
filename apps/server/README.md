@@ -16,7 +16,10 @@
 - `internal/verification`：验证证据和交付门禁。
 - `migrations`：经过评审、只向前执行的 SQLite migration。
 
-## 当前进度：练习 1～20、21A～21D 已完成，下一步是步骤 21E 接口切流
+## 当前进度：步骤 23F 已完成，下一步是 24A Workbench 读取模型
+
+阶段编号以 [`docs/go-migration-roadmap.md`](../../docs/go-migration-roadmap.md) 为唯一事实源。
+本文件后面的旧练习记录用于复习实现过程，不再承担后续步骤编号。
 
 `internal/domain/task_run.go` 已完成 TaskRun 状态机：
 
@@ -660,7 +663,7 @@ POST /api/v1/target-runtime/stop
 对应前端链路：`api/client.ts → api/queries.ts → GoControlPage`。React Query 保存服务端快照，
 `previewPath` 和 iframe 刷新次数仍是纯 UI 状态，所以继续放在组件 `useState`。
 
-### 步骤 21E：默认入口切换（待完成，保留旧 Node 服务）
+### 步骤 21E：默认入口局部切换（已并入步骤 25，保留旧 Node 服务）
 
 - `/` 必须保留现有三栏工作台、组件组合和交互逻辑；
 - 只替换 `getWorkbench`、动作函数和事件订阅等接口边界，不新增替代产品页面；
@@ -683,5 +686,78 @@ POST /api/v1/target-runtime/stop
 `Message` 类似按 sequence 排序的 normalized entities。它们分表后，流式更新一条 assistant
 消息不需要重写整个 Requirement JSON。
 
-阶段 23 将在此基础上实现 Turn 的启动、重试、取消、失败恢复与 Codex 事件归一化；跨表的
+阶段 23 将在此基础上实现 Turn 的启动、重试、取消与 Codex 事件归一化；跨表的
 业务事务会跟随具体用例加入，阶段 22 不提前猜测 HTTP 请求形状。
+
+### 步骤 23A：对话领域状态机（已完成）
+
+这一小步只实现纯函数式状态迁移，作用类似前端 reducer：旧 Conversation/Turn 作为值传入，
+方法返回新值，失败时原值保持不变。
+
+- `NewConversation` 固定初始 `grilling + idle + revision 1`；
+- `BeginTurn` 支持首次执行、用户回复、修改待确认产物、失败/取消后重试；
+- `CompleteTurn` 根据产物是否可确认进入 `awaiting-user` 或 `awaiting-confirmation`；
+- `FailTurn` 与 `CancelTurn` 同时结束 Turn 并同步 Conversation 状态；
+- `AdvancePhase` 只允许 `grilling → to-spec → to-tickets → implement`；
+- 所有迁移检查归属、阶段、时间顺序和 revision 递增，不访问 Store、Codex 或 HTTP。
+
+### 步骤 23B：对话原子写入（已完成）
+
+这一小步把 23A 的纯状态结果接到 Store，但还不启动 Codex，也不暴露 HTTP：
+
+- `CreateRequirementConversation` 同时创建 Requirement、Conversation 和第一条 system 消息；
+- `BeginConversationTurn` 同时更新 Conversation、创建 Turn，并写入 user/assistant 消息骨架；
+- Memory Store 在一把写锁内先校验、后集中修改 map；SQLite Store 使用 `BeginTx/Commit`；
+- Store 会用数据库当前 Conversation 重跑 `BeginTurn`，防止调用方伪造状态机结果；
+- revision 是跨请求的乐观锁，Turn/Message sequence 保证同一对话内的稳定顺序；
+- 契约测试故意让最后一次消息写入冲突，确认前面的更新和插入全部回滚。
+
+前端视角：这相当于一次 mutation 同时更新 normalized cache 里的多类实体。事务就是不可分割的
+commit——不能让页面读到“Conversation 已经 running，但 Turn 或 assistant 占位消息不存在”的
+中间状态。
+
+### 步骤 23C：对话应用用例（已完成）
+
+这一小步把 HTTP 将来需要的“意图”翻译成 23A/23B 能处理的可信事实：
+
+- `CreateRequirement` 现在生成四类 ID 和统一时间，调用 `NewConversation`，组装初始 system
+  gate，再通过 23B 一次提交三类实体；HTTP 返回的 Requirement DTO 暂时不变；
+- `BeginConversationTurn` 只接收 Requirement ID、客户端看到的 revision 和用户文本；
+- 应用层从 Store 读取可信 Conversation、Turn 和消息历史，自己计算下一组 sequence；
+- 应用层调用 23A `BeginTurn`，建立 completed user 消息和 streaming assistant 占位消息；
+- 最后只调用一次 23B `BeginConversationTurn`，数据库事务再次检查 revision 和 sequence；
+- 代码内按 1～12 步保留中文注释，并用 AbortSignal、reducer、normalized cache 和 mutation
+  payload 对照前端概念。
+
+这里仍然没有调用 Codex。前端点击发送后，23C 只保证“本轮已经可靠开始”。
+
+### 步骤 23D：事件折叠与 Turn 收口（已完成）
+
+本步消费 16D 已经解析、脱敏的稳定事件，不让应用层理解原始 JSON-RPC notification：
+
+- `ApplyConversationEvent` 接收 `codex.text.delta`、`codex.item.started` 和
+  `codex.item.completed`，按 `itemId` 更新同一条 streaming assistant 消息；
+- text delta 追加到同一个 text segment，item 生命周期 upsert 同一个 activity segment；
+- assistant 文本按 UTF-8 安全截断到 32 KiB，单事件 payload 限制为 64 KiB；
+- `CompleteConversationTurn`、`FailConversationTurn`、`CancelConversationTurn` 都先读取
+  Store 当前运行态，再调用 23A 状态机；
+- `FinishConversationTurn` 把 Conversation、Turn、assistant Message 的终态放在一个事务中；
+- Memory Store 用单写锁模拟 commit，SQLite Store 用事务和 revision/status CAS；
+- 终态先提交后，迟到的 Codex 事件不能把 completed/failed/cancelled 改回 streaming。
+
+前端视角：事件折叠类似 reducer 更新一条 normalized message entity；终态事务类似一次 mutation
+同时提交三张表。23D 仍不负责启动进程或发送 interrupt，下一步 23E 才把这些用例接入只读
+Codex 对话运行时。
+
+### 步骤 23E：Conversation Runtime（已完成）
+
+只读 Codex Adapter 已接入 Conversation Turn：新对话创建 Planning Thread，后续 Turn 续接同一
+Thread；稳定事件交给 23D，Thread ID 在输出开始前原子绑定到 Conversation 与 Turn。
+
+### 步骤 23F：回复、重试与取消（已完成）
+
+Grilling 回复会原子追加 user/assistant 消息并运行 Codex；失败或取消后的重试创建新 Turn，但不
+重复用户消息；取消使用进程内 context 句柄中断当前 Runtime，并等待 cancelled 终态落库。
+
+步骤 23 到此结束。后续唯一有效的编号、范围与完成标准见
+[`docs/go-migration-roadmap.md`](../../docs/go-migration-roadmap.md)，下一步是 **24A Workbench 读取模型**。

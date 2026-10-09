@@ -56,10 +56,16 @@ Go 的资源接口、SSE 和单二进制页面继续保留，等待 21E 在不�
 | Spec 迁移 | 21B 只读 Codex 生成、不可覆盖版本、确认门禁和 SPA 已完成 | `workbench-spec.ts` 与 Spec Server Functions |
 | Tickets 迁移 | 21C Ticket DAG 生成、版本持久化、manifest 发布和 SPA 已完成 | `workbench-tickets.ts` 与 Tickets Server Functions |
 | 目标预览迁移 | 21D Go 进程托管、健康检查、安全外部复用、iframe 反向代理和 SPA 控制卡已完成 | `target-runtime.ts` 与 `preview-gateway.ts` |
-| 默认入口切流 | 21E 进行中：原三栏工作台不变，Target Runtime 已切 Go，其余接口按兼容性逐项迁移 | TanStack Start Server Functions 保留为迁移参照 |
+| 默认入口切流 | 21E 已完成 Target Runtime 局部切流；完整页面切流统一在步骤 25 完成 | TanStack Start Server Functions 保留为迁移参照 |
 | 对话持久化基础 | 22 已完成 Conversation、Turn、Message 领域模型、SQLite migration 和双 Store 契约 | `workbench-conversation.ts` 中嵌套在 Requirement JSON 的对话状态 |
+| 对话领域状态机 | 23A 已完成创建、开始/结束 Turn、失败/取消和阶段推进的纯状态迁移 | `beginAssistantTurn`、`finishImplementationTurn` 与各阶段对象展开更新 |
+| 对话运行闭环 | 23B～23F 已完成原子写入、事件收口、只读 Runtime、Grilling 回复/重试/取消 | Node Grilling 对话、AbortController 与后台 Promise |
+| 对话原子写入 | 23B 已完成 Requirement/Conversation/初始消息创建事务，以及开始 Turn 的 Conversation/Turn/消息事务 | Node 中分散在 JSON 聚合更新和对话辅助函数里的多字段写入 |
+| 对话应用用例 | 23C 已完成原子创建聚合与开始 Turn 的应用编排，ID、时间、revision 和 sequence 均由服务端控制 | `createRequirement`、`appendUserMessage`、`beginAssistantTurn` 的持久化前半段 |
+| 对话事件与终态 | 23D 已完成 Codex text/activity 事件折叠，以及 completed/failed/cancelled 三元组原子收口 | `applyPlanningEvent` 与 `finishPlanningTurn` 的持久化后半段 |
 
 详细的解锁顺序、测试命令和中文实现提示见 `apps/server/README.md`。
+后续迁移步骤的唯一编号与完成标准见 [`docs/go-migration-roadmap.md`](docs/go-migration-roadmap.md)。
 
 ## 本地运行
 

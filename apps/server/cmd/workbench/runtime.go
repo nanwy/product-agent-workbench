@@ -23,6 +23,7 @@ import (
 // 一目了然，也不会因为 import 某个包就偷偷启动进程或连接数据库。
 type runtimeDependencies struct {
 	Store           store.Store
+	Conversation    app.ConversationRuntime
 	Artifacts       scheduler.ArtifactReader
 	ExecutionFacts  runner.ExecutionFactsReader
 	Workspaces      workspace.Manager
@@ -100,6 +101,7 @@ func buildRuntime(dependencies runtimeDependencies) (runtimeComponents, error) {
 	// Application，因此状态变更会经过同一套用例规则和同一个 Store。
 	application, err := app.New(app.Dependencies{
 		Store:           dependencies.Store,
+		Conversation:    dependencies.Conversation,
 		Tickets:         dependencies.Artifacts,
 		Verification:    dependencies.Verifier,
 		SpecGenerator:   dependencies.SpecGenerator,

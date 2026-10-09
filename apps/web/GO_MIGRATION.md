@@ -262,7 +262,7 @@ Go 从受信任配置读取固定启动命令，并根据 completed TaskRun 解�
 localhost 反向代理负责 iframe 与 HMR。已有服务只有在响应正文匹配项目专属标记时才会复用，
 停止时只回收工作台自己启动的进程。React Query 直接读取和修改 Go 运行态。
 
-### 21E 默认接口切流（待完成，旧 Node 服务保留）
+### 21E 默认接口局部切流（后续工作已并入步骤 25，旧 Node 服务保留）
 
 - `/` 保持原来的页面布局、组件组合与交互逻辑；
 - 只允许把 `getWorkbench`、动作函数和 `/api/events` 数据边界替换为 Go HTTP/SSE；
@@ -275,5 +275,25 @@ localhost 反向代理负责 iframe 与 HMR。已有服务只有在响应正文�
 Go 已增加 Conversation、Turn、Message 三层模型和 SQLite Store。这里只建立服务端事实，
 尚未替换原页面的 Agent 对话调用。旧 Node 数据不会导入；迁移完成后新建的对话会使用新表。
 
-后续顺序调整为：23 Agent Turn 运行时 → 24 Workbench 聚合 API → 25 原页面完整切流 →
-26 Playwright 单二进制验收、故障演示、benchmark 和面试材料。
+后续编号、范围和完成标准以 [`docs/go-migration-roadmap.md`](../../docs/go-migration-roadmap.md)
+为唯一事实源。开始编号任务前必须先读取该文件；当前下一步为 **24A Workbench 读取模型**。
+
+23A 已完成纯 Go 对话状态机。它对应前端 reducer：开始、完成、失败、取消和阶段推进都返回
+新 Conversation/Turn，失败不修改旧值。
+
+23B 已完成跨表原子写入：创建需求时一起写 Requirement、Conversation 和初始 system 消息；
+开始 Turn 时一起更新 Conversation、创建 Turn 和 user/assistant 消息骨架。前端可以把它理解为
+一次 mutation 的 normalized entities 要么全部 commit，要么全部 rollback。23C 再由应用层生成
+ID、时间和事务输入，并编排这些 Store 能力。
+
+23C 已完成应用层编排。创建 Requirement 时会同步建立 Conversation 和初始 system gate；开始
+Turn 时只信任浏览器提供的 Requirement ID、revision 和用户文本，其余状态、sequence、ID、时间
+都由 Go 服务端产生。
+
+23D 已完成稳定 Codex 事件到 assistant message segments 的折叠，并用单一 Store 事务同时结束
+Conversation、Turn 和 assistant Message。完成、失败、取消都不会留下部分终态，迟到事件也不能
+覆盖已经结束的消息。
+
+23E 已完成只读 Codex Conversation Runtime、Planning Thread 创建和续接。23F 已完成 Grilling
+回复、失败/取消重试与当前 Turn 中断。步骤 23 到 23F 结束；当前计划不存在 23G、23H，进程重启
+后的 Conversation 自动恢复、额外监控和性能优化不属于本轮原 MVP 迁移。

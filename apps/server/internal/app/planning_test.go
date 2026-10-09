@@ -51,7 +51,9 @@ func (stub *ticketPublisherStub) PublishConfirmedTicketVersion(
 }
 
 func TestPlanningFlowMovesRequirementFromGrillingToImplementation(t *testing.T) {
-	ids := []string{"req-1", "version-1", "ticket-version-1"}
+	// CreateRequirement 先为 Requirement、Conversation、初始消息和 gate segment 取四个 ID；
+	// 后两个 ID 分别留给 SpecVersion 和 TicketVersion。
+	ids := []string{"req-1", "conversation-1", "system-message-1", "gate-1", "version-1", "ticket-version-1"}
 	publisher := &ticketPublisherStub{published: []domain.TicketVersion{}}
 	application, err := app.New(app.Dependencies{
 		Store: memory.New(),

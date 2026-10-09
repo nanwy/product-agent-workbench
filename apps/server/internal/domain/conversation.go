@@ -48,6 +48,36 @@ type Conversation struct {
 	UpdatedAt                    time.Time
 }
 
+// NewConversationInput 是创建 Requirement 对话所需的稳定身份。
+//
+// 前端类比：构造函数相当于 reducer 的 initialState，调用方不能自行拼出任意初始状态。
+type NewConversationInput struct {
+	ID            string
+	RequirementID string
+}
+
+// NewConversation 创建处于 Grilling/idle 的逻辑对话。
+func NewConversation(input NewConversationInput, now time.Time) (Conversation, error) {
+	id := strings.TrimSpace(input.ID)
+	requirementID := strings.TrimSpace(input.RequirementID)
+	if id == "" || requirementID == "" {
+		return Conversation{}, ErrInvalidInput
+	}
+	if now.IsZero() {
+		return Conversation{}, ErrInvalidTime
+	}
+	now = now.UTC()
+	return Conversation{
+		ID:            id,
+		RequirementID: requirementID,
+		Phase:         ConversationPhaseGrilling,
+		Status:        ConversationStatusIdle,
+		Revision:      1,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}, nil
+}
+
 // ConversationTurnStatus 表示一次“用户输入 → Agent 完成”的运行状态。
 type ConversationTurnStatus string
 
@@ -71,6 +101,179 @@ type ConversationTurn struct {
 	StartedAt      time.Time
 	FinishedAt     *time.Time
 	FailureReason  string
+}
+
+// BeginConversationTurnInput 保存新 Turn 的身份和对话内顺序。
+// Sequence 由应用层根据已持久化历史计算，领域层只检查它是正数。
+type BeginConversationTurnInput struct {
+	ID       string
+	Sequence int64
+}
+
+// BeginTurn 开始一次 Agent Turn，并同步把 Conversation 切换为 running。
+//
+// 这里返回两个新值而不修改 receiver，和前端 reducer 返回新 state 的方式相同。Store 会在
+// 23B 中把两个返回值与消息放进同一事务，避免只保存其中一半。
+func (conversation Conversation) BeginTurn(
+	input BeginConversationTurnInput,
+	now time.Time,
+) (Conversation, ConversationTurn, error) {
+	if err := ValidateConversation(conversation); err != nil {
+		return conversation, ConversationTurn{}, err
+	}
+	if !canBeginConversationTurn(conversation.Status) {
+		return conversation, ConversationTurn{}, ErrInvalidTransition
+	}
+	id := strings.TrimSpace(input.ID)
+	if id == "" || input.Sequence < 1 {
+		return conversation, ConversationTurn{}, ErrInvalidInput
+	}
+	if err := validateConversationTransitionTime(conversation, now); err != nil {
+		return conversation, ConversationTurn{}, err
+	}
+	now = now.UTC()
+	turn := ConversationTurn{
+		ID:             id,
+		ConversationID: conversation.ID,
+		Sequence:       input.Sequence,
+		Phase:          conversation.Phase,
+		Status:         ConversationTurnRunning,
+		StartedAt:      now,
+	}
+	conversation.Status = ConversationStatusRunning
+	conversation.TurnReadyForConfirmation = false
+	conversation.Error = ""
+	conversation.Revision++
+	conversation.UpdatedAt = now
+	return conversation, turn, nil
+}
+
+// AttachThread 把 Codex Thread ID 同时记录到逻辑对话和当前 Turn。
+// 规划阶段复用 PlanningThreadID，实现阶段复用 ImplementationThreadID。
+func (conversation Conversation) AttachThread(
+	turn ConversationTurn,
+	threadID string,
+	now time.Time,
+) (Conversation, ConversationTurn, error) {
+	if err := validateRunningConversationTurn(conversation, turn, now); err != nil {
+		return conversation, turn, err
+	}
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return conversation, turn, ErrInvalidInput
+	}
+	now = now.UTC()
+	turn.CodexThreadID = threadID
+	if conversation.Phase == ConversationPhaseImplement {
+		conversation.ImplementationThreadID = threadID
+	} else {
+		conversation.PlanningThreadID = threadID
+	}
+	conversation.Revision++
+	conversation.UpdatedAt = now
+	return conversation, turn, nil
+}
+
+// CompleteTurn 结束成功 Turn，并决定下一步等待用户继续输入还是确认当前产物。
+func (conversation Conversation) CompleteTurn(
+	turn ConversationTurn,
+	readyForConfirmation bool,
+	now time.Time,
+) (Conversation, ConversationTurn, error) {
+	if err := validateRunningConversationTurn(conversation, turn, now); err != nil {
+		return conversation, turn, err
+	}
+	if readyForConfirmation && conversation.Phase == ConversationPhaseImplement {
+		return conversation, turn, ErrInvalidTransition
+	}
+	now = now.UTC()
+	turn.Status = ConversationTurnCompleted
+	turn.FinishedAt = &now
+	turn.FailureReason = ""
+	conversation.Status = ConversationStatusAwaitingUser
+	if readyForConfirmation {
+		conversation.Status = ConversationStatusAwaitingConfirmation
+	}
+	conversation.TurnReadyForConfirmation = readyForConfirmation
+	conversation.Error = ""
+	conversation.Revision++
+	conversation.UpdatedAt = now
+	return conversation, turn, nil
+}
+
+// FailTurn 保存可展示的失败原因；失败记录保留，下一次重试会创建新的 Turn。
+func (conversation Conversation) FailTurn(
+	turn ConversationTurn,
+	reason string,
+	now time.Time,
+) (Conversation, ConversationTurn, error) {
+	if err := validateRunningConversationTurn(conversation, turn, now); err != nil {
+		return conversation, turn, err
+	}
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return conversation, turn, ErrInvalidInput
+	}
+	now = now.UTC()
+	turn.Status = ConversationTurnFailed
+	turn.FinishedAt = &now
+	turn.FailureReason = reason
+	conversation.Status = ConversationStatusFailed
+	conversation.TurnReadyForConfirmation = false
+	conversation.Error = reason
+	conversation.Revision++
+	conversation.UpdatedAt = now
+	return conversation, turn, nil
+}
+
+// CancelTurn 把正在运行的 Turn 和 Conversation 一起收口为 cancelled。
+func (conversation Conversation) CancelTurn(
+	turn ConversationTurn,
+	now time.Time,
+) (Conversation, ConversationTurn, error) {
+	if err := validateRunningConversationTurn(conversation, turn, now); err != nil {
+		return conversation, turn, err
+	}
+	now = now.UTC()
+	turn.Status = ConversationTurnCancelled
+	turn.FinishedAt = &now
+	turn.FailureReason = ""
+	conversation.Status = ConversationStatusCancelled
+	conversation.TurnReadyForConfirmation = false
+	conversation.Error = ""
+	conversation.Revision++
+	conversation.UpdatedAt = now
+	return conversation, turn, nil
+}
+
+// AdvancePhase 在用户确认当前阶段产物后进入下一个阶段。
+//
+// 合法顺序固定为 grilling → to-spec → to-tickets → implement，不能跳级或倒退。
+func (conversation Conversation) AdvancePhase(
+	next ConversationPhase,
+	now time.Time,
+) (Conversation, error) {
+	if err := ValidateConversation(conversation); err != nil {
+		return conversation, err
+	}
+	if conversation.Status != ConversationStatusAwaitingConfirmation ||
+		!conversation.TurnReadyForConfirmation {
+		return conversation, ErrInvalidTransition
+	}
+	expected, exists := nextConversationPhase(conversation.Phase)
+	if !exists || next != expected {
+		return conversation, ErrInvalidTransition
+	}
+	if err := validateConversationTransitionTime(conversation, now); err != nil {
+		return conversation, err
+	}
+	conversation.Phase = next
+	conversation.Status = ConversationStatusIdle
+	conversation.TurnReadyForConfirmation = false
+	conversation.Error = ""
+	conversation.Revision++
+	conversation.UpdatedAt = now.UTC()
+	return conversation, nil
 }
 
 // ConversationRole 是消息发送方；system 用于展示阶段门禁等工作台事实。
@@ -274,6 +477,63 @@ func validConversationMessageStatus(value ConversationMessageStatus) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func canBeginConversationTurn(status ConversationStatus) bool {
+	switch status {
+	case ConversationStatusIdle, ConversationStatusAwaitingUser,
+		ConversationStatusAwaitingConfirmation, ConversationStatusFailed, ConversationStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateRunningConversationTurn(
+	conversation Conversation,
+	turn ConversationTurn,
+	now time.Time,
+) error {
+	if err := ValidateConversation(conversation); err != nil {
+		return err
+	}
+	if err := ValidateConversationTurn(turn); err != nil {
+		return err
+	}
+	sameOwner := turn.ConversationID == conversation.ID
+	samePhase := turn.Phase == conversation.Phase
+	bothRunning := conversation.Status == ConversationStatusRunning &&
+		turn.Status == ConversationTurnRunning
+	if !sameOwner || !samePhase || !bothRunning {
+		return ErrInvalidTransition
+	}
+	if err := validateConversationTransitionTime(conversation, now); err != nil {
+		return err
+	}
+	if now.Before(turn.StartedAt) {
+		return ErrInvalidTime
+	}
+	return nil
+}
+
+func validateConversationTransitionTime(conversation Conversation, now time.Time) error {
+	if now.IsZero() || conversation.UpdatedAt.IsZero() || now.Before(conversation.UpdatedAt) {
+		return ErrInvalidTime
+	}
+	return nil
+}
+
+func nextConversationPhase(current ConversationPhase) (ConversationPhase, bool) {
+	switch current {
+	case ConversationPhaseGrilling:
+		return ConversationPhaseToSpec, true
+	case ConversationPhaseToSpec:
+		return ConversationPhaseToTickets, true
+	case ConversationPhaseToTickets:
+		return ConversationPhaseImplement, true
+	default:
+		return "", false
 	}
 }
 

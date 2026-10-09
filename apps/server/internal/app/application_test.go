@@ -118,6 +118,18 @@ func TestApplication_CreateRequirement(t *testing.T) {
 		if persisted != want {
 			t.Fatalf("persisted Requirement = %#v, want %#v", persisted, want)
 		}
+		conversation, err := storeAdapter.GetConversationByRequirement(context.Background(), want.ID)
+		if err != nil {
+			t.Fatalf("GetConversationByRequirement() error = %v", err)
+		}
+		if conversation.Phase != domain.ConversationPhaseGrilling ||
+			conversation.Status != domain.ConversationStatusIdle || conversation.Revision != 1 {
+			t.Fatalf("初始 Conversation = %#v", conversation)
+		}
+		messages, err := storeAdapter.ListConversationMessages(context.Background(), conversation.ID, 0)
+		if err != nil || len(messages) != 1 || messages[0].Role != domain.ConversationRoleSystem {
+			t.Fatalf("初始 messages = %#v, error = %v", messages, err)
+		}
 	})
 
 	t.Run("无效输入不会生成 ID 或写入", func(t *testing.T) {

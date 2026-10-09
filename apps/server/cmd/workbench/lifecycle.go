@@ -89,6 +89,11 @@ func run(ctx context.Context, config processConfig) error {
 	if err != nil {
 		return err
 	}
+	// 23E：对话运行时复用同一个只读 Planner，但固定可信仓库根目录，并保留 Thread 续接能力。
+	conversationRuntime, err := planning.NewConversationRuntime(readOnlyPlanner, target.RepositoryRoot)
+	if err != nil {
+		return fmt.Errorf("创建 Conversation Runtime: %w", err)
+	}
 	specGenerator, err := planning.NewGenerator(readOnlyPlanner, target.RepositoryRoot)
 	if err != nil {
 		return fmt.Errorf("创建 Spec Generator: %w", err)
@@ -142,6 +147,7 @@ func run(ctx context.Context, config processConfig) error {
 	}
 	components, err := buildRuntime(runtimeDependencies{
 		Store:           persistence,
+		Conversation:    conversationRuntime,
 		Artifacts:       artifacts,
 		ExecutionFacts:  artifacts,
 		Workspaces:      workspaces,

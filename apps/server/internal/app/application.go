@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"product-agent-workbench/internal/domain"
@@ -28,6 +29,9 @@ var ErrTicketGeneratorUnavailable = errors.New("Ticket 生成器不可用")
 // ErrInvalidTicketOutput 表示生成器没有形成合法且无环的 Ticket DAG。
 var ErrInvalidTicketOutput = errors.New("Ticket 生成结果无效")
 
+// ErrConversationRuntimeUnavailable 表示进程没有装配 23E 的只读对话运行时。
+var ErrConversationRuntimeUnavailable = errors.New("Conversation Runtime 不可用")
+
 // IDGenerator 生成新的领域实体 ID。
 //
 // 把变化点作为依赖传入，测试才能使用确定值，生产环境以后可以注入 UUID 生成器。
@@ -47,6 +51,7 @@ type Clock func() time.Time
 // 不要把未来可能使用的模块预先塞进依赖工具箱。
 type Dependencies struct {
 	Store           store.Store
+	Conversation    ConversationRuntime
 	Tickets         VerificationTicketReader
 	Verification    DeliveryVerifier
 	SpecGenerator   SpecGenerator
@@ -62,6 +67,7 @@ type Dependencies struct {
 // 或测试都能复用相同规则，也避免把业务判断散落到不同入口。
 type Application struct {
 	store           store.Store
+	conversation    ConversationRuntime
 	tickets         VerificationTicketReader
 	verification    DeliveryVerifier
 	specGenerator   SpecGenerator
@@ -69,6 +75,11 @@ type Application struct {
 	ticketPublisher TicketPublisher
 	newID           IDGenerator
 	now             Clock
+
+	// activeConversationTurns 只保存本进程当前拥有的取消函数。
+	// 前端类比：它像 AbortController registry，不是服务端业务状态；真实状态仍在 Store。
+	activeConversationMu    sync.Mutex
+	activeConversationTurns map[string]*activeConversationTurn
 }
 
 // New 创建应用用例模块。
@@ -84,15 +95,51 @@ func New(dependencies Dependencies) (*Application, error) {
 		return nil, ErrInvalidDependencies
 	}
 	return &Application{
-		store:           dependencies.Store,
-		tickets:         dependencies.Tickets,
-		verification:    dependencies.Verification,
-		specGenerator:   dependencies.SpecGenerator,
-		ticketGenerator: dependencies.TicketGenerator,
-		ticketPublisher: dependencies.TicketPublisher,
-		newID:           dependencies.NewID,
-		now:             dependencies.Now,
+		store:                   dependencies.Store,
+		conversation:            dependencies.Conversation,
+		tickets:                 dependencies.Tickets,
+		verification:            dependencies.Verification,
+		specGenerator:           dependencies.SpecGenerator,
+		ticketGenerator:         dependencies.TicketGenerator,
+		ticketPublisher:         dependencies.TicketPublisher,
+		newID:                   dependencies.NewID,
+		now:                     dependencies.Now,
+		activeConversationTurns: make(map[string]*activeConversationTurn),
 	}, nil
+}
+
+// ConversationRuntimeRequest 是应用层交给只读 Codex 运行时的最小输入。
+// WorkingDirectory、可执行文件和 sandbox 权限由 Adapter 构造时固定，不能来自浏览器。
+type ConversationRuntimeRequest struct {
+	Prompt   string
+	ThreadID string
+}
+
+// ConversationRuntimeResult 保存 Codex 一轮执行结束后需要进入业务层的稳定事实。
+type ConversationRuntimeResult struct {
+	ThreadID string
+	TurnID   string
+	Status   string
+	Message  string
+	Summary  string
+}
+
+// ConversationEventSink 把 16D 的稳定事件交给 23D 的消息折叠用例。
+type ConversationEventSink func(ctx context.Context, eventType string, payload []byte) error
+
+// ConversationSessionSink 在 Codex Turn 启动前保存 Thread ID，供下一轮继续同一上下文。
+type ConversationSessionSink func(ctx context.Context, threadID string) error
+
+// ConversationRuntime 隔离应用层和 Codex 进程细节。
+//
+// 前端类比：Application 只依赖一个 fetcher 接口，不知道底层使用 JSONL 子进程、HTTP 还是 fake。
+type ConversationRuntime interface {
+	Run(
+		ctx context.Context,
+		request ConversationRuntimeRequest,
+		events ConversationEventSink,
+		sessions ConversationSessionSink,
+	) (ConversationRuntimeResult, error)
 }
 
 // SpecGenerationInput 只包含生成 Spec 必需的可信事实。
